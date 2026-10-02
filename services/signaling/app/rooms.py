@@ -58,6 +58,8 @@ class Room:
     held: bool = False
     # People the others chose to watch without; their hold no longer pauses the room.
     skip_hold: set[str] = field(default_factory=set)
+    # Who last paused the room and when (server ms), so a pause made by an ad can hold it.
+    paused_by: tuple[str, float] | None = None
     # Start together in progress: who asked, where, and who is ready.
     start: dict[str, Any] | None = None
 

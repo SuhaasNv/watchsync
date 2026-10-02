@@ -54,6 +54,9 @@ REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
 FLOOD_LIMIT = 100
 ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409, "busy": 503}
+# A player that shows its ad in a separate video pauses the film first, and the ad is seen
+# up to a poll later; a pause this recent from the same person was the ad's.
+AD_PAUSE_MS = 2000
 sockets: dict[str, WebSocket] = {}
 
 
@@ -237,6 +240,10 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         if room.start is not None:
             await cancel_start(room)
         now = now_ms()
+        if action == "pause":
+            room.paused_by = (p.id, now)
+        elif payload["status"] == "playing":
+            room.paused_by = None
         room.playback = {
             "status": payload["status"],  # the sender's real state (BUG-005)
             "position": payload["position"],
@@ -310,8 +317,15 @@ async def hold_update(
     await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
     playing = room.playback is not None and room.playback["status"] == "playing"
     on_title = room.playback is not None and room.playback["titleId"] == p.title_id
-    if reason and not room.held and playing and on_title and p in room.holding():
+    paused_for_ad = (
+        reason == "ad"
+        and room.paused_by is not None
+        and room.paused_by[0] == p.id
+        and now_ms() - room.paused_by[1] < AD_PAUSE_MS
+    )
+    if reason and not room.held and (playing or paused_for_ad) and on_title and p in room.holding():
         room.held = True
+        room.paused_by = None
         set_playback(room, "paused", position, now_ms())
         # Everyone hears it, the holder too: their copy of the room's clock must say paused,
         # or they play on alone if the room is still waiting for someone else when they're back.
