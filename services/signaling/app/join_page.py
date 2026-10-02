@@ -5,7 +5,7 @@ import re
 CODE = re.compile(r"[A-HJ-NP-Z2-9]{6}")
 
 # No scripts: the page itself only explains; the extension adds the Join form.
-CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"
+CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'"
 
 _PAGE = """<!doctype html>
 <html lang="en">
