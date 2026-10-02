@@ -304,10 +304,52 @@ async function endSession(notice: string | null) {
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).
 let queue: Promise<unknown> = Promise.resolve();
-function handle(req: Request): Promise<Reply> {
-  const run = queue.then(() => handleNow(req));
+function serial<T>(work: () => Promise<T>): Promise<T> {
+  const run = queue.then(work);
   queue = run.catch(() => {});
   return run;
+}
+const handle = (req: Request) => serial(() => handleNow(req));
+
+/**
+ * The last browser window closed: leave the room, so friends hear we've gone, but keep the
+ * code so the popup and the next title page offer Rejoin. The room waits for us until it
+ * expires. If the browser quits too fast for this, the room service notices instead.
+ */
+async function leaveForNow() {
+  const s = state.session;
+  if (!s) return;
+  sendServer(envelope("ROOM.LEAVE", { keepRoom: true }));
+  reset();
+  state.session = null;
+  state.notice = null;
+  state.lastRoom = s.code;
+  lastTicket = s;
+  await chrome.storage.session.remove("session");
+  await chrome.storage.local.set({ lastRoom: { ticket: s, at: Date.now() } });
+  changed();
+}
+
+chrome.windows.onRemoved.addListener(() => {
+  chrome.windows
+    .getAll({ windowTypes: ["normal"] })
+    .then((open) => (open.length === 0 ? serial(leaveForNow) : undefined))
+    .catch(() => {});
+});
+
+/** Back into the last room under our name; the room tells everyone we rejoined. */
+async function rejoin() {
+  if (!lastTicket) throw new Error("expired");
+  if (!state.name) throw new Error("invalid");
+  let ticket: Session;
+  try {
+    ticket = await api(`/api/v1/rooms/${lastTicket.code}/join`, { name: state.name });
+  } catch (e) {
+    const gone = e instanceof Error && (e.message === "expired" || e.message === "not_found");
+    if (!gone) throw e;
+    return endSession(ENDED); // ended, or the service restarted and forgot it
+  }
+  await startSession(ticket);
 }
 
 async function handleNow(req: Request): Promise<Reply> {
@@ -340,8 +382,7 @@ async function handleNow(req: Request): Promise<Reply> {
         await endSession(null);
         break;
       case "rejoin":
-        if (!lastTicket) throw new Error("expired");
-        await startSession(lastTicket);
+        await rejoin();
         break;
       case "forgetRoom":
         await endSession(null);
