@@ -25,6 +25,7 @@ class Participant:
     token: str
     service: str = "none"
     title_id: str | None = None
+    title_name: str | None = None
     following: bool = True
     connected: bool = False
 
@@ -34,6 +35,7 @@ class Participant:
             "name": self.name,
             "service": self.service,
             "titleId": self.title_id,
+            "titleName": self.title_name,
             "following": self.following,
             "connected": self.connected,
         }
@@ -62,11 +64,27 @@ class Rooms:
     def __init__(self) -> None:
         self.rooms: dict[str, Room] = {}
         self.tokens: dict[str, tuple[str, str]] = {}
+        # Codes of rooms that ended, so a late joiner hears "ended" rather than "not found".
+        self.ended: dict[str, float] = {}
+
+    def sweep(self, now: float | None = None) -> None:
+        """Drop rooms that have had nobody connected for ROOM_IDLE_EXPIRY_SECONDS."""
+        now = now_ms() if now is None else now
+        limit = config.ROOM_IDLE_EXPIRY_SECONDS * 1000
+        for code, room in list(self.rooms.items()):
+            if room.empty_since is not None and now - room.empty_since > limit:
+                for p in room.participants.values():
+                    self.tokens.pop(p.token, None)
+                del self.rooms[code]
+                self.ended[code] = now
+        for code, at in list(self.ended.items()):
+            if now - at > 24 * 3600 * 1000:
+                del self.ended[code]
 
     def _new_code(self) -> str:
         while True:
             code = "".join(secrets.choice(ALPHABET) for _ in range(6))
-            if code not in self.rooms:
+            if code not in self.rooms and code not in self.ended:
                 return code
 
     def _add(self, room: Room, name: str) -> dict[str, str]:
@@ -78,8 +96,18 @@ class Rooms:
         return {"code": room.code, "token": p.token, "participantId": p.id}
 
     def create(self, name: str) -> dict[str, str]:
+        self.sweep()
         room = Room(code=self._new_code(), empty_since=now_ms())
         self.rooms[room.code] = room
+        return self._add(room, name)
+
+    def join(self, code: str, name: str) -> dict[str, str]:
+        self.sweep()
+        room = self.rooms.get(code)
+        if room is None:
+            if code in self.ended:
+                raise RoomError("room_ended", "This room has ended.")
+            raise RoomError("not_found", "No room has that code.")
         return self._add(room, name)
 
     def authenticate(self, code: str, token: str) -> tuple[Room, Participant] | None:
