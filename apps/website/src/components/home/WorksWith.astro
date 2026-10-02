@@ -1,12 +1,19 @@
+---
+import { NOT_AFFILIATED } from "../../lib/site";
+---
+
 <section class="works" aria-labelledby="works-title">
   <div class="wrap">
     <h2 id="works-title" class="kicker">Works with</h2>
     <ul class="services">
-      <li>Netflix</li>
-      <li>Prime Video</li>
-      <li>JioHotstar</li>
+      <li><img src="/logos/netflix.svg" alt="" width="64" height="64" />Netflix</li>
+      <li><img src="/logos/primevideo.svg" alt="" width="64" height="64" />Prime Video</li>
+      <li><img src="/logos/jiohotstar.png" alt="" width="64" height="64" />JioHotstar</li>
     </ul>
-    <p class="fine">In Chrome and Brave on a computer. Everyone needs their own account on the service.</p>
+    <p class="fine">
+      In Chrome and Brave on a computer. Everyone needs their own account on the service.
+      <span class="mark">{NOT_AFFILIATED}; their names and logos belong to their owners.</span>
+    </p>
   </div>
 </section>
 
@@ -38,7 +45,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0 0.5em;
+    gap: 0.1em 0.7em;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -53,14 +60,25 @@
     letter-spacing: -0.03em;
     line-height: 1.05;
   }
-  .services li + li::before {
-    content: "";
-    display: inline-block;
-    width: 1px;
-    height: 0.7em;
-    margin-right: 0.5em;
-    background: var(--line2);
-    vertical-align: -0.02em;
+  .services li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28em;
+  }
+  /* Each service's own icon, small and unaltered, beside its name (nominative use). */
+  .services img {
+    width: 0.62em;
+    height: 0.62em;
+    max-width: 48px;
+    max-height: 48px;
+    border-radius: 22%;
+    flex: none;
+  }
+  .mark {
+    display: block;
+    margin-top: 6px;
+    color: var(--text3);
+    font-size: 0.85rem;
   }
   .fine {
     grid-column: 2;
@@ -76,9 +94,6 @@
       flex-direction: column;
       font-size: clamp(2.6rem, 13vw, 3.6rem);
       line-height: 1;
-    }
-    .services li + li::before {
-      display: none;
     }
     .fine {
       grid-column: 1;
