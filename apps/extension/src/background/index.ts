@@ -51,6 +51,7 @@ async function api(path: string, body: unknown) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
     });
   } catch {
     throw new Error("unreachable");
