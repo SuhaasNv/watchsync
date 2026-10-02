@@ -86,13 +86,19 @@ test("a visitor can pause, play and skip on any demo player", async ({ page }) =
   const time = sam.locator("[data-time]");
   await sam.locator(".viewport").click({ position: { x: 40, y: 40 } });
   await expect(leo.locator("[data-notice]")).toHaveText("Sam paused");
-  await expect(page.locator("[data-caption]")).toHaveText(/You're driving/);
+  await expect(page.locator("[data-toggle]")).toHaveAccessibleName("Play demo");
   const paused = await time.textContent();
   await page.waitForTimeout(1200);
   expect(await time.textContent()).toBe(paused);
   await sam.locator("[data-play]").click();
   await expect(leo.locator("[data-notice]")).toHaveText("Sam pressed play");
   await expect(time).not.toHaveText(paused ?? "", { timeout: 2500 });
+  // Play resumes the story itself: the scripted steps carry on.
+  await expect(page.locator("[data-toggle]")).toHaveAccessibleName("Pause demo");
+  const step = await page.locator('[aria-current="step"]').getAttribute("data-step");
+  await expect(page.locator('[aria-current="step"]')).not.toHaveAttribute("data-step", step ?? "", {
+    timeout: 5000,
+  });
   const track = leo.locator("[data-track]");
   const box = await track.boundingBox();
   if (!box) throw new Error("no track");
