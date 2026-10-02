@@ -304,7 +304,7 @@ function Footer() {
       <a href={`${__API_URL__}/terms`} target="_blank" rel="noreferrer">
         Terms
       </a>{" "}
-      · Not affiliated with Netflix, Amazon or JioStar.
+      · Not affiliated with Netflix, Amazon or JioStar. · v{chrome.runtime.getManifest().version}
     </footer>
   );
 }
