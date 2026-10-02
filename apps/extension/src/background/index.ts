@@ -14,6 +14,7 @@ import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engin
 import {
   type AppState,
   cleanName,
+  nameProblem,
   type Push,
   type Reply,
   type Request,
@@ -373,7 +374,7 @@ async function handleNow(req: Request): Promise<Reply> {
         break;
       case "setName": {
         const name = cleanName(req.name);
-        if (!name) throw new Error("invalid");
+        if (nameProblem(req.name)) throw new Error("invalid"); // same rule as every name field
         state.name = name;
         await chrome.storage.local.set({ name });
         break;

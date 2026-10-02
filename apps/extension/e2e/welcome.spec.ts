@@ -88,7 +88,12 @@ test("a name saved here opens the popup on its home screen", async () => {
   try {
     const name = page.getByRole("textbox", { name: "Your name" });
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Enter a name" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Enter your name." })).toBeVisible();
+    await name.fill("...");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Use at least one letter or number." }),
+    ).toBeVisible();
     await expect(name).toHaveAttribute("aria-invalid", "true");
 
     await name.fill("Maya");
