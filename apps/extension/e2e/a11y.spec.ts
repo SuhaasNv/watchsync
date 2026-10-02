@@ -22,7 +22,7 @@ test("popup: name, home, join error and room screens", async ({ ext }) => {
   await audit(page);
 
   await page.getByRole("textbox", { name: "Or join a friend's room" }).fill("ZZZZZZ");
-  await page.getByRole("button", { name: "Join", exact: true }).click();
+  await page.getByRole("button", { name: "Join room", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await audit(page);
 

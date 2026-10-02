@@ -196,7 +196,7 @@ function JoinForm() {
           onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
         />
         <button className="btn" type="submit" disabled={busy || !valid}>
-          {busy ? "Joining…" : "Join"}
+          {busy ? "Joining…" : "Join room"}
         </button>
       </div>
       <ErrorLine error={error} />
@@ -252,7 +252,7 @@ function RoomScreen({ state }: { state: AppState }) {
       <Header right={<span className={`badge ${state.connection}`}>{status}</span>} />
       <div className="body">
         <div>
-          <p className="dim">Send this to your friend</p>
+          <p className="dim">Send this to your friends</p>
           <p className="code" data-testid="room-code">
             {s.code}
           </p>
@@ -294,12 +294,36 @@ function RoomScreen({ state }: { state: AppState }) {
   );
 }
 
-function Popup() {
-  const state = useAppState();
-  if (!state) return null;
+function Footer() {
+  return (
+    <footer className="foot">
+      <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
+        Privacy
+      </a>{" "}
+      ·{" "}
+      <a href={`${__API_URL__}/terms`} target="_blank" rel="noreferrer">
+        Terms
+      </a>{" "}
+      · Not affiliated with Netflix, Amazon or JioStar.
+    </footer>
+  );
+}
+
+function Screen({ state }: { state: AppState }) {
   if (!state.name) return <NameScreen />;
   if (state.session) return <RoomScreen state={state} />;
   return <HomeScreen state={state} />;
+}
+
+function Popup() {
+  const state = useAppState();
+  if (!state) return null;
+  return (
+    <>
+      <Screen state={state} />
+      <Footer />
+    </>
+  );
 }
 
 const el = document.getElementById("root");

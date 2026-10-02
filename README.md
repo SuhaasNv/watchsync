@@ -1,6 +1,16 @@
 # WatchSync
 
-Watch Netflix, Prime Video and JioHotstar in sync with friends, each on your own account. A Chrome extension plus a small room service.
+Watch together in sync with friends, each on your own account. A Chrome extension plus a small room service. Works with Netflix, Prime Video and JioHotstar (not affiliated with them).
+
+**Install it (friends):** see [docs/INSTALL.md](docs/INSTALL.md). **Release notes:** [CHANGELOG.md](CHANGELOG.md). **Privacy:** https://room-service-production-e5dd.up.railway.app/privacy
+
+## Supported services (v0.1)
+
+| Service | Sync | Next episode | Ads wait |
+|---|---|---|---|
+| Netflix | Player API (page bridge) | URL change | Buffering wait only |
+| Prime Video | `<video>` | In-player (friends pick it) | Yes (ad timer) |
+| JioHotstar | `<video>`, on-demand only | URL change | Buffering wait only |
 
 ## Run it locally
 
@@ -22,6 +32,10 @@ pnpm --filter @watchsync/extension e2e            # extension against the local 
 cd services/signaling && uv run ruff check . && uv run mypy app && uv run pytest
 pnpm gen:protocol                                  # after editing packages/protocol/schema
 ```
+
+## Release build and deploy
+
+`pnpm --filter @watchsync/extension zip` builds the zip against production (it refuses a mock build). The room service runbook is [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Configuration
 

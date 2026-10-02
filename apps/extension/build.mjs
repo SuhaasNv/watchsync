@@ -30,7 +30,7 @@ const manifest = {
   name: "WatchSync",
   version: pkg.version,
   description:
-    "Watch Netflix, Prime Video and JioHotstar in sync with friends, each on your own account.",
+    "Watch together in sync with friends, each on your own account. Works with Netflix, Prime Video and JioHotstar. Not affiliated with them.",
   icons: { 16: "icons/16.png", 32: "icons/32.png", 48: "icons/48.png", 128: "icons/128.png" },
   action: { default_popup: "popup.html", default_icon: { 16: "icons/16.png", 32: "icons/32.png" } },
   background: { service_worker: "background.js", type: "module" },
@@ -83,6 +83,10 @@ for (const b of builds) {
   else await esbuild.build(opts);
 }
 
+if (process.argv.includes("--zip") && mock) {
+  // A release must never carry the test player, its localhost permission or test hooks.
+  throw new Error("Refusing to zip a WATCHSYNC_MOCK build");
+}
 if (process.argv.includes("--zip")) {
   const name = `watchsync-extension-v${pkg.version}.zip`;
   execFileSync("zip", ["-qr", `../${name}`, "."], { cwd: "dist" });

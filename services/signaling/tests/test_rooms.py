@@ -437,7 +437,9 @@ def test_play_while_waiting_goes_on_without_them() -> None:
         assert next_of(hws, "SYS.PONG")["payload"]["t1"] == 2
         assert not room.held
         hold(gws, None)
-        next_of(gws, "ROOM.PARTICIPANT")
+        # Wait for this update itself, not the earlier "ad" one still queued (BUG-013).
+        while next_of(gws, "ROOM.PARTICIPANT")["payload"]["participant"]["hold"] is not None:
+            pass
         assert guest["participantId"] not in room.skip_hold
     finally:
         gcm.__exit__(None, None, None)
@@ -562,3 +564,39 @@ def test_bodies_must_be_small_json() -> None:
 
     headers = {"content-type": "application/json"}
     assert client.post("/api/v1/rooms", content=big(), headers=headers).status_code == 413
+
+
+def test_names_reject_invisible_and_direction_characters() -> None:
+    for bad in ["Asha\u202e", "\u200bAsha", "A\u2066sha", "As\nha", "As\x07ha"]:
+        assert client.post("/api/v1/rooms", json={"name": bad}).status_code == 422
+    assert client.post("/api/v1/rooms", json={"name": "Asha Rāo 😀"}).status_code == 201
+
+
+def test_legal_pages_robots_and_html_not_found() -> None:
+    for path in ("/privacy", "/terms"):
+        r = client.get(path)
+        assert r.status_code == 200 and "suhaasnvs@gmail.com" in r.text
+        assert "not affiliated" in r.text
+    assert client.get("/robots.txt").text == "User-agent: *\nDisallow: /\n"
+    bad = client.get("/j/nope")
+    assert bad.status_code == 404 and "That link doesn't work" in bad.text
+    invite = client.get("/j/ABC234")
+    assert 'property="og:title"' in invite.text and 'name="robots"' in invite.text
+    assert invite.headers["x-robots-tag"] == "noindex, nofollow"
+
+
+def test_room_cap_and_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main.config, "MAX_ROOMS", 0)
+    r = client.post("/api/v1/rooms", json={"name": "a"})
+    assert r.status_code == 503 and r.headers["retry-after"] == "60"
+    monkeypatch.setattr(main, "create_limiter", main.Limiter(0, 60))
+    assert client.post("/api/v1/rooms", json={"name": "a"}).headers["retry-after"] == "60"
+
+
+def test_too_many_socket_connects_are_told_to_try_later(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = create()
+    monkeypatch.setattr(main, "connect_limiter", main.Limiter(0, 60))
+    url = f"/ws/rooms/{host['code']}?token={host['token']}"
+    with pytest.raises(WebSocketDisconnect) as closed, client.websocket_connect(url) as ws:
+        ws.receive_json()
+    assert closed.value.code == 1013

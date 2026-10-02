@@ -24,7 +24,7 @@ test("friend joins by typing the code and the host sees them arrive", async ({ e
   try {
     const page = await popup(friend, "Asha");
     await page.getByRole("textbox", { name: "Or join a friend's room" }).fill(code.toLowerCase());
-    await page.getByRole("button", { name: "Join", exact: true }).click();
+    await page.getByRole("button", { name: "Join room", exact: true }).click();
     await expect(page.getByTestId("room-code")).toHaveText(code);
     await expect(page.getByText("Asha (you)")).toBeVisible();
     await expect(host.getByText("Asha", { exact: true })).toBeVisible({ timeout: 1000 });
@@ -39,7 +39,7 @@ test("a wrong code gets a plain message", async ({ ext }) => {
   const page = await popup(ext, "Asha");
   const box = page.getByRole("textbox", { name: "Or join a friend's room" });
   await box.fill("ZZZZZZ");
-  await page.getByRole("button", { name: "Join", exact: true }).click();
+  await page.getByRole("button", { name: "Join room", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText(
     "We can't find that room. Check the code with your friend.",
   );
@@ -74,7 +74,7 @@ test("invite link joins the room and opens the room's title", async ({ ext }) =>
   try {
     const page = await friend.context.newPage();
     await page.goto(`${API}/j/${code}`);
-    await expect(page.getByText("To join, install")).toHaveCount(0);
+    await expect(page.getByText("New to WatchSync?")).toHaveCount(0);
     await page.getByLabel("Your name").fill("Asha");
     await page.getByRole("button", { name: "Join room" }).click();
     await page.waitForURL(titleUrl);
@@ -92,5 +92,5 @@ test("invite link joins the room and opens the room's title", async ({ ext }) =>
 test("invite link without the extension explains how to install it", async ({ page }) => {
   await page.goto(`${API}/j/ABC234`);
   await expect(page.getByText("ABC234")).toBeVisible();
-  await expect(page.getByText("To join, install the WatchSync extension")).toBeVisible();
+  await expect(page.getByText("New to WatchSync? Install it in Chrome")).toBeVisible();
 });
