@@ -208,7 +208,8 @@ function Watching({ p }: { p: Participant }) {
   if (!p.connected) return <span className="hint">Away</span>;
   if (p.service === "none") return <span className="hint">No title open</span>;
   const service = SERVICE_LABEL[p.service];
-  return <span className="hint">{p.titleName ? `${service} · ${p.titleName}` : service}</span>;
+  const what = p.titleName ? `${service} · ${p.titleName}` : service;
+  return <span className="hint">{p.following ? what : `On their own · ${what}`}</span>;
 }
 
 interface CopyButtonProps {
@@ -277,6 +278,13 @@ function RoomScreen({ state }: { state: AppState }) {
             </li>
           ))}
         </ul>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => send({ kind: "follow", following: !state.following })}
+        >
+          {state.following ? "Watch on my own" : "Sync with the room"}
+        </button>
         <span className="grow" />
         <button className="btn danger" type="button" onClick={() => send({ kind: "leave" })}>
           Leave room

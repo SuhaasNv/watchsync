@@ -32,7 +32,7 @@ jobs:
       - name: Extension end-to-end (mock player)
         working-directory: apps/extension
         run: |
-          pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm exec playwright install --with-deps chromium
           pnpm e2e
       - name: Keep the end-to-end report when something fails
         if: failure()

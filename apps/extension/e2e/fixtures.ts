@@ -37,7 +37,8 @@ async function serveMockPlayer(context: BrowserContext) {
     return route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><title>Mock player</title><h1 data-title>${TITLES[id] ?? `Demo ${id}`}</h1>
-        <video src="/clip.webm" width="640" height="360" muted autoplay controls></video>${next}`,
+        <div id="player"><video src="/clip.webm" width="640" height="360" muted autoplay controls></video></div>
+        <button onclick="document.getElementById('player').requestFullscreen()">Full screen</button>${next}`,
     });
   });
 }
@@ -86,11 +87,14 @@ export async function room(ext: Ext, friendProfile = "") {
   await hostTab.goto(`${MOCK}/watch/ep1`);
   await expect(host.getByText("Test player · Demo Show, E1")).toBeVisible();
 
+  const loadedAt = Date.now();
   const friend = await launchWithExtension(friendProfile);
   const fpop = await popup(friend, "Asha");
   await fpop.getByRole("textbox", { name: "Or join a friend's room" }).fill(code);
   await fpop.getByRole("button", { name: "Join", exact: true }).click();
   await expect(fpop.getByTestId("room-code")).toHaveText(code);
+  // Player events in the first 3 s after a page load are ignored (BUG-004): wait them out.
+  await hostTab.waitForTimeout(Math.max(0, loadedAt + 3200 - Date.now()));
   return { host, hostTab, friend, fpop };
 }
 

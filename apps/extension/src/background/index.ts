@@ -258,7 +258,9 @@ async function handle(req: Request): Promise<Reply> {
         await endSession(null);
         break;
       case "follow":
-        throw new Error("unsupported");
+        state.following = req.following;
+        sendPresence();
+        break;
     }
     changed();
     return { ok: true, state };

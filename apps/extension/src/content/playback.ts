@@ -11,6 +11,11 @@ let quietUntil = 0;
 /** Player events within this window come from our own commands, not the user. */
 export const isEcho = (now = Date.now()) => now < quietUntil;
 
+/** Treat player events in the next `ms` as not the person's own (never shortens a hold). */
+export function hold(ms: number) {
+  quietUntil = Math.max(quietUntil, Date.now() + ms);
+}
+
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 /**
@@ -19,7 +24,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
  */
 export function listen(
   provider: StreamingProvider,
-  onUser: (action: Action, position: number, rate: number) => void,
+  onUser: (action: Action, playing: boolean, position: number, rate: number) => void,
 ) {
   const handler = (e: Event) => {
     const v = provider.video();
@@ -27,7 +32,7 @@ export function listen(
     if (!Number.isFinite(v.duration)) return; // live: not synced (UC-010)
     // Scrubbing, arrow keys, 10-second skips and Skip intro all end in "seeked".
     const action: Action = e.type === "seeked" ? "seek" : e.type === "play" ? "play" : "pause";
-    onUser(action, clamp(v.currentTime, 0, 86_400), clamp(v.playbackRate, 0.25, 4));
+    onUser(action, !v.paused, clamp(v.currentTime, 0, 86_400), clamp(v.playbackRate, 0.25, 4));
   };
   document.addEventListener("play", handler, true);
   document.addEventListener("pause", handler, true);
@@ -43,11 +48,17 @@ export function clock(seconds: number): string {
   return h ? `${h}:${mm.padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
 }
 
+/** A correction the person didn't ask for: seek without it being taken as theirs. */
+export async function seekQuietly(provider: StreamingProvider, seconds: number) {
+  hold(ECHO_MS);
+  await provider.seek(seconds);
+}
+
 /** Brings this player to the room's playback. `serverNow` is the server clock in ms. */
 export async function apply(provider: StreamingProvider, playback: Playback, serverNow: number) {
   const local = provider.getState();
   if (!local) return;
-  quietUntil = Date.now() + ECHO_MS;
+  hold(ECHO_MS);
   const target = expectedPosition(playback, serverNow);
   if (decide(local.position, target) !== "none") await provider.seek(target);
   if (playback.status === "playing" && !local.playing) await provider.play();

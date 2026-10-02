@@ -9,7 +9,8 @@
     "typecheck": "tsc -p .",
     "test": "vitest run",
     "zip": "WATCHSYNC_API=https://room-service-production-e5dd.up.railway.app node build.mjs --zip",
-    "e2e": "WATCHSYNC_MOCK=1 node build.mjs && playwright test"
+    "e2e": "WATCHSYNC_MOCK=1 node build.mjs && PLAYWRIGHT_BROWSERS_PATH=\"$PWD/.browsers\" playwright test",
+    "e2e:install": "PLAYWRIGHT_BROWSERS_PATH=\"$PWD/.browsers\" playwright install chromium"
   },
   "dependencies": {
     "react": "^19.3.0",
