@@ -4,7 +4,9 @@ import type { Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
+  type ClientMessageOf,
   envelope,
+  isClientMessage,
   isRoomTicket,
   isServerMessage,
 } from "@watchsync/protocol";
@@ -341,7 +343,10 @@ async function handleNow(req: Request): Promise<Reply> {
         if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) throw new Error("not_found");
         if (!state.name) throw new Error("invalid");
         if (state.session?.code === code) break;
-        await startSession(await api(`/api/v1/rooms/${code}/join`, { name: state.name }));
+        const ticket = await api(`/api/v1/rooms/${code}/join`, { name: state.name });
+        // Switching rooms from an invite page: leave the old one for good, not as "Away".
+        if (state.session) sendServer(envelope("ROOM.LEAVE", {}));
+        await startSession(ticket);
         break;
       }
       case "leave":
@@ -400,7 +405,12 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onMessage.addListener((e: TabEvent) => {
       if (e.kind === "playback") {
         const { kind: _, ...update } = e;
-        sendServer(envelope("PLAYBACK.UPDATE", update));
+        // A speed tool can run the player past the protocol's 0.25-4x, and the room would
+        // refuse the whole play, pause or jump; share it at the nearest allowed rate.
+        update.rate = Math.min(4, Math.max(0.25, update.rate));
+        const msg = envelope<ClientMessageOf<"PLAYBACK.UPDATE">>("PLAYBACK.UPDATE", update);
+        if (!isClientMessage(msg)) return; // a NaN or out-of-range position: never our clock
+        sendServer(msg);
         // The room tells everyone but the sender; keep our own copy of its clock current
         // too, or our drift check and wait card judge against the old one (BUG-006).
         const { status, position, rate, titleId } = update;
