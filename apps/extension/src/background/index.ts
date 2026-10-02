@@ -28,6 +28,7 @@ import {
   RELEASES_API,
   type UpdateCheck,
 } from "../shared/update";
+import { injectOpenTabs } from "./inject";
 
 const API = __API_URL__;
 
@@ -434,6 +435,7 @@ chrome.runtime.setUninstallURL(`${__SITE_URL__}/goodbye/`).catch(() => {});
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === "install") void chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
+  void injectOpenTabs(chrome);
 });
 
 // Test builds only: lets end-to-end tests cut the connection like a network drop.
