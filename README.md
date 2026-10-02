@@ -50,6 +50,28 @@ WatchSync isn't in the Chrome Web Store yet, so you load it yourself. It takes a
 
 The [install guide](https://watchsync.space/install/) walks through it with pictures. When a new version is out, the popup tells you.
 
+## Is it safe?
+
+You install WatchSync from outside the Chrome Web Store, so Google hasn't reviewed it. This is what it can reach, from its [manifest](apps/extension/build.mjs):
+
+- **`storage`**: your name, and your room for up to 24 hours so you can rejoin after a restart.
+- **The room service at `join.watchsync.space`**: sends play, pause and the position to your room, and opens invite links.
+- **Netflix, Prime Video and JioHotstar pages** (`netflix.com`, `primevideo.com`, Amazon's `/gp/video/` pages, `jiohotstar.com`, `hotstar.com`): reads whether the video is playing, where it is and which title is open, applies play, pause and jumps from your room, and shows small notices on the player.
+- **GitHub's public API, at most once a day**, to see whether a newer version is out.
+
+It never reads the picture, the sound or the rest of the page, never sees passwords, payments or browsing history, runs on no other site, loads no code from the internet, and has no analytics or ads.
+
+Each release zip is built by GitHub Actions from a tagged commit on `main` with the public [release workflow](.github/workflows/release.yml). The [release notes](https://github.com/SuhaasNv/watchsync/releases) name the commit, link to the build, and list the SHA-256 of every file (also in `SHA256SUMS.txt`). To check your download, compare it with the release's SHA-256:
+
+```bash
+shasum -a 256 watchsync-extension.zip                       # macOS
+certutil -hashfile watchsync-extension.zip SHA256           # Windows
+sha256sum watchsync-extension.zip                           # Linux
+gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync   # signed build provenance
+```
+
+The last command uses the [GitHub CLI](https://cli.github.com/) to check GitHub's signed record that this repository's workflow built that exact file. Chrome's banner about developer-mode extensions appears for every extension loaded outside the Chrome Web Store; it's about where the extension came from, not something Chrome found in it.
+
 ## Privacy
 
 WatchSync shares only what keeps you in sync: your name, the room, and whether you're playing or paused and where. It never reads the picture, records anything, or touches your account. Rooms live in memory and disappear soon after everyone leaves. Details: [privacy notice](https://watchsync.space/privacy/).

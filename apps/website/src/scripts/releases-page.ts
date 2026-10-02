@@ -1,5 +1,5 @@
 import { renderMarkdown } from "../lib/markdown";
-import { formatDate, type Release, versionLabel } from "../lib/releases";
+import { checksumFor, formatDate, type Release, versionLabel } from "../lib/releases";
 import { fetchReleases, GithubError } from "./github";
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -39,6 +39,15 @@ function card(r: Release, latest: boolean): HTMLLIElement {
   meta.append(name, tag);
   if (badges.childElementCount) meta.append(badges);
   meta.append(links);
+
+  // The SHA-256 from the notes, next to the download it belongs to (scripts/release-notes.mjs).
+  const sum = zip ? checksumFor(r.body, zip.name) : null;
+  if (zip && sum) {
+    const box = el("div", "release-sum");
+    box.append(el("p", "release-sum-label", `SHA-256 of ${zip.name}`), el("code", "", sum));
+    box.append(link("/install/#check", "How to check your download", "release-sum-how"));
+    meta.append(box);
+  }
 
   const notes = el("div", "prose");
   // renderMarkdown escapes the release text before adding its own few tags (see lib/markdown).

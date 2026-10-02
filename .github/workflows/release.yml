@@ -2,7 +2,9 @@ name: Release
 
 # Pushing a tag vX.Y.Z or vX.Y.Z-rc.N (owner approval each time, see docs/DEPLOY.md) runs the
 # full CI, packs the extension against the production room service and publishes a GitHub
-# Release with the zip and the matching CHANGELOG.md section as its notes.
+# Release with the zip, its SHA-256 checksums and a signed build provenance attestation. The notes
+# are the matching CHANGELOG.md section plus the commit, the run and the checksums, so anyone can
+# check the zip they downloaded is the one this workflow built.
 on:
   push:
     tags: ["v*"]
@@ -23,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and upload its files
+      id-token: write # sign the build provenance attestation (Sigstore)
+      attestations: write # store the attestation, for `gh attestation verify`
     env:
       TAG: ${{ github.ref_name }}
       # Production room service; set PROD_API_URL once api.watchsync.space is live.
@@ -64,8 +68,9 @@ jobs:
             echo "title=WatchSync $TAG" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Release notes from CHANGELOG.md
-        run: node scripts/release-notes.mjs "${{ steps.version.outputs.base }}" > release-notes.md
+      # Fail before packing when CHANGELOG.md has no section for this version.
+      - name: CHANGELOG.md has notes for this version
+        run: node scripts/release-notes.mjs "${{ steps.version.outputs.base }}" > /dev/null
 
       - name: Pack the extension (production room service)
         run: |
@@ -80,6 +85,30 @@ jobs:
             if (m.host_permissions.some((p) => p.includes("localhost"))) throw new Error("localhost in a release build");
             console.log("manifest " + m.version + ", hosts " + m.host_permissions.join(" "));'
 
+      - name: Checksums
+        run: |
+          sha256sum watchsync-extension.zip "watchsync-extension-$TAG.zip" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # Signs which repository, workflow and commit built the zip:
+      # gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            watchsync-extension.zip
+            watchsync-extension-${{ github.ref_name }}.zip
+
+      - name: Release notes (CHANGELOG.md, build and checksums)
+        run: |
+          node scripts/release-notes.mjs "${{ steps.version.outputs.base }}" \
+            --checksums SHA256SUMS.txt \
+            --commit "$GITHUB_SHA" \
+            --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
+            > release-notes.md
+          cat release-notes.md
+
       # Release candidates are published as normal releases, not --prerelease, on purpose:
       # GitHub's /releases/latest (the website's download link and the popup's update check)
       # skips prereleases, and friends testing v0.1 install the candidate from the website.
@@ -89,10 +118,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TITLE: ${{ steps.version.outputs.title }}
         run: |
-          files=(watchsync-extension.zip "watchsync-extension-$TAG.zip")
+          files=(watchsync-extension.zip "watchsync-extension-$TAG.zip" SHA256SUMS.txt)
           if gh release view "$TAG" > /dev/null 2>&1; then
-            # A re-run after a partial failure: refresh the files, keep the release.
+            # A re-run after a partial failure: refresh the files, keep the release. A rebuilt zip
+            # has new checksums, so the notes are refreshed with them.
             gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" "${files[@]}" --verify-tag --latest \
               --title "$TITLE" --notes-file release-notes.md

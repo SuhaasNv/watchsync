@@ -182,6 +182,37 @@ const changelogHtml = renderMarkdown(changelog.replace(/^# Changelog\s*/, ""), {
     padding: 0 16px;
     font-size: 0.95rem;
   }
+  .release-sum {
+    display: grid;
+    gap: 6px;
+    justify-items: start;
+    max-width: 100%;
+    margin-top: 6px;
+  }
+  .release-sum-label {
+    font-size: 0.85rem;
+    font-weight: 650;
+    color: var(--text2);
+  }
+  .release-sum code {
+    max-width: 100%;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line2);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  .release-sum-how {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
   .release .prose h3,
   .release .prose h4 {
     margin-top: 0;

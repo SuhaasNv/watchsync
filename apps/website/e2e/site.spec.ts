@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { expect, PAGES, test } from "./fixtures";
+import { expect, PAGES, test, ZIP_SHA256 } from "./fixtures";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const WIDTHS = [375, 768, 1280, 1440];
@@ -143,6 +143,31 @@ test.describe("install guide", () => {
     );
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("chrome://extensions");
   });
+
+  test("says what it can reach and how to check the download", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto("/install/");
+    await page.getByRole("link", { name: "Is it safe?" }).first().click();
+    await expect(page).toHaveURL(/\/install\/#safe$/);
+    const safe = page.locator("#safe");
+    await expect(safe.getByRole("heading", { name: "Is it safe?" })).toBeInViewport();
+    await expect(safe).toContainText("join.watchsync.space");
+    await expect(safe).toContainText("Netflix, Prime Video and JioHotstar pages");
+    await expect(safe.getByRole("link", { name: "public workflow" })).toHaveAttribute(
+      "href",
+      "https://github.com/SuhaasNv/watchsync/blob/main/.github/workflows/release.yml",
+    );
+    // With no release published, there is no checksum to show yet.
+    await expect(page.locator("[data-latest-sum]")).toBeHidden();
+    await safe.getByRole("button", { name: "Copy the Windows command" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      "certutil -hashfile Downloads\\watchsync-extension.zip SHA256",
+    );
+    await safe.getByRole("button", { name: "Copy the attestation command" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      "gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync",
+    );
+  });
 });
 
 test.describe("on a phone", () => {
@@ -177,10 +202,28 @@ test.describe("release notes", () => {
       await expect(card.locator("strong", { hasText: "Rooms" })).toBeVisible();
       await expect(card.locator("code", { hasText: "code" })).toBeVisible();
       await expect(card.locator("img")).toHaveCount(0);
+      // The checksum from the notes sits by the download, and the notes render it as code.
+      await expect(card.locator(".release-sum code")).toHaveText(ZIP_SHA256);
+      await expect(card.locator(".prose code", { hasText: ZIP_SHA256 })).toBeVisible();
+      await expect(card.getByRole("link", { name: "4d10147" })).toHaveAttribute(
+        "href",
+        /\/commit\/4d101475d8b20a2381f78447822ac1eab6504dd8$/,
+      );
       await expect(card).toContainText('<img src=x onerror="window.__xss=1">');
       expect(await page.evaluate(() => Reflect.get(window, "__xss"))).toBeUndefined();
       expect(await audit(page)).toEqual([]);
       await page.screenshot({ path: "screenshots/releases-1280-with-release.png", fullPage: true });
+      await page.setViewportSize({ width: 375, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        375,
+      );
+      await page.screenshot({ path: "screenshots/releases-375-with-release.png", fullPage: true });
+      // The install guide shows the newest zip's checksum.
+      await page.goto("/install/");
+      await expect(page.locator("[data-latest-sum]")).toContainText(
+        `Latest, v0.1.0 release candidate: ${ZIP_SHA256}`,
+      );
+      await page.setViewportSize({ width: 1280, height: 900 });
       // The version label under every download follows the newest release.
       await page.goto("/");
       await expect(page.locator("[data-version]").first()).toHaveText("v0.1.0 release candidate");
