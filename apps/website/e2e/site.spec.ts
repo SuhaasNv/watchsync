@@ -55,9 +55,9 @@ test.describe("reduced motion", () => {
     const toggle = page.getByRole("button", { name: "Play demo" });
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: /^Step 5:/ }).click();
-    await expect(page.locator("[data-caption]")).toHaveText(/Asha gets an ad/);
-    await expect(page.locator('[data-screen="suhaas"] [data-notice]')).toHaveText(
-      "Asha is on an ad · about 0:06 left",
+    await expect(page.locator("[data-caption]")).toHaveText(/Maya gets an ad/);
+    await expect(page.locator('[data-screen="sam"] [data-notice]')).toHaveText(
+      "Maya is on an ad · about 0:06 left",
     );
     expect(await audit(page)).toEqual([]);
     await page.screenshot({ path: "screenshots/home-1280-reduced.png" });
@@ -68,15 +68,36 @@ test("the hero demo can be paused and shows real notices", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /^Step 2:/ }).click();
   await page.waitForTimeout(1600);
-  await expect(page.locator('[data-screen="ravi"] [data-notice]')).toHaveText("Asha paused");
+  await expect(page.locator('[data-screen="leo"] [data-notice]')).toHaveText("Maya paused");
   const toggle = page.locator("[data-toggle]");
   await expect(toggle).toHaveAccessibleName("Pause demo");
   await toggle.click();
   await expect(toggle).toHaveAccessibleName("Play demo");
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  const before = await page.locator('[data-screen="suhaas"] [data-time]').textContent();
+  const before = await page.locator('[data-screen="sam"] [data-time]').textContent();
   await page.waitForTimeout(1200);
-  expect(await page.locator('[data-screen="suhaas"] [data-time]').textContent()).toBe(before);
+  expect(await page.locator('[data-screen="sam"] [data-time]').textContent()).toBe(before);
+});
+
+test("a visitor can pause, play and skip on any demo player", async ({ page }) => {
+  await page.goto("/");
+  const sam = page.locator('[data-screen="sam"]');
+  const leo = page.locator('[data-screen="leo"]');
+  const time = sam.locator("[data-time]");
+  await sam.locator(".viewport").click({ position: { x: 40, y: 40 } });
+  await expect(leo.locator("[data-notice]")).toHaveText("Sam paused");
+  await expect(page.locator("[data-caption]")).toHaveText(/You're driving/);
+  const paused = await time.textContent();
+  await page.waitForTimeout(1200);
+  expect(await time.textContent()).toBe(paused);
+  await sam.locator("[data-play]").click();
+  await expect(leo.locator("[data-notice]")).toHaveText("Sam pressed play");
+  await expect(time).not.toHaveText(paused ?? "", { timeout: 2500 });
+  const track = leo.locator("[data-track]");
+  const box = await track.boundingBox();
+  if (!box) throw new Error("no track");
+  await track.click({ position: { x: box.width * 0.9, y: box.height / 2 } });
+  await expect(sam.locator("[data-notice]")).toHaveText(/^Leo skipped ahead to 1:4\d:\d\d$/);
 });
 
 test("every download button points at the latest GitHub release", async ({ page }) => {

@@ -560,6 +560,33 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
     background: #ecf2f1;
     translate: -50% -50%;
   }
+  /* Every player answers a click: the picture pauses or plays, the bar jumps. */
+  .viewport {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pp {
+    transition: transform 0.18s var(--ease);
+  }
+  .viewport:hover .pp {
+    transform: scale(1.12);
+  }
+  .viewport:active .pp {
+    transform: scale(0.9);
+    transition-duration: 0.08s;
+  }
+  /* A finger-sized hit area around the thin bar. */
+  .track::before {
+    content: "";
+    position: absolute;
+    inset: -12px 0;
+  }
+  .head {
+    transition: scale 0.18s var(--ease);
+  }
+  .track:hover .head {
+    scale: 1.5;
+  }
   .time {
     font-family: var(--mono);
     font-size: max(9px, 2.5cqi);
@@ -717,6 +744,9 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
     background: none;
     cursor: pointer;
   }
+  .step:active .dot {
+    transform: scale(0.75);
+  }
   .dot {
     width: 8px;
     height: 8px;
@@ -724,6 +754,7 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
     background: var(--text3);
     transition:
       width 0.3s var(--ease),
+      transform 0.12s var(--ease),
       background-color 0.3s;
   }
   .step[aria-current="step"] .dot {
@@ -754,6 +785,9 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
     }
   }
   @media (max-width: 720px) {
+    .step {
+      height: 44px;
+    }
     .stage {
       grid-template-columns: 1fr 1fr;
       gap: 18px 12px;

@@ -53,7 +53,7 @@ export const FAQ: Faq[] = [
   {
     id: "ads",
     q: "What happens when someone gets an ad?",
-    a: "<p>The room waits. Everyone else pauses at the same frame and sees why, for example “Asha is on an ad · about 0:20 left”. When it ends, everyone plays again together. WatchSync spots ads on Prime Video. On Netflix and JioHotstar it waits whenever someone's player is stuck loading.</p><p>If a wait runs past 90 seconds, the others can keep waiting or watch without that person.</p>",
+    a: "<p>The room waits. Everyone else pauses at the same frame and sees why, for example “Maya is on an ad · about 0:20 left”. When it ends, everyone plays again together. WatchSync spots ads on Prime Video. On Netflix and JioHotstar it waits whenever someone's player is stuck loading.</p><p>If a wait runs past 90 seconds, the others can keep waiting or watch without that person.</p>",
   },
   {
     id: "wifi",
