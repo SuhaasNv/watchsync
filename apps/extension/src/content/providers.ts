@@ -289,7 +289,18 @@ function netflixProvider(): StreamingProvider {
   };
 }
 
+/** The room accepts title names up to 200 characters; a longer one would get the whole report refused. */
+export function capName(m: Media | null): Media | null {
+  if (!m?.titleName || m.titleName.length <= 200) return m;
+  return { ...m, titleName: `${[...m.titleName].slice(0, 199).join("")}…` };
+}
+
 export function providerFor(host: string): StreamingProvider | null {
+  const p = serviceProvider(host);
+  return p && { ...p, media: () => capName(p.media()) };
+}
+
+function serviceProvider(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
   if (PRIME_HOSTS.test(host)) {
     const media = () => primeMedia(new URL(location.href), document, longestVideo() !== null);
