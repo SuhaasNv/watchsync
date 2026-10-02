@@ -96,8 +96,14 @@ test("invite link joins the room and opens the room's title", async ({ ext }) =>
   }
 });
 
-test("invite link without the extension explains how to install it", async ({ page }) => {
+test("invite link without the extension sends you to get WatchSync first (BUG-060)", async ({
+  page,
+}) => {
   await page.goto(`${API}/j/ABC234`);
   await expect(page.getByText("ABC234")).toBeVisible();
-  await expect(page.getByText("New to WatchSync? Install it in Chrome")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Get WatchSync for Chrome" })).toHaveAttribute(
+    "href",
+    "https://watchsync.space/install/",
+  );
+  await expect(page.getByText("Come back to this link and join with your name.")).toBeVisible();
 });
