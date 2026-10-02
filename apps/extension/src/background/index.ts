@@ -46,6 +46,8 @@ const ports = new Set<chrome.runtime.Port>();
 // ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
 let presence: { service: Service; media: Media | null } = { service: "none", media: null };
 let presencePort: chrome.runtime.Port | null = null;
+/** The tab our presence comes from, kept after its port drops so a close can be told apart. */
+let presenceTabId: number | undefined;
 let tabGone: ReturnType<typeof setTimeout> | undefined;
 
 function sendPresence() {
@@ -416,6 +418,27 @@ chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
   return true;
 });
 
+/** The tab we were watching in is gone: say "nothing open" now (BUG-026). */
+function presenceTabClosed() {
+  clearTimeout(tabGone);
+  presencePort = null;
+  presenceTabId = undefined;
+  if (presence.media === null) return;
+  presence = { service: "none", media: null };
+  sendPresence();
+}
+
+// Closing the tab: no need to wait out the 3 s page-load allowance below.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === presenceTabId) presenceTabClosed();
+});
+// The retry: every 15 s make sure that tab still exists, so a missed close event can't
+// leave a title showing for someone who closed it (BUG-026).
+setInterval(() => {
+  if (presenceTabId === undefined || presence.media === null) return;
+  chrome.tabs.get(presenceTabId).catch(presenceTabClosed);
+}, 15_000);
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   ports.add(port);
@@ -459,6 +482,7 @@ chrome.runtime.onConnect.addListener((port) => {
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
       clearTimeout(tabGone);
       presencePort = port;
+      presenceTabId = port.sender?.tab?.id;
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
