@@ -480,7 +480,8 @@ function drawWait() {
   if (!who) {
     if (waitShownAt) {
       clearPrompt(waitKey); // "wait" or "wait-late", whichever is showing (BUG-021)
-      toast("Back together", 3000, { icon: "check", tone: "ok" });
+      // Not while the room still waits for my own ad or loading.
+      if (!holdReason) toast("Back together", 3000, { icon: "check", tone: "ok" });
       waitShownAt = 0;
       waitKey = "";
     }

@@ -28,10 +28,10 @@ export interface StreamingProvider {
   ad(): { left: number | null } | null;
 }
 
-/** "Ad 0:20", "Ad · 1:05 left" → seconds; null when there's no time on the page. */
+/** "Ad 0:20", "Ad · 1:05 left", "1:05:00" → seconds; null when there's no time on the page. */
 export function adSeconds(text: string | null | undefined): number | null {
-  const m = text?.match(/(\d+):(\d{2})/);
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  const m = text?.match(/(?:(\d+):)?(\d+):(\d{2})/);
+  return m ? Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
 }
 
 /** HAVE_FUTURE_DATA: below it, a playing video can't advance. */
@@ -337,8 +337,9 @@ export function providerFor(host: string): StreamingProvider | null {
     };
   }
   if (__MOCK__ && host === "localhost:4173") {
-    // The mock player stands in for a service in tests: [data-ad] is its ad marker, and
-    // data-buffering on <body> stands in for a starved player.
+    // The mock player stands in for a service in tests: [data-ad] is its ad marker (or an
+    // ad in its own short video, as JioHotstar's may be), and data-buffering on <body>
+    // stands in for a starved player.
     const base = videoProvider("mock", () => mockMedia(new URL(location.href), document));
     return {
       ...base,
@@ -350,7 +351,7 @@ export function providerFor(host: string): StreamingProvider | null {
       },
       ad: () => {
         const el = document.querySelector("[data-ad]");
-        return el ? { left: adSeconds(el.textContent) } : null;
+        return el ? { left: adSeconds(el.textContent) } : separateAd();
       },
     };
   }

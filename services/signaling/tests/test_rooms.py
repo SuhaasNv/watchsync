@@ -445,6 +445,8 @@ def test_room_waits_for_someone_buffering_then_resumes_together() -> None:
         paused = next_of(hws, "PLAYBACK.STATE")["payload"]
         assert paused["action"] == "pause" and paused["byName"] == "Asha"
         assert paused["playback"]["position"] == 42
+        # Asha hears it too, so her copy of the room's clock says paused.
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
         room = main.rooms.rooms[host["code"]]
         assert room.held and room.participants[guest["participantId"]].hold == "buffering"
 
@@ -452,6 +454,114 @@ def test_room_waits_for_someone_buffering_then_resumes_together() -> None:
         resumed = next_of(gws, "PLAYBACK.STATE")["payload"]
         assert resumed["action"] == "play" and resumed["playback"]["status"] == "playing"
         assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def pause(ws: Any, position: float = 30) -> None:
+    ws.send_json(
+        msg(
+            "PLAYBACK.UPDATE",
+            {
+                "action": "pause",
+                "status": "paused",
+                "position": position,
+                "rate": 1,
+                "titleId": "1",
+            },
+        )
+    )
+
+
+def sync_point(ws: Any, n: int) -> None:
+    """Waits until the server has handled everything this socket sent before."""
+    ws.send_json(msg("SYS.PING", {"t1": n}))
+    while next_of(ws, "SYS.PONG")["payload"]["t1"] != n:
+        pass
+
+
+def test_room_waits_for_two_people_on_ads_and_tells_both() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 42)
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        hold(hws, "ad", 42)
+        sync_point(hws, 1)
+        room = main.rooms.rooms[host["code"]]
+        assert room.held
+
+        hold(gws, None)  # Asha's ad ends first: the room keeps waiting for Suhaas's
+        sync_point(gws, 2)
+        assert room.held
+        assert room.playback is not None and room.playback["status"] == "paused"
+
+        hold(hws, None)
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_an_ad_that_pauses_the_player_first_still_holds_the_room() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        # A separate ad video: Asha's film pauses, then the ad is seen.
+        pause(gws, 30)
+        hold(gws, "ad", 30)
+        sync_point(gws, 1)
+        room = main.rooms.rooms[host["code"]]
+        assert room.held
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+
+        hold(gws, None)  # the ad ends: everyone resumes together
+        sync_point(gws, 2)
+        resumed = next_of(hws, "PLAYBACK.STATE")["payload"]
+        assert resumed["action"] == "play" and resumed["playback"]["position"] == 30
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_an_ad_long_after_a_pause_or_after_someone_elses_pause_holds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        pause(hws, 30)  # Suhaas paused; Asha then sees an ad (a pause ad, say)
+        sync_point(hws, 1)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 30)
+        sync_point(gws, 1)
+        room = main.rooms.rooms[host["code"]]
+        assert not room.held  # it stays Suhaas's pause, not a wait for Asha
+
+        hold(gws, None)
+        play(hws)
+        sync_point(hws, 2)
+        next_of(gws, "PLAYBACK.STATE")
+        monkeypatch.setattr(main, "AD_PAUSE_MS", 0)
+        pause(gws, 30)  # Asha paused herself; an ad that shows later isn't why
+        hold(gws, "ad", 30)
+        sync_point(gws, 2)
         assert not room.held
     finally:
         gcm.__exit__(None, None, None)
