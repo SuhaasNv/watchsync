@@ -18,7 +18,7 @@ Dev is for experimenting and testing with friends; it may break. Production is `
 
 Invite links use the room service's domain (`__API_URL__/j/CODE`), so a production build against `https://join.watchsync.space` copies links like `https://join.watchsync.space/j/ABC234`.
 
-Repository variables: `DEV_API_URL` (dev room service URL, required by `dev.yml`) and `PROD_API_URL` (production room service URL for release builds; while unset, `zip` falls back to the Railway URL above).
+Repository variables: `DEV_API_URL` (dev room service URL, required by `dev.yml`) and `PROD_API_URL` (production room service URL for release builds; while unset, `zip` uses `https://join.watchsync.space`; the Railway URL above keeps working for installs built before the switch).
 
 Cost: the dev services sleep when idle, so they cost almost nothing when nobody is testing. The first request after a sleep takes a few seconds. Never turn sleep off in dev, and never turn it on in production.
 
