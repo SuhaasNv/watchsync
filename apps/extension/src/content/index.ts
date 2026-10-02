@@ -73,6 +73,7 @@ function onPush(m: Push) {
     const { playback, action, byId, byName } = m.message.payload;
     if (!provider || !mine || playback.titleId !== mine.titleId) return;
     if (!room?.following) return; // watching on my own (US-027)
+    if (isLive()) return; // live streams aren't synced in v0.1 (US-032)
     if (holdReason) return; // my own buffering or ad; I catch up when it ends
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
     const before = provider.getState()?.position ?? 0;
@@ -183,7 +184,7 @@ function checkDrift() {
   const local = provider.getState();
   const v = provider.video();
   if (!local || !v || v.seeking || isEcho() || Date.now() < nextCorrection) return;
-  if (holdReason || startPhase) return; // waiting rooms and countdowns aren't drift
+  if (holdReason || startPhase || isLive()) return; // not drift: waits, countdowns, live
   if (local.playing !== (playback.status === "playing")) return;
   const expected = expectedPosition(playback, Date.now() + room.clockOffset);
   const action = decide(local.position, expected, DEFAULT_SYNC);
@@ -195,6 +196,24 @@ function checkDrift() {
   }
   const n = Math.round(Math.abs(local.position - expected));
   showBehind(`You're ${n} seconds ${local.position < expected ? "behind" : "ahead"}`);
+}
+
+// ---- Live streams (US-032) ----
+
+let liveSaid = false;
+
+/** A live stream has no fixed timeline to share, so v0.1 doesn't sync it, and says so. */
+function isLive(): boolean {
+  const live = provider?.getState()?.duration === Number.POSITIVE_INFINITY;
+  if (live && room?.session && !liveSaid) {
+    liveSaid = true;
+    prompt(
+      "Live streams can't be synced yet. Everyone is watching live on their own.",
+      [{ label: "OK", run: () => {} }],
+      "live",
+    );
+  }
+  return live;
 }
 
 // ---- Nobody gets left behind (UC-042, the flagship) ----
@@ -214,7 +233,7 @@ let waitKey = "";
  * showing an ad, so the room can wait for it. Buffering ends after 1 s of clean playback.
  */
 function checkHold() {
-  if (!provider || !room?.session || !room.following || !mine) return setHold(null);
+  if (!provider || !room?.session || !room.following || !mine || isLive()) return setHold(null);
   const now = Date.now();
   const ad = provider.ad();
   const stalled = provider.stalled();

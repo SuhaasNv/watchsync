@@ -108,6 +108,25 @@ export function primeAd(doc: Document): { left: number | null } | null {
   return { left: adSeconds(el.textContent) };
 }
 
+/**
+ * JioHotstar: the numeric content ID before /watch, e.g. /in/shows/name/1260123456/watch.
+ * Every episode has its own ID, so the next episode is a URL change.
+ */
+export function hotstarMedia(url: URL, doc: Document): Media | null {
+  const id = url.pathname.match(/\/(\d{6,})\/watch/)?.[1];
+  if (!id) return null;
+  // "Panchayat S3 E2 - Watch on JioHotstar" → "Panchayat S3 E2"
+  const name = doc.title
+    .replace(/\s*[|-]\s*(watch\s+(online\s+)?on\s+)?(jio)?hotstar.*$/i, "")
+    .trim();
+  return {
+    service: "jiohotstar",
+    titleId: id,
+    titleName: name || null,
+    titleUrl: `${url.origin}${url.pathname}`,
+  };
+}
+
 /** The local test player used by the end-to-end tests: /watch/<id> with <h1 data-title>. */
 export function mockMedia(url: URL, doc: Document): Media | null {
   const id = url.pathname.match(/^\/watch\/([\w-]+)/)?.[1];
@@ -203,6 +222,8 @@ export function providerFor(host: string): StreamingProvider | null {
     const base = videoProvider("prime", () => primeMedia(new URL(location.href), document));
     return { ...base, ad: () => primeAd(document) };
   }
+  if (host === "www.jiohotstar.com" || host === "www.hotstar.com")
+    return videoProvider("jiohotstar", () => hotstarMedia(new URL(location.href), document));
   if (__MOCK__ && host === "localhost:4173") {
     // The mock player stands in for a service in tests: [data-ad] is its ad marker, and
     // data-buffering on <body> stands in for a starved player.
@@ -210,6 +231,11 @@ export function providerFor(host: string): StreamingProvider | null {
     return {
       ...base,
       stalled: () => document.body.dataset.buffering === "1" || base.stalled(),
+      // data-live on <body> stands in for a live stream (no end to its timeline).
+      getState: () => {
+        const st = base.getState();
+        return st && document.body.dataset.live ? { ...st, duration: Infinity } : st;
+      },
       ad: () => {
         const el = document.querySelector("[data-ad]");
         return el ? { left: adSeconds(el.textContent) } : null;
