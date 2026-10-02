@@ -211,7 +211,8 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
   }
   .hero-title {
     grid-area: title;
-    font-size: clamp(3.4rem, 9.6vw, 9.4rem);
+    /* The longer line is about 5.6em wide; these sizes keep it inside its column. */
+    font-size: clamp(3.4rem, 9.2vw, 8rem);
     font-weight: 600;
     line-height: 0.88;
     letter-spacing: -0.045em;
@@ -219,8 +220,11 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
       "opsz" 144,
       "SOFT" 40;
   }
+  /* Each line stays one line: the headline is two lines at every width (no reflow when
+     the font loads or the beat plays). */
   .line {
     display: block;
+    white-space: nowrap;
   }
   .line + .line {
     margin-top: 0.06em;
@@ -233,13 +237,16 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
   /* "here." and "there." breathe together once on load: one beat, two places. */
   @media (prefers-reduced-motion: no-preference) {
     .beat {
+      display: inline-block;
       animation: beat 1.6s var(--ease) 0.25s both;
     }
   }
+  /* Opacity and a small lift only: animating the weight changed the words' width and
+     made the headline jump from 2 to more lines. */
   @keyframes beat {
     from {
       opacity: 0.25;
-      font-weight: 200;
+      transform: translateY(0.06em);
     }
   }
   .hero-side {
@@ -650,6 +657,9 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
   }
 
   @media (max-width: 960px) {
+    .hero-title {
+      font-size: clamp(2.4rem, 15.5vw, 8rem);
+    }
     .hero-top {
       grid-template-columns: 1fr;
       grid-template-areas: "eyebrow" "title" "side";
