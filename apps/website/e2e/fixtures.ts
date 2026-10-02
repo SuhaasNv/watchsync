@@ -8,6 +8,7 @@ export const PAGES = [
   "/faq/",
   "/privacy/",
   "/terms/",
+  "/goodbye/",
   "/nope/",
 ];
 

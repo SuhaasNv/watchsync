@@ -359,6 +359,9 @@ async function handleNow(req: Request): Promise<Reply> {
 }
 
 // First install only (not updates or reloads): show what WatchSync does and how to start.
+// On removal Chrome opens a thank-you page with answers to common reasons. Nothing is sent.
+chrome.runtime.setUninstallURL(`${__SITE_URL__}/goodbye/`).catch(() => {});
+
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === "install") void chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
 });
