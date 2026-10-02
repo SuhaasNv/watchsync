@@ -108,13 +108,32 @@ export function primeMedia(url: URL, doc: Document, playerOpen: boolean): Media 
   };
 }
 
-/** Prime's film or episode: the longest loaded video (trailers and previews are short). */
-export function primeVideo(doc: Document = document): HTMLVideoElement | null {
+/**
+ * The film or episode on pages that also play short videos (trailers, previews, ads): the
+ * longest loaded video over 5 minutes. Used for Prime Video and JioHotstar.
+ */
+export function longestVideo(doc: Document = document): HTMLVideoElement | null {
   let best: HTMLVideoElement | null = null;
   for (const v of doc.querySelectorAll("video"))
     if (v.readyState > 0 && Number.isFinite(v.duration) && v.duration > (best?.duration ?? 300))
       best = v;
   return best;
+}
+
+/**
+ * An ad shown in its own short video while the film's video waits (BUG-020). The page
+ * shows no stable marker for it, so this is a heuristic: a short video playing on screen
+ * while the long one is paused. Never true without a film loaded (trailers on detail pages).
+ */
+export function separateAd(doc: Document = document): { left: number | null } | null {
+  const film = longestVideo(doc);
+  if (!film?.paused) return null;
+  for (const v of doc.querySelectorAll("video")) {
+    const short = Number.isFinite(v.duration) && v.duration < 300;
+    if (v !== film && short && !v.paused && v.clientWidth > 0)
+      return { left: Math.max(0, Math.round(v.duration - v.currentTime)) };
+  }
+  return null;
 }
 
 /** Prime shows an ad countdown in the player while an ad plays. */
@@ -235,32 +254,50 @@ function netflixProvider(): StreamingProvider {
 export function providerFor(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
   if (PRIME_HOSTS.test(host)) {
-    const media = () => primeMedia(new URL(location.href), document, primeVideo() !== null);
+    const media = () => primeMedia(new URL(location.href), document, longestVideo() !== null);
     return {
       ...videoProvider("prime", media),
-      video: () => primeVideo(),
-      getState: () => stateOf(primeVideo()),
+      video: () => longestVideo(),
+      getState: () => stateOf(longestVideo()),
       // Prime's player cancels video.play() (AbortError); its own space shortcut, sent to
       // the video's parent, resumes reliably. Pause and seek work on the element.
       play: async () => {
-        const v = primeVideo();
+        const v = longestVideo();
         if (!v?.paused) return;
         for (const type of ["keydown", "keyup"])
           v.parentElement?.dispatchEvent(
             new KeyboardEvent(type, { key: " ", code: "Space", keyCode: 32, bubbles: true }),
           );
       },
-      pause: async () => primeVideo()?.pause(),
+      pause: async () => longestVideo()?.pause(),
       seek: async (s) => {
-        const v = primeVideo();
+        const v = longestVideo();
         if (v) v.currentTime = s;
       },
-      stalled: () => isStalled(primeVideo()),
-      ad: () => primeAd(document),
+      stalled: () => isStalled(longestVideo()),
+      ad: () => primeAd(document) ?? separateAd(),
     };
   }
-  if (host === "www.jiohotstar.com" || host === "www.hotstar.com")
-    return videoProvider("jiohotstar", () => hotstarMedia(new URL(location.href), document));
+  if (host === "www.jiohotstar.com" || host === "www.hotstar.com") {
+    // Follow the film, not a trailer or a separate ad video (BUG-020; not yet confirmed on
+    // a live player from India).
+    const base = videoProvider("jiohotstar", () => hotstarMedia(new URL(location.href), document));
+    return {
+      ...base,
+      video: () => longestVideo(),
+      getState: () => stateOf(longestVideo()),
+      play: async () => {
+        await longestVideo()?.play();
+      },
+      pause: async () => longestVideo()?.pause(),
+      seek: async (s) => {
+        const v = longestVideo();
+        if (v) v.currentTime = s;
+      },
+      stalled: () => isStalled(longestVideo()),
+      ad: () => separateAd(),
+    };
+  }
   if (__MOCK__ && host === "localhost:4173") {
     // The mock player stands in for a service in tests: [data-ad] is its ad marker, and
     // data-buffering on <body> stands in for a starved player.

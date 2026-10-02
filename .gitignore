@@ -13,3 +13,4 @@ playwright-report/
 .browsers/
 # Unzipped release builds people load into Chrome
 watchsync-extension-*/
+.claude/worktrees/
