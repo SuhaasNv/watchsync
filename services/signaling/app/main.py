@@ -122,7 +122,22 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         if media is not None and (
             room.media is None or (moved_on and media["titleId"] != room.media["titleId"])
         ):
+            first = room.media is None
             room.media = media
+            # The next episode starts from the top for everyone; arriving followers catch up
+            # to this clock, not to the previous title's position (US-020). The room's first
+            # title keeps no clock: its opener may be resuming mid-film.
+            room.playback = (
+                None
+                if first
+                else {
+                    "status": "playing",
+                    "position": 0,
+                    "rate": 1,
+                    "updatedAt": now_ms(),
+                    "titleId": media["titleId"],
+                }
+            )
             await broadcast(room, "ROOM.MEDIA", {"media": media, "byId": p.id, "byName": p.name})
     elif msg["type"] == "PLAYBACK.UPDATE":
         action = payload["action"]
