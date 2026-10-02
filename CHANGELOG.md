@@ -31,13 +31,12 @@ Streaming Sync: a Chrome extension that keeps friends' Netflix, Prime Video and 
 - BUG-017: a tidy two-line popup footer instead of one line that wrapped mid-sentence.
 - BUG-018: after a Wi-Fi drop, the extension reconnects within seconds instead of waiting up to a minute.
 - BUG-019: when a different show starts after the credits, friends are asked whether to follow instead of being moved silently.
-- BUG-020: JioHotstar ads are told apart from the programme, so the room waits for the person on an ad.
 - BUG-021 and BUG-022: the "Keep waiting" card no longer stays on screen after everyone is back, and nobody gets a notice about their own action.
 - BUG-023 and BUG-024: the website's Features page is now tested, and the website builds correctly on the server.
 
 ### Known issues
 - Netflix has been tested by two people on real accounts. Prime Video still needs that two-person test, and JioHotstar can only be checked from India (it redirects elsewhere), including how it tells ads apart.
-- Ads are detected on Prime Video and JioHotstar (JioHotstar still to be checked from India); on Netflix the buffering wait still applies but WatchSync never claims an ad.
+- Ads are detected on Prime Video. JioHotstar ad detection (BUG-020) is built but not yet confirmed from India, where the service plays; on Netflix the buffering wait still applies but WatchSync never claims an ad.
 - On Prime Video, when the room moves to another episode of the same show, friends pick it in the player themselves.
 - Installed as an unpacked zip (Developer mode); a Chrome Web Store listing waits for the legal review (DEC-024).
 - A redeploy of the room service ends every open room.
