@@ -1,3 +1,4 @@
+import json
 import re
 import time
 from collections.abc import Iterator
@@ -674,7 +675,7 @@ def test_nan_is_refused_and_never_reaches_the_room() -> None:
 
 def test_sending_to_a_peer_that_dropped_never_raises() -> None:
     class Dead:
-        async def send_json(self, _: Any) -> None:
+        async def send_text(self, _: Any) -> None:
             raise WebSocketDisconnect(1006)
 
     host = create()
@@ -982,3 +983,19 @@ def test_leaving_then_joining_again_is_a_rejoin_and_keep_room_keeps_it(live: Tes
         closed(hws)
     # The last one out kept the room: they can come back until it expires.
     assert join(host["code"], "Suhaas").status_code == 201
+
+
+def test_a_lone_surrogate_in_a_name_cannot_break_the_room() -> None:
+    # JSON may carry "\ud83d" alone; a raw lone surrogate can't be sent as UTF-8, so every
+    # snapshot naming this person would fail to send and the room would hang on Connecting.
+    host = create()
+    r = client.post(
+        f"/api/v1/rooms/{host['code']}/join",
+        content=b'{"name":"Asha \\ud83d"}',
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code == 201
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        text = ws.receive_text()
+        text.encode("utf-8")  # what the server's WebSocket does before sending
+        assert json.loads(text)["type"] == "ROOM.STATE"

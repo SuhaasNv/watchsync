@@ -166,9 +166,10 @@ async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:
     ws = sockets.get(p.id)
     if ws is not None:
         # A peer that just dropped must never break the sender's handler (BUG-010); the
-        # peer's own handler cleans up after it.
+        # peer's own handler cleans up after it. ASCII-only JSON: a lone surrogate from a
+        # name or title can't be sent as UTF-8 and would silently drop the message.
         with contextlib.suppress(Exception):
-            await ws.send_json(message(type_, payload))
+            await ws.send_text(json.dumps(message(type_, payload)))
 
 
 async def broadcast(

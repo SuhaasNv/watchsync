@@ -4,12 +4,22 @@ import type { Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
+  type ClientMessageOf,
   envelope,
+  isClientMessage,
   isRoomTicket,
   isServerMessage,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
-import type { AppState, Push, Reply, Request, Session, TabEvent } from "../shared/messages";
+import {
+  type AppState,
+  cleanName,
+  type Push,
+  type Reply,
+  type Request,
+  type Session,
+  type TabEvent,
+} from "../shared/messages";
 import {
   DEV_RELEASE_API,
   isUpdate,
@@ -69,7 +79,8 @@ function changed() {
 async function restore() {
   const { name } = await chrome.storage.local.get("name");
   const { session } = await chrome.storage.session.get("session");
-  state.name = typeof name === "string" ? name : null;
+  // A name saved by an older version may hold marks the service now refuses.
+  state.name = typeof name === "string" ? cleanName(name) || null : null;
   if (isRoomTicket(session)) {
     state.session = session;
     connect();
@@ -361,7 +372,7 @@ async function handleNow(req: Request): Promise<Reply> {
       case "getState":
         break;
       case "setName": {
-        const name = req.name.trim().slice(0, 30);
+        const name = cleanName(req.name);
         if (!name) throw new Error("invalid");
         state.name = name;
         await chrome.storage.local.set({ name });
@@ -376,7 +387,10 @@ async function handleNow(req: Request): Promise<Reply> {
         if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) throw new Error("not_found");
         if (!state.name) throw new Error("invalid");
         if (state.session?.code === code) break;
-        await startSession(await api(`/api/v1/rooms/${code}/join`, { name: state.name }));
+        const ticket = await api(`/api/v1/rooms/${code}/join`, { name: state.name });
+        // Switching rooms from an invite page: leave the old one for good, not as "Away".
+        if (state.session) sendServer(envelope("ROOM.LEAVE", {}));
+        await startSession(ticket);
         break;
       }
       case "leave":
@@ -458,7 +472,12 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onMessage.addListener((e: TabEvent) => {
       if (e.kind === "playback") {
         const { kind: _, ...update } = e;
-        sendServer(envelope("PLAYBACK.UPDATE", update));
+        // A speed tool can run the player past the protocol's 0.25-4x, and the room would
+        // refuse the whole play, pause or jump; share it at the nearest allowed rate.
+        update.rate = Math.min(4, Math.max(0.25, update.rate));
+        const msg = envelope<ClientMessageOf<"PLAYBACK.UPDATE">>("PLAYBACK.UPDATE", update);
+        if (!isClientMessage(msg)) return; // a NaN or out-of-range position: never our clock
+        sendServer(msg);
         // The room tells everyone but the sender; keep our own copy of its clock current
         // too, or our drift check and wait card judge against the old one (BUG-006).
         const { status, position, rate, titleId } = update;
