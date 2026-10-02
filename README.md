@@ -57,6 +57,7 @@ You install WatchSync from outside the Chrome Web Store, so Google hasn't review
 - **`storage`**: your name, and your room for up to 24 hours so you can rejoin after a restart.
 - **The room service at `join.watchsync.space`**: sends play, pause and the position to your room, and opens invite links.
 - **Netflix, Prime Video and JioHotstar pages** (`netflix.com`, `primevideo.com`, Amazon's `/gp/video/` pages, `jiohotstar.com`, `hotstar.com`): reads whether the video is playing, where it is and which title is open, applies play, pause and jumps from your room, and shows small notices on the player.
+- **`scripting`**: when WatchSync is installed or updated, adds its own packaged scripts to Netflix, Prime Video and JioHotstar tabs that are already open, so you don't have to reload them. Same sites as above, nothing else.
 - **GitHub's public API, at most once a day**, to see whether a newer version is out.
 
 It never reads the picture, the sound or the rest of the page, never sees passwords, payments or browsing history, runs on no other site, loads no code from the internet, and has no analytics or ads.

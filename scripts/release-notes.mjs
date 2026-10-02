@@ -14,7 +14,12 @@ export function releaseNotes(changelog, version) {
   if (start === -1) return null;
   const rest = lines.slice(start + 1);
   const end = rest.findIndex((l) => l.startsWith("## ["));
-  return (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
+  const notes = (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
+  // Release notes are for people installing WatchSync: planning IDs (BUG-047, DEC-030, US-107)
+  // belong in Notion and commits, not here.
+  const id = notes.match(/\b(BUG|DEC|US|UC|E)-\d{2,3}\b/);
+  if (id) throw new Error(`CHANGELOG ${version} mentions ${id[0]}; describe it in plain words`);
+  return notes;
 }
 
 /** `sha256sum` output ("<hex>  <file>" per line) as [{ sha256, file }]; throws on anything else. */
