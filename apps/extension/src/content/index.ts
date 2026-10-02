@@ -36,6 +36,7 @@ function whoIsOn(media: Media): string {
 /** Called when the room's title or this tab's title changes. */
 function reconcile(roomBefore: Media | null) {
   if (!room?.session || !roomMedia) return clearPrompt("align");
+  if (!room.following) return clearPrompt("align"); // watching on my own: no prompts
   const media = roomMedia;
   const step = align(roomBefore, media, mine, room.following);
   if (step.kind === "none") return clearPrompt("align");
@@ -47,6 +48,22 @@ function reconcile(roomBefore: Media | null) {
     return prompt(
       `${whoIsOn(media)} is on ${title}. Pick it in the player to watch together.`,
       [{ label: "OK", run: () => (dismissed = media.titleId) }],
+      "align",
+    );
+  }
+  const move = room.mediaMove;
+  if (step.kind === "follow" && move?.how === "new") {
+    // Someone picked another title (BUG-014): ask, don't drag everyone along.
+    return prompt(
+      `${move.byName} opened ${title}.`,
+      [
+        { label: "Watch on my own", run: () => follow(false) },
+        {
+          label: `Continue with ${move.byName}`,
+          primary: true,
+          run: () => location.assign(step.url),
+        },
+      ],
       "align",
     );
   }
@@ -93,6 +110,12 @@ function onPush(m: Push) {
     onStart(m.message.payload);
     return;
   }
+  if (m.kind === "server" && m.message.type === "ROOM.MEDIA") {
+    // I picked a new title: the room has no clock for it yet, so share where I am once
+    // the service has finished its own resume seek, and friends who continue land here.
+    if (m.message.payload.byId === room?.session?.participantId) setTimeout(publishMine, 3500);
+    return;
+  }
   if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
     const { participant, event } = m.message.payload;
     if (event === "left") toast(`${participant.name} left`);
@@ -104,6 +127,10 @@ function onPush(m: Push) {
   room = m.state;
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
+  if (room.following && wasFollowing === false) {
+    dismissed = null;
+    reconcile(roomMedia); // back from watching on my own: offer the room's title again
+  }
   drawPill();
   drawWait();
   offerRejoin();
@@ -119,6 +146,21 @@ let behind: string | null = null;
 let nextCorrection = 0;
 
 const follow = (following: boolean) => void send({ kind: "follow", following });
+
+function publishMine() {
+  const st = provider?.getState();
+  if (!st || !mine || !room?.following || room.playback?.titleId === mine.titleId) return;
+  if (!Number.isFinite(st.duration)) return; // live: not synced
+  const status = st.playing ? "playing" : "paused";
+  post({
+    kind: "playback",
+    action: "seek",
+    status,
+    position: st.position,
+    rate: st.rate,
+    titleId: mine.titleId,
+  });
+}
 
 /** Shows who's here and whether each person is with the room (US-028). */
 function drawPill() {

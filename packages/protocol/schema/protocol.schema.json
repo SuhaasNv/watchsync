@@ -264,11 +264,15 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["media", "byId", "byName"],
+          "required": ["media", "byId", "byName", "how"],
           "properties": {
             "media": { "$ref": "#/$defs/Media" },
             "byId": { "type": "string" },
-            "byName": { "$ref": "#/$defs/Name" }
+            "byName": { "$ref": "#/$defs/Name" },
+            "how": {
+              "description": "next: straight from the room's title (next episode, followed automatically); new: picked another title (friends are asked).",
+              "enum": ["next", "new"]
+            }
           }
         }
       }

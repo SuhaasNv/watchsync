@@ -109,6 +109,10 @@ export type MediaChanged = Envelope & {
     media: Media;
     byId: string;
     byName: Name;
+    /**
+     * next: straight from the room's title (next episode, followed automatically); new: picked another title (friends are asked).
+     */
+    how: "next" | "new";
   };
 };
 export type PlaybackState = Envelope & {

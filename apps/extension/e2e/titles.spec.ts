@@ -36,3 +36,58 @@ test("the room moves to the next episode together", async ({ ext }) => {
     await friend.context.close();
   }
 });
+
+test("opening another movie asks friends to continue or watch on their own (BUG-014)", async ({
+  ext,
+}) => {
+  const { hostTab, friend, host } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await tab.waitForTimeout(3200);
+
+    await hostTab.goto(`${MOCK}/browse`); // back to the service's browse page
+    await hostTab.waitForTimeout(1500);
+    await hostTab.goto(`${MOCK}/watch/film`);
+    await hostTab.evaluate(() => {
+      const v = document.querySelector("video");
+      if (v) v.currentTime = 40; // resuming mid-film
+    });
+
+    await expect(tab.getByText("Suhaas opened Demo Film.")).toBeVisible({ timeout: 6000 });
+    await expect(tab.getByRole("button", { name: "Watch on my own" }).first()).toBeVisible();
+    await tab.getByRole("button", { name: "Continue with Suhaas" }).click();
+    await tab.waitForURL(`${MOCK}/watch/film`);
+    const at = (p: typeof tab) =>
+      p.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
+    await expect
+      .poll(async () => Math.abs((await at(tab)) - (await at(hostTab))), { timeout: 10000 })
+      .toBeLessThan(1);
+    await expect(host.getByText("Test player · Demo Film")).toHaveCount(2); // both on it
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("watch on my own from the new-movie prompt keeps the friend where they are", async ({
+  ext,
+}) => {
+  const { hostTab, friend, host } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await tab.waitForTimeout(3200);
+    await hostTab.goto(`${MOCK}/browse`);
+    await hostTab.waitForTimeout(1500);
+    await hostTab.goto(`${MOCK}/watch/film`);
+
+    const card = tab.getByText("Suhaas opened Demo Film.");
+    await expect(card).toBeVisible({ timeout: 6000 });
+    await tab.getByRole("button", { name: "Watch on my own" }).first().click();
+    await expect(card).toHaveCount(0);
+    expect(tab.url()).toBe(`${MOCK}/watch/ep1`);
+    await expect(host.getByText(/On their own/)).toBeVisible();
+  } finally {
+    await friend.context.close();
+  }
+});

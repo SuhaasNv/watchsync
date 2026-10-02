@@ -11,3 +11,5 @@ test-results/
 playwright-report/
 .DS_Store
 .browsers/
+# Unzipped release builds people load into Chrome
+watchsync-extension-*/

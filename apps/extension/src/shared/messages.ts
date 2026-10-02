@@ -21,6 +21,8 @@ export interface AppState {
   clockOffset: number;
   /** A room we can go back to after the browser restarted (US-034). */
   lastRoom: string | null;
+  /** How the room last changed title: straight on (next episode) or a newly picked one. */
+  mediaMove: { how: "next" | "new"; byId: string; byName: string } | null;
   /** Why we're no longer in a room, shown once in the popup. */
   notice: string | null;
 }
