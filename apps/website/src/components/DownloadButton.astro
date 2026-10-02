@@ -59,6 +59,15 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
     flex-wrap: wrap;
     gap: 12px;
   }
+  .btn svg {
+    transition: transform 0.2s var(--ease);
+  }
+  /* The arrow drops toward the tray: the button shows what it does. */
+  @media (hover: hover) and (pointer: fine) {
+    .btn.primary:hover svg {
+      transform: translateY(2px);
+    }
+  }
   .compact .btn {
     min-height: 40px;
     padding: 0 14px;

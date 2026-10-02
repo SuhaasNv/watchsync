@@ -97,6 +97,10 @@ a {
   text-underline-offset: 0.2em;
 }
 
+a {
+  transition: text-decoration-color 0.15s;
+}
+
 a:hover {
   text-decoration-color: var(--acc);
 }
@@ -231,17 +235,13 @@ kbd,
   color: var(--text);
   box-shadow: inset 0 0 0 1px var(--line2);
   transition:
-    transform 0.2s var(--ease),
-    background-color 0.2s,
-    box-shadow 0.2s;
-}
-
-.btn:hover {
-  background: #213038;
+    transform 0.15s var(--ease),
+    background-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .btn:active {
-  transform: translateY(1px) scale(0.985);
+  transform: scale(0.97);
 }
 
 .btn.primary {
@@ -252,20 +252,27 @@ kbd,
     0 6px 14px -8px rgba(0, 0, 0, 0.6);
 }
 
-.btn.primary:hover {
-  background: #ffdc7a;
-}
-
 .btn.ghost {
   background: transparent;
 }
 
-.btn.ghost:hover {
-  background: rgba(214, 236, 240, 0.06);
-}
-
 .btn svg {
   flex: none;
+}
+
+/* Hover states only where a pointer can really hover; touch fires them on tap. */
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover {
+    background: #213038;
+  }
+
+  .btn.primary:hover {
+    background: #ffdc7a;
+  }
+
+  .btn.ghost:hover {
+    background: rgba(214, 236, 240, 0.06);
+  }
 }
 
 .btn .sub {
