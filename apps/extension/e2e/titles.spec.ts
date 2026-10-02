@@ -145,3 +145,16 @@ test("watch on my own from the new-movie prompt keeps the friend where they are"
     await friend.context.close();
   }
 });
+
+test("closing the room's title clears Now watching quickly (BUG-026)", async ({ ext }) => {
+  const { friend, fpop, hostTab } = await room(ext);
+  try {
+    await fpop.reload();
+    await expect(fpop.locator(".now-name")).toHaveText("Demo Show, E1");
+    await hostTab.close(); // the only one watching closes it
+    await fpop.reload();
+    await expect(fpop.locator(".now-name")).toHaveText("Nothing playing", { timeout: 2000 });
+  } finally {
+    await friend.context.close();
+  }
+});

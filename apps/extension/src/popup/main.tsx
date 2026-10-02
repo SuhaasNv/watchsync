@@ -389,6 +389,14 @@ function roomTitleName(state: AppState): string | null {
   );
 }
 
+/** Whether anyone in the room has the room's title open right now (BUG-026). */
+function someoneOn(state: AppState): boolean {
+  const media = state.media;
+  return (
+    Boolean(media) && state.participants.some((p) => p.connected && p.titleId === media?.titleId)
+  );
+}
+
 /** "Open Dark" when the room is on a title this person doesn't have open. */
 function OpenTitle({ state, me }: { state: AppState; me: string }) {
   const media = state.media;
@@ -470,7 +478,9 @@ function RoomScreen({ state }: { state: AppState }) {
               Now watching
             </span>
             <p className="now-name">
-              {media ? (roomTitleName(state) ?? SERVICE_LABEL[media.service]) : "Nothing yet"}
+              {media && someoneOn(state)
+                ? (roomTitleName(state) ?? SERVICE_LABEL[media.service])
+                : "Nothing playing"}
             </p>
             <p className="hint">{summary(state, s.participantId)}</p>
           </section>
