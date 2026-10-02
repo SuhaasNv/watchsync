@@ -46,10 +46,18 @@ test("the room waits while someone buffers, then resumes together", async ({ ext
     await expect(hostTab.getByText("Waiting for Asha to load")).toBeVisible();
     await expect(hostTab.getByRole("img", { name: "Asha, loading" })).toBeVisible();
 
+    const selfNotice = tab
+      .getByText(/^Asha (pressed play|paused)/)
+      .waitFor({ timeout: 4000 })
+      .then(() => true)
+      .catch(() => false);
     await buffering(tab, false);
     await expect.poll(() => playing(hostTab), { timeout: 4000 }).toBe(true);
     await expect(hostTab.getByText("Back together")).toBeVisible();
     await expect.poll(() => gap(tab, hostTab), { timeout: 5000 }).toBeLessThan(1);
+    // The room resumes on Asha's behalf; her own tab never gets a notice about herself (BUG-022).
+    // Notices last 3 s, so watch for one the whole time rather than look once afterwards.
+    expect(await selfNotice).toBe(false);
   } finally {
     await friend.context.close();
   }
