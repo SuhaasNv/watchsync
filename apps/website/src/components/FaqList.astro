@@ -1,0 +1,110 @@
+---
+import type { Faq } from "../lib/faq";
+
+interface Props {
+  items: Faq[];
+  headingLevel?: 2 | 3;
+}
+const { items, headingLevel = 2 } = Astro.props;
+const H = headingLevel === 2 ? "h2" : "h3";
+---
+
+<div class="faq">
+  {
+    items.map((f) => (
+      <details id={f.id}>
+        <summary>
+          <H class="q">{f.q}</H>
+          <span class="sign" aria-hidden="true" />
+        </summary>
+        <div class="a" set:html={f.a} />
+      </details>
+    ))
+  }
+</div>
+
+<style>
+  .faq {
+    box-shadow: inset 0 -1px 0 var(--line);
+  }
+  details {
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-height: 72px;
+    padding-block: 18px;
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  .q {
+    font-size: clamp(1.3rem, 2.4vw, 1.75rem);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    font-variation-settings:
+      "opsz" 48,
+      "SOFT" 100;
+  }
+  summary:hover .q {
+    color: var(--acc);
+  }
+  .sign {
+    position: relative;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px var(--line2);
+  }
+  .sign::before,
+  .sign::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 12px;
+    height: 2px;
+    margin: -1px 0 0 -6px;
+    border-radius: 2px;
+    background: var(--text);
+    transition: transform 0.25s var(--ease);
+  }
+  .sign::after {
+    transform: rotate(90deg);
+  }
+  details[open] .sign::after {
+    transform: rotate(0deg);
+  }
+  details[open] .sign {
+    background: var(--acc);
+    box-shadow: none;
+  }
+  details[open] .sign::before,
+  details[open] .sign::after {
+    background: var(--on-acc);
+  }
+  .a {
+    padding-bottom: 24px;
+    max-width: 44rem;
+    color: var(--text2);
+  }
+  .a :global(p + p) {
+    margin-top: 0.8em;
+  }
+  .a :global(a) {
+    color: var(--text);
+  }
+  .a :global(code) {
+    color: var(--text);
+    background: var(--raised);
+    padding: 0.1em 0.4em;
+    border-radius: 6px;
+  }
+</style>

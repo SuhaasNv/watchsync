@@ -1,0 +1,67 @@
+---
+import FaqList from "../components/FaqList.astro";
+import Details from "../components/home/Details.astro";
+import FinalCta from "../components/home/FinalCta.astro";
+import Flagship from "../components/home/Flagship.astro";
+import Hero from "../components/home/Hero.astro";
+import HowItWorks from "../components/home/HowItWorks.astro";
+import StartTogether from "../components/home/StartTogether.astro";
+import WorksWith from "../components/home/WorksWith.astro";
+import Trust from "../components/Trust.astro";
+import Base from "../layouts/Base.astro";
+import { FAQ } from "../lib/faq";
+
+const teaser = FAQ.filter((f) => f.teaser);
+---
+
+<Base
+  title="WatchSync: watch Netflix, Prime Video and JioHotstar together, in sync"
+  description="A free browser extension for movie nights apart. Press play and your friends' tabs play too, each on their own account. Works in Chrome and Brave."
+>
+  <Hero />
+  <WorksWith />
+  <HowItWorks />
+  <Flagship />
+  <StartTogether />
+  <Details />
+  <Trust />
+  <section class="wrap faq-teaser" aria-labelledby="faq-title">
+    <div class="faq-head">
+      <p class="eyebrow">Questions</p>
+      <h2 id="faq-title">Before you <span class="em">press play.</span></h2>
+      <a class="all" href="/faq/">All questions</a>
+    </div>
+    <FaqList items={teaser} headingLevel={3} />
+  </section>
+  <FinalCta />
+</Base>
+
+<style>
+  .faq-teaser {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 32px clamp(32px, 6vw, 96px);
+    padding-top: clamp(96px, 13vw, 200px);
+  }
+  .faq-head {
+    display: grid;
+    gap: 18px;
+    align-content: start;
+    justify-items: start;
+  }
+  h2 {
+    font-size: clamp(2.6rem, 5.6vw, 4.6rem);
+    letter-spacing: -0.04em;
+  }
+  .all {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-weight: 650;
+  }
+  @media (max-width: 860px) {
+    .faq-teaser {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

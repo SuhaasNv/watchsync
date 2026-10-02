@@ -1,0 +1,52 @@
+---
+import DownloadButton from "../components/DownloadButton.astro";
+import FaqList from "../components/FaqList.astro";
+import Base from "../layouts/Base.astro";
+import { FAQ } from "../lib/faq";
+import { CONTACT_EMAIL } from "../lib/site";
+---
+
+<Base
+  title="FAQ · WatchSync"
+  description="Is WatchSync free? Do friends need their own accounts? Does it see your video? Answers to the questions people ask before their first movie night."
+>
+  <div class="wrap">
+    <header class="page-head">
+      <p class="eyebrow">Questions</p>
+      <h1>Good <span class="em">questions.</span></h1>
+      <p class="lede">
+        The things friends ask before their first movie night. Missing one? Write to
+        <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
+      </p>
+    </header>
+    <FaqList items={FAQ} />
+    <div class="cta">
+      <p class="cta-title">Ready when you are.</p>
+      <DownloadButton withVersion>
+        <a class="btn ghost" href="/install/">How to install</a>
+      </DownloadButton>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .lede a {
+    color: var(--text);
+  }
+  .cta {
+    display: grid;
+    gap: 24px;
+    justify-items: start;
+    margin-top: clamp(64px, 9vw, 120px);
+  }
+  .cta-title {
+    font-family: var(--display);
+    font-size: clamp(2.2rem, 5vw, 3.6rem);
+    font-weight: 560;
+    font-variation-settings:
+      "opsz" 144,
+      "SOFT" 60;
+    letter-spacing: -0.035em;
+    line-height: 1;
+  }
+</style>

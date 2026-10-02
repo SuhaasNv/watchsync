@@ -33,6 +33,10 @@ cd services/signaling && uv run ruff check . && uv run mypy app && uv run pytest
 pnpm gen:protocol                                  # after editing packages/protocol/schema
 ```
 
+## Website
+
+`apps/website` is the public site (Astro, static). `pnpm --filter @watchsync/website dev` runs it on :4321; `build` writes `apps/website/dist` (set `PUBLIC_SITE_URL` for absolute links in previews and the sitemap). `pnpm --filter @watchsync/website e2e` builds it and runs the Playwright and axe checks (GitHub's API is mocked; browsers from `e2e:install` above).
+
 ## Release build and deploy
 
 `pnpm --filter @watchsync/extension zip` builds the zip against production (it refuses a mock build). The room service runbook is [docs/DEPLOY.md](docs/DEPLOY.md).

@@ -1,0 +1,271 @@
+---
+import Mark from "../Mark.astro";
+---
+
+<section class="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <header class="head">
+      <p class="eyebrow">How it works</p>
+      <h2 id="how-title">Four steps, then <span class="em">popcorn.</span></h2>
+    </header>
+
+    <ol class="steps">
+      <li>
+        <span class="num" aria-hidden="true">1</span>
+        <div class="mock" aria-hidden="true">
+          <div class="ext-card">
+            <Mark size={26} />
+            <div>
+              <p class="t">WatchSync</p>
+              <p class="s">0.1.0</p>
+            </div>
+            <span class="toggle on"></span>
+          </div>
+        </div>
+        <h3>Add it to Chrome or Brave</h3>
+        <p>Download the zip and load it into your browser. The install guide shows every click.</p>
+      </li>
+      <li>
+        <span class="num" aria-hidden="true">2</span>
+        <div class="mock" aria-hidden="true">
+          <div class="popup">
+            <p class="s">Room code</p>
+            <p class="code">XBLHRQ</p>
+            <span class="mini-btn">Copy link</span>
+          </div>
+        </div>
+        <h3>Make a room</h3>
+        <p>Type your name and press Create a room. You get a link and a six-letter code.</p>
+      </li>
+      <li>
+        <span class="num" aria-hidden="true">3</span>
+        <div class="mock" aria-hidden="true">
+          <div class="bubble">
+            <p>movie at 9:30? join here</p>
+            <p class="link">…/j/XBLHRQ</p>
+          </div>
+        </div>
+        <h3>Send the link</h3>
+        <p>Friends open it and join. Or they type the code into their own WatchSync.</p>
+      </li>
+      <li>
+        <span class="num" aria-hidden="true">4</span>
+        <div class="mock" aria-hidden="true">
+          <div class="mini-pill">
+            <span class="f ok">S</span><span class="f ok">A</span><span class="f ok">R</span>
+            <span class="mini-btn">Watch on my own</span>
+          </div>
+        </div>
+        <h3>Press play</h3>
+        <p>
+          Each of you opens the title on your own account. Whoever presses play, everyone plays.
+        </p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<style>
+  .how {
+    padding-top: clamp(80px, 11vw, 160px);
+  }
+  .head {
+    display: grid;
+    gap: 18px;
+    max-width: 48rem;
+  }
+  h2 {
+    font-size: clamp(2.6rem, 6vw, 5rem);
+    letter-spacing: -0.035em;
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: clamp(20px, 2.5vw, 36px);
+    margin: clamp(40px, 6vw, 72px) 0 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+  }
+  li {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto auto auto 1fr;
+    gap: 12px;
+    padding-top: 22px;
+    box-shadow: inset 0 1px 0 var(--line2);
+  }
+  .num {
+    font-family: var(--display);
+    font-size: 4.4rem;
+    font-weight: 300;
+    font-variation-settings:
+      "opsz" 144,
+      "SOFT" 100;
+    line-height: 0.8;
+    color: transparent;
+    -webkit-text-stroke: 1.2px var(--acc);
+  }
+  h3 {
+    font-size: 1.55rem;
+    font-weight: 560;
+    letter-spacing: -0.02em;
+    font-variation-settings:
+      "opsz" 48,
+      "SOFT" 80;
+    margin-top: 6px;
+  }
+  li p {
+    color: var(--text2);
+    font-size: 1rem;
+  }
+
+  .mock {
+    display: grid;
+    place-items: center;
+    height: 150px;
+    margin-top: 10px;
+    border-radius: var(--radius);
+    background:
+      radial-gradient(80% 90% at 50% 100%, rgba(255, 210, 90, 0.07), transparent 70%),
+      var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .t {
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+  .s {
+    font-size: 0.8rem;
+    color: var(--text2);
+  }
+  .ext-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 82%;
+    padding: 14px;
+    border-radius: 12px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line2);
+  }
+  .ext-card div {
+    flex: 1;
+  }
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    border-radius: 99px;
+    background: #5a6a6d;
+  }
+  .toggle.on {
+    background: var(--pres);
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bg);
+  }
+  .toggle.on::after {
+    left: 19px;
+  }
+  .popup {
+    display: grid;
+    gap: 4px;
+    justify-items: start;
+    width: 82%;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line2);
+  }
+  .code {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+  }
+  .mini-btn {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: var(--acc);
+    color: var(--on-acc);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  .bubble {
+    max-width: 82%;
+    padding: 12px 14px;
+    border-radius: 16px 16px 4px 16px;
+    background: #1f3a35;
+    font-size: 0.95rem;
+    justify-self: end;
+    margin-right: 9%;
+  }
+  .bubble .link {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--pres);
+    text-decoration: underline;
+    margin-top: 2px;
+  }
+  .mini-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 99px;
+    background: var(--bg);
+    box-shadow:
+      0 6px 20px rgba(0, 0, 0, 0.4),
+      inset 0 0 0 1px var(--line2);
+  }
+  .mini-pill .mini-btn {
+    margin: 0 4px 0 2px;
+    background: var(--raised);
+    color: var(--text);
+  }
+  .f {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--raised);
+    font-size: 0.75rem;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 2px var(--pres);
+  }
+  .f::after {
+    content: "";
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--pres);
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+
+  @media (max-width: 1100px) {
+    .steps {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: 48px;
+    }
+  }
+  @media (max-width: 600px) {
+    .steps {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

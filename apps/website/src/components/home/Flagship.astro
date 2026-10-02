@@ -1,0 +1,253 @@
+---
+const lanes = [
+  { name: "Suhaas", hold: null },
+  { name: "Asha", hold: "ad" },
+  { name: "Ravi", hold: null },
+] as const;
+---
+
+<section class="flag" aria-labelledby="flag-title" data-reveal>
+  <div class="wrap">
+    <p class="eyebrow">The part we are proudest of</p>
+    <h2 id="flag-title" class="giant">
+      <span class="l1">Nobody</span>
+      <span class="l2">gets left</span>
+      <span class="l3 em">behind.</span>
+    </h2>
+
+    <div class="grid">
+      <div class="copy">
+        <p class="lede">
+          Asha's video stops for an ad. On a normal watch party, the room drifts apart and someone
+          types "wait, pause". WatchSync pauses everyone, tells them why, and starts the room again
+          the moment she's back.
+        </p>
+        <p>
+          It does the same when someone's video is still loading. If a wait runs past 90 seconds,
+          the others choose: keep waiting, or watch without her.
+        </p>
+      </div>
+
+      <figure class="lanes">
+        <div class="rows" aria-hidden="true">
+          {
+            lanes.map((l) => (
+              <div class="lane">
+                <span class="name">{l.name}</span>
+                <span class="bar">
+                  <span class="seg played" />
+                  <span class:list={["seg", l.hold ? "ad" : "wait"]}>{l.hold ? "Ad · 0:20" : "waits"}</span>
+                  <span class="seg played after" />
+                </span>
+              </div>
+            ))
+          }
+          <span class="playhead"></span>
+        </div>
+        <div class="cards" aria-hidden="true">
+          <p class="card wait-card">
+            <span class="dot"></span>Asha is on an ad · about 0:20 left
+          </p>
+          <p class="card back">Back together</p>
+        </div>
+        <figcaption>
+          While Asha watches her ad, Suhaas and Ravi wait at the same frame. Their screens say
+          "Asha is on an ad · about 0:20 left", then "Back together" when everyone plays again.
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<style>
+  .flag {
+    position: relative;
+    padding-top: clamp(96px, 13vw, 200px);
+  }
+  .giant {
+    margin-top: 22px;
+    font-size: clamp(4.2rem, 16.5vw, 15rem);
+    font-weight: 640;
+    line-height: 0.84;
+    letter-spacing: -0.055em;
+    font-variation-settings:
+      "opsz" 144,
+      "SOFT" 30;
+  }
+  .giant span {
+    display: block;
+  }
+  .l2 {
+    padding-left: 0.9em;
+    color: var(--text2);
+    font-weight: 300;
+  }
+  .l3 {
+    padding-left: 0.4em;
+    font-weight: 380;
+  }
+  /* The last line arrives late, then lands in place with the others. */
+  @media (prefers-reduced-motion: no-preference) {
+    .flag[data-reveal] .l3 {
+      transition:
+        transform 1.1s var(--ease) 0.5s,
+        opacity 0.8s ease-out 0.5s;
+    }
+    :global(.js) .flag[data-reveal]:not(.in) .l3 {
+      transform: translateX(-0.6em);
+      opacity: 0;
+    }
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: clamp(32px, 5vw, 80px);
+    align-items: start;
+    margin-top: clamp(40px, 6vw, 80px);
+  }
+  .copy {
+    display: grid;
+    gap: 20px;
+    color: var(--text2);
+  }
+  .copy .lede {
+    color: var(--text);
+  }
+
+  .lanes {
+    margin: 0;
+    padding: clamp(20px, 3vw, 32px);
+    border-radius: 20px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .rows {
+    position: relative;
+    display: grid;
+    gap: 14px;
+  }
+  .lane {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    align-items: center;
+    gap: 12px;
+  }
+  .name {
+    font-weight: 650;
+    font-size: 0.95rem;
+  }
+  .bar {
+    display: grid;
+    grid-template-columns: 38fr 26fr 36fr;
+    height: 30px;
+    gap: 3px;
+  }
+  .seg {
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .played {
+    background: rgba(236, 242, 241, 0.85);
+  }
+  .after {
+    background: rgba(236, 242, 241, 0.32);
+  }
+  .ad {
+    background: var(--warn);
+    color: #1b1503;
+  }
+  .wait {
+    color: var(--text);
+    background: repeating-linear-gradient(
+      -45deg,
+      rgba(255, 159, 74, 0.2) 0 6px,
+      rgba(255, 159, 74, 0.07) 6px 12px
+    );
+    box-shadow: inset 0 0 0 1px rgba(255, 159, 74, 0.4);
+  }
+  /* One playhead through every lane: the room's position. */
+  .playhead {
+    position: absolute;
+    top: -8px;
+    bottom: -8px;
+    left: calc(84px + (100% - 84px) * 0.64);
+    width: 2px;
+    border-radius: 2px;
+    background: var(--acc);
+    box-shadow: 0 0 14px rgba(255, 210, 90, 0.7);
+  }
+  .playhead::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: -5px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--acc);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .flag[data-reveal] .playhead {
+      transition: left 2.6s cubic-bezier(0.45, 0, 0.2, 1) 0.3s;
+    }
+    :global(.js) .flag[data-reveal]:not(.in) .playhead {
+      left: 84px;
+    }
+  }
+  .cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+  .card {
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: var(--bg);
+    font-size: 0.95rem;
+    font-weight: 500;
+    box-shadow:
+      0 8px 28px rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(214, 236, 240, 0.12);
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 9px;
+    border-radius: 50%;
+    background: var(--warn);
+  }
+  .back {
+    color: var(--pres);
+  }
+  figcaption {
+    margin-top: 18px;
+    font-size: 0.9rem;
+    color: var(--text2);
+  }
+  @media (max-width: 900px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 480px) {
+    .lane {
+      grid-template-columns: 56px 1fr;
+      gap: 8px;
+    }
+    .playhead {
+      left: calc(64px + (100% - 64px) * 0.64);
+    }
+    .seg {
+      font-size: 0.62rem;
+    }
+  }
+</style>
