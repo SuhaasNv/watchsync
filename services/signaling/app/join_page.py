@@ -4,6 +4,8 @@ The extension's join-page script takes over the invite page when installed."""
 import html
 import re
 
+from . import config
+
 CODE = re.compile(r"[A-HJ-NP-Z2-9]{6}")
 
 # No scripts: the pages only explain; the extension adds the Join form.
@@ -61,6 +63,10 @@ STYLE = """
     height: 24px; border-radius: 50%; display: grid; place-items: center; background: #19242a;
     color: #ecf2f1; font-size: 13px; font-weight: 650; line-height: 1;
     box-shadow: inset 0 0 0 1px rgba(214, 236, 240, 0.18); }
+  .get { display: flex; align-items: center; justify-content: center; height: 48px;
+    margin: 4px 0 8px; border-radius: 12px; background: #ffd25a; color: #1b1503;
+    font-weight: 650; text-decoration: none; }
+  .get:hover { background: #ffdd80; }
   .trust { display: flex; gap: 12px; align-items: flex-start; margin: 16px 0 0;
     padding: 14px 16px; border-radius: 16px; font-size: 14px; line-height: 1.45;
     background: rgba(94, 216, 195, 0.06); box-shadow: inset 0 0 0 1px rgba(94, 216, 195, 0.18); }
@@ -158,6 +164,10 @@ def render(code: str) -> str | None:
     code = code.upper()
     if not CODE.fullmatch(code):
         return None
+    # Not installed yet (the extension replaces #install when it is): getting WatchSync comes
+    # first, from the store once it's listed, from the install guide until then (BUG-060).
+    get_url = html.escape(config.STORE_URL or f"{config.SITE_URL}/install/", quote=True)
+    get_label = "Add WatchSync to Chrome" if config.STORE_URL else "Get WatchSync for Chrome"
     body = f"""  <div class="card">
   <h1>You're invited to watch together</h1>
   <div class="code-tile">
@@ -166,18 +176,13 @@ def render(code: str) -> str | None:
   </div>
   <section id="install">
     <p class="note">{LAPTOP}<span>Open this link on your computer (Chrome or Brave).</span></p>
-    <p>Already have WatchSync? Type the code in the WatchSync popup.</p>
-    <p>New to WatchSync? Install it in Chrome or Brave, then come back to this page:</p>
+    <p>To join, first add WatchSync to Chrome or Brave. It's free and takes about a minute.</p>
     <ol class="steps">
-      <li>Ask your friend for the WatchSync zip file.</li>
-      <li>Unzip it. On Windows, right-click the zip and choose Extract All. On a Mac,
-        double-click it. Keep the folder somewhere you won't delete it.</li>
-      <li>Type <code>chrome://extensions</code> in the address bar (in Brave,
-        <code>brave://extensions</code>) and turn on Developer mode.</li>
-      <li>Click Load unpacked and pick the extracted folder, the one with
-        <code>manifest.json</code> inside.</li>
-      <li>Refresh this page.</li>
+      <li>Get WatchSync:
+        <a class="get" href="{get_url}" rel="noopener">{get_label}</a></li>
+      <li>Come back to this link and join with your name.</li>
     </ol>
+    <p>Already have WatchSync? Refresh this page, or type the code in the WatchSync popup.</p>
     <p>Each of you needs your own Netflix, Prime Video or JioHotstar account.
       If the room has ended, ask your friend for a new link.</p>
   </section>
