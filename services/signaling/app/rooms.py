@@ -23,7 +23,7 @@ TITLE_PAGES = {
     "jiohotstar": re.compile(
         r"https://www\.(?:jio)?hotstar\.com(?:/[A-Za-z0-9_-]{1,200}){0,10}/[0-9]{6,20}/watch"
     ),
-    "mock": re.compile(r"http://localhost:4173/watch/[A-Za-z0-9_-]{1,100}"),
+    "mock": re.compile(r"http://localhost:4173/watch/[A-Za-z0-9_-]{1,200}"),
 }
 
 

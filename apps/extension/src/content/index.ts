@@ -445,6 +445,9 @@ function checkDrift() {
     return;
   }
   playStateSince = 0;
+  // A speed tool running this player at another speed than the room (past 4x, BUG-034):
+  // positions can't line up, and jumping it back would swallow the person's next press.
+  if (Math.abs(local.rate - playback.rate) > 0.01) return showBehind(null);
   const expected = expectedPosition(playback, Date.now() + room.clockOffset);
   const action = decide(local.position, expected, DEFAULT_SYNC);
   if (action === "none") return showBehind(null);

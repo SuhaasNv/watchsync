@@ -86,7 +86,7 @@ export const SERVICE_LABEL: Record<Service, string> = {
 /** The test player's pages, in mock builds only. */
 const MOCK_PAGE: [Service, RegExp] = [
   "mock",
-  /^http:\/\/localhost:4173\/watch\/[A-Za-z0-9_-]{1,100}$/,
+  /^http:\/\/localhost:4173\/watch\/[A-Za-z0-9_-]{1,200}$/,
 ];
 
 /**
