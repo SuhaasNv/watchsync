@@ -26,6 +26,7 @@ export type PlaybackUpdate = Envelope & {
   type?: "PLAYBACK.UPDATE";
   payload?: {
     action: "play" | "pause" | "seek";
+    status: "playing" | "paused";
     position: Seconds;
     rate: Rate;
     titleId: TitleId;

@@ -214,7 +214,13 @@ def test_playback_update_is_stamped_kept_and_sent_to_others_only() -> None:
                 "id": "u",
                 "type": "PLAYBACK.UPDATE",
                 "timestamp": 1,
-                "payload": {"action": "pause", "position": 61.5, "rate": 1, "titleId": "1"},
+                "payload": {
+                    "action": "pause",
+                    "status": "paused",
+                    "position": 61.5,
+                    "rate": 1,
+                    "titleId": "1",
+                },
             }
         )
         hws.send_json({"id": "p", "type": "SYS.PING", "timestamp": 1, "payload": {"t1": 1}})
@@ -317,3 +323,27 @@ def test_security_headers() -> None:
     assert r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["referrer-policy"] == "no-referrer"
     assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+
+
+def test_a_first_jump_keeps_the_senders_play_state() -> None:
+    host = create()
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "id": "s",
+                "type": "PLAYBACK.UPDATE",
+                "timestamp": 1,
+                "payload": {
+                    "action": "seek",
+                    "status": "playing",
+                    "position": 10,
+                    "rate": 1,
+                    "titleId": "1",
+                },
+            }
+        )
+        ws.send_json({"id": "p", "type": "SYS.PING", "timestamp": 1, "payload": {"t1": 1}})
+        next_of(ws, "SYS.PONG")
+    playback = main.rooms.rooms[host["code"]].playback
+    assert playback is not None and playback["status"] == "playing"
