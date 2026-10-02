@@ -86,6 +86,10 @@ const ogImage = new URL("/og.png", site).href;
     outline: none;
   }
   .dev-strip {
+    /* Above the header's status-bar cover (Header.astro ::before), which reaches up over
+       everything above the bar (BUG-053). */
+    position: relative;
+    z-index: 51;
     margin: 0;
     padding: 8px 16px;
     background: var(--acc);
