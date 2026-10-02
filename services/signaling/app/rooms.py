@@ -52,11 +52,12 @@ class Participant:
     token: str
     service: str = "none"
     title_id: str | None = None
-    # The last title this person had open, kept while they browse between titles (BUG-014).
-    last_title_id: str | None = None
     title_name: str | None = None
     # What this person has open now, as the room would take it (BUG-047).
     media: dict[str, Any] | None = None
+    # Has had a title open in this room. The first one is where they arrived, not a pick
+    # that moves everyone (DEC-030).
+    watched: bool = False
     following: bool = True
     connected: bool = False
     hold: str | None = None  # "buffering" or "ad": the room waits for this person

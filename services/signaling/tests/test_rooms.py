@@ -275,7 +275,7 @@ def next_of(ws: Any, type_: str) -> dict[str, Any]:
             return m
 
 
-def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
+def test_room_moves_to_the_last_title_anyone_opens() -> None:
     host = create()
     guest = join(host["code"]).json()
     url = f"/ws/rooms/{host['code']}?token="
@@ -291,8 +291,19 @@ def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
         next_of(hws, "ROOM.MEDIA")
         assert next_of(gws, "ROOM.MEDIA")["payload"]["media"]["titleId"] == "1"
         assert main.rooms.rooms[host["code"]].playback is None  # opener may be resuming
-        presence(gws, "9")  # guest opens something else: the room stays
+        presence(gws, "8")  # the guest arrives on another title: offered the room's instead
         next_of(gws, "ROOM.PARTICIPANT")
+        assert main.rooms.rooms[host["code"]].media["titleId"] == "1"  # type: ignore[index]
+        presence(gws, "9")  # then picks another: the room follows them (DEC-030)
+        next_of(gws, "ROOM.MEDIA")
+        moved = next_of(hws, "ROOM.MEDIA")["payload"]
+        assert moved["media"]["titleId"] == "9" and moved["byName"] == "Asha"
+        assert moved["how"] == "new"  # not straight on from the room's title
+        presence(hws, "9")  # host opens the guest's title: no move
+        next_of(hws, "ROOM.PARTICIPANT")
+        presence(hws, "1")  # and back to 1, which is now a new title again
+        next_of(hws, "ROOM.MEDIA")
+        next_of(gws, "ROOM.MEDIA")
         presence(gws, "1")  # guest joins the room's title
         next_of(gws, "ROOM.PARTICIPANT")
         assert main.rooms.rooms[host["code"]].media["titleId"] == "1"  # type: ignore[index]
@@ -923,18 +934,19 @@ def test_a_title_nobody_has_open_gives_way_in_either_order() -> None:
             next_of(gws, "ROOM.MEDIA")
             next_of(hws, "ROOM.MEDIA")
             if host_first:
-                presence(hws, "7")  # the guest is still on 1: the room stays
+                presence(hws, "7")  # the host arrives on 7 while the guest is on 1: it stays
                 next_of(hws, "ROOM.PARTICIPANT")
-                presence(gws, None)  # the guest closes it: the room goes to the host's
+                presence(gws, None)  # the guest closes 1: the room goes to the host's 7
                 moved = next_of(gws, "ROOM.MEDIA")["payload"]
+                assert moved["media"]["titleId"] == "7" and moved["byName"] == "Suhaas"
             else:
                 presence(gws, None)  # the guest closes it first
                 next_of(gws, "ROOM.PARTICIPANT")
                 presence(hws, "7")  # the host's new title takes the room
                 next_of(hws, "ROOM.MEDIA")
                 moved = next_of(gws, "ROOM.MEDIA")["payload"]
-            assert moved["media"]["titleId"] == "7", host_first
-            assert moved["byName"] == "Suhaas" and moved["how"] == "new"
+                assert moved["media"]["titleId"] == "7" and moved["byName"] == "Suhaas"
+            assert moved["how"] == "new"
             assert main.rooms.rooms[host["code"]].playback is None
 
 
