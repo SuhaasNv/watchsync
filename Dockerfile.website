@@ -1,0 +1,25 @@
+# Marketing site and downloads page (apps/website, a static Astro build) served by Caddy.
+# Built from the repo root because the site is a pnpm workspace package.
+
+FROM node:24-slim AS build
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 CI=1
+RUN corepack enable
+WORKDIR /repo
+
+# Manifests first, so a content-only change reuses the dependency layer.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages ./packages
+COPY apps/extension/package.json ./apps/extension/package.json
+COPY apps/website/package.json ./apps/website/package.json
+RUN pnpm install --frozen-lockfile --filter "@watchsync/website..."
+
+COPY apps/website ./apps/website
+RUN pnpm --filter @watchsync/website build
+
+FROM caddy:2-alpine
+COPY apps/website/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /repo/apps/website/dist /srv
+# Static files only: no admin API, no certificates (Railway's edge terminates TLS), no root.
+USER nobody
+ENV XDG_CONFIG_HOME=/tmp/caddy XDG_DATA_HOME=/tmp/caddy
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
