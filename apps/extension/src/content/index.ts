@@ -40,6 +40,16 @@ function reconcile(roomBefore: Media | null) {
   const step = align(roomBefore, media, mine, room.following);
   if (step.kind === "none") return clearPrompt("align");
   const title = media.titleName ?? "a title";
+  if (new URL(step.url).pathname === location.pathname) {
+    // Same page, different episode (Prime changes episodes inside its player): there is
+    // no address to open, so say where the room is instead of reloading the page.
+    if (dismissed === media.titleId) return;
+    return prompt(
+      `${whoIsOn(media)} is on ${title}. Pick it in the player to watch together.`,
+      [{ label: "OK", run: () => (dismissed = media.titleId) }],
+      "align",
+    );
+  }
   if (step.kind === "follow") {
     toast(`Moving to ${title} with ${whoIsOn(media)}`);
     location.assign(step.url);

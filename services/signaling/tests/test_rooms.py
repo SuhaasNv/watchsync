@@ -455,6 +455,10 @@ def test_someone_leaving_mid_wait_releases_the_room() -> None:
         next_of(gws, "ROOM.PARTICIPANT")
         next_of(hws, "PLAYBACK.STATE")
         gws.send_json(msg("ROOM.LEAVE", {}))
+        # Let the guest's handler finish (TestClient runs it while we read its socket).
+        with pytest.raises(WebSocketDisconnect):
+            while True:
+                gws.receive_json()
         assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
         assert not main.rooms.rooms[host["code"]].held
     finally:

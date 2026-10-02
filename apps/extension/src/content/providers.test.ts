@@ -2,7 +2,7 @@ import type { Media } from "@watchsync/protocol";
 import { expect, test } from "vitest";
 import { align } from "./align";
 import { clock } from "./playback";
-import { mainVideo, netflixMedia } from "./providers";
+import { mainVideo, netflixMedia, primeAd, primeMedia } from "./providers";
 
 // Shape of Netflix's title overlay from the UC-002 desk research, not yet captured from a
 // live account. Replace with a real capture during the DEC-019 confirm checks.
@@ -63,4 +63,37 @@ test("clock formats notice times", () => {
   expect(clock(62)).toBe("1:02");
   expect(clock(3723)).toBe("1:02:03");
   expect(clock(-3)).toBe("0:00");
+});
+
+// Shapes from the UC-002 desk research; replace with live captures during the DEC-019 checks.
+const PRIME_PLAYER = `<div class="atvwebplayersdk-title-text">The Boys</div>
+  <div class="atvwebplayersdk-subtitle-text">Season 1, Ep. 3 Get Some</div>`;
+
+test("prime reads the title from the URL and the episode from the player", () => {
+  const m = primeMedia(
+    new URL("https://www.primevideo.com/detail/0KRGHGZCHKS920ZQGY5LBRF7MA/ref=x?autoplay=1"),
+    doc(PRIME_PLAYER),
+  );
+  expect(m).toEqual({
+    service: "prime",
+    titleId: "0KRGHGZCHKS920ZQGY5LBRF7MA:Season 1, Ep. 3 Get Some",
+    titleName: "The Boys, Season 1, Ep. 3 Get Some",
+    titleUrl: "https://www.primevideo.com/detail/0KRGHGZCHKS920ZQGY5LBRF7MA",
+  });
+});
+
+test("prime on amazon.in keeps the gp/video path, and browsing isn't watching", () => {
+  const m = primeMedia(
+    new URL("https://www.amazon.in/gp/video/detail/B0ABC12345"),
+    doc(PRIME_PLAYER),
+  );
+  expect(m?.titleUrl).toBe("https://www.amazon.in/gp/video/detail/B0ABC12345");
+  expect(primeMedia(new URL("https://www.primevideo.com/detail/X1"), doc(""))).toBeNull();
+});
+
+test("prime ad timer gives the time left", () => {
+  expect(primeAd(doc(`<span class="atvwebplayersdk-ad-timer">Ad 0:25</span>`))).toEqual({
+    left: 25,
+  });
+  expect(primeAd(doc(""))).toBeNull();
 });

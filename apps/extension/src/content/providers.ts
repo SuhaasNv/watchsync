@@ -81,14 +81,44 @@ export function netflixMedia(url: URL, doc: Document, lastName: string | null): 
   };
 }
 
+const PRIME_HOSTS = /^www\.(primevideo\.com|amazon\.(com|in|co\.uk|de))$/;
+
+/**
+ * Prime Video: the title is /detail/<id> (or the gti parameter); episodes often change
+ * inside the player without a URL change, so the episode line is part of the identity.
+ */
+export function primeMedia(url: URL, doc: Document): Media | null {
+  const id = url.pathname.match(/\/detail\/([\w.-]+)/)?.[1] ?? url.searchParams.get("gti");
+  const title = text(doc, ".atvwebplayersdk-title-text");
+  if (!id || !title) return null; // no player open: browsing, not watching
+  const episode = text(doc, ".atvwebplayersdk-subtitle-text");
+  const base = url.pathname.startsWith("/gp/video") ? "/gp/video/detail" : "/detail";
+  return {
+    service: "prime",
+    titleId: episode ? `${id}:${episode}` : id,
+    titleName: episode ? `${title}, ${episode}` : title,
+    titleUrl: `${url.origin}${base}/${id}`,
+  };
+}
+
+/** Prime shows an ad countdown in the player while an ad plays. */
+export function primeAd(doc: Document): { left: number | null } | null {
+  const el = doc.querySelector<HTMLElement>(".atvwebplayersdk-ad-timer");
+  if (!el || el.checkVisibility?.() === false) return null; // absent or hidden: no ad
+  return { left: adSeconds(el.textContent) };
+}
+
 /** The local test player used by the end-to-end tests: /watch/<id> with <h1 data-title>. */
 export function mockMedia(url: URL, doc: Document): Media | null {
   const id = url.pathname.match(/^\/watch\/([\w-]+)/)?.[1];
   if (!id) return null;
+  // [data-episode] mimics Prime: the episode changes inside the player, not in the URL.
+  const episode = doc.querySelector<HTMLElement>("[data-episode]")?.dataset.episode;
+  const title = text(doc, "[data-title]");
   return {
     service: "mock",
-    titleId: id,
-    titleName: text(doc, "[data-title]"),
+    titleId: episode ? `${id}:${episode}` : id,
+    titleName: episode ? `${title}, ${episode}` : title,
     titleUrl: `${url.origin}/watch/${id}`,
   };
 }
@@ -169,6 +199,10 @@ function netflixProvider(): StreamingProvider {
 
 export function providerFor(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
+  if (PRIME_HOSTS.test(host)) {
+    const base = videoProvider("prime", () => primeMedia(new URL(location.href), document));
+    return { ...base, ad: () => primeAd(document) };
+  }
   if (__MOCK__ && host === "localhost:4173") {
     // The mock player stands in for a service in tests: [data-ad] is its ad marker, and
     // data-buffering on <body> stands in for a starved player.
