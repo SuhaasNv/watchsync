@@ -1,6 +1,7 @@
 import type { Media } from "@watchsync/protocol";
 import { expect, test } from "vitest";
 import { align } from "./align";
+import { clock } from "./playback";
 import { mainVideo, netflixMedia } from "./providers";
 
 // Shape of Netflix's title overlay from the UC-002 desk research, not yet captured from a
@@ -55,4 +56,11 @@ test("align follows the room to the next episode only for someone who was with i
   expect(align(null, { ...ep("2"), titleUrl: "https://evil.example/" }, null, true).kind).toBe(
     "none",
   );
+});
+
+test("clock formats notice times", () => {
+  expect(clock(2530)).toBe("42:10");
+  expect(clock(62)).toBe("1:02");
+  expect(clock(3723)).toBe("1:02:03");
+  expect(clock(-3)).toBe("0:00");
 });

@@ -1,10 +1,11 @@
 // Content script on supported service pages: reports what this tab has open and
 // keeps it on the room's title.
 import type { Media } from "@watchsync/protocol";
+import { expectedPosition } from "@watchsync/sync-engine";
 import type { AppState, Push, TabEvent } from "../shared/messages";
 import { align } from "./align";
 import { clearPrompt, prompt, toast } from "./overlay";
-import { apply, listen } from "./playback";
+import { apply, clock, listen } from "./playback";
 import { providerFor } from "./providers";
 
 const provider = providerFor(location.host);
@@ -51,17 +52,21 @@ function reconcile(roomBefore: Media | null) {
   ]);
 }
 
-const NOTICE = { play: "pressed play", pause: "paused", seek: "jumped" } as const;
+const NOTICE = { play: "pressed play", pause: "paused" } as const;
 
 function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
     const { playback, action, byName } = m.message.payload;
     if (!provider || !mine || playback.titleId !== mine.titleId) return;
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
+    const before = provider.getState()?.position ?? 0;
     apply(provider, playback, serverNow).catch((e: unknown) =>
       toast(e instanceof Error ? e.message : "WatchSync couldn't control the player"),
     );
-    toast(`${byName} ${NOTICE[action]}`, 3000);
+    if (action !== "seek") return toast(`${byName} ${NOTICE[action]}`, 3000);
+    const to = expectedPosition(playback, serverNow);
+    if (Math.abs(to - before) < 1) return; // already there; nothing visibly moved
+    toast(`${byName} ${to > before ? "skipped ahead" : "went back"} to ${clock(to)}`, 4000);
     return;
   }
   if (m.kind !== "state") return;
