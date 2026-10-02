@@ -305,7 +305,19 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onMessage.addListener((e: TabEvent) => {
       if (e.kind === "playback") {
         const { kind: _, ...update } = e;
-        return sendServer(envelope("PLAYBACK.UPDATE", update));
+        sendServer(envelope("PLAYBACK.UPDATE", update));
+        // The room tells everyone but the sender; keep our own copy of its clock current
+        // too, or our drift check and wait card judge against the old one (BUG-006).
+        const { status, position, rate, titleId } = update;
+        state.playback = {
+          status,
+          position,
+          rate,
+          titleId,
+          updatedAt: Date.now() + state.clockOffset,
+        };
+        changed();
+        return;
       }
       if (e.kind === "hold") {
         const { kind: _, ...hold } = e;

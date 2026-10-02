@@ -77,6 +77,9 @@ test("jumps take everyone along, with a notice of where to", async ({ ext }) => 
     await hostTab.waitForTimeout(1600); // past the friend's echo window
     await jump(tab, 20);
     await expect(hostTab.getByText("Asha went back to 0:20")).toBeVisible();
+    // The jumper's own tab must not think it fell behind (BUG-006).
+    await tab.waitForTimeout(2500);
+    await expect(tab.getByText(/You're \d+ seconds/)).toHaveCount(0);
     await expect
       .poll(async () => Math.abs((await position(tab)) - (await position(hostTab))))
       .toBeLessThan(1);
