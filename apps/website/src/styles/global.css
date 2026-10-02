@@ -275,6 +275,29 @@ kbd,
   }
 }
 
+/* Copy buttons: the press is answered in the button itself, in the "present" teal. */
+.btn[data-state="copied"] {
+  background: var(--pres-soft);
+  color: var(--pres);
+  box-shadow: inset 0 0 0 1px rgba(94, 216, 195, 0.45);
+}
+
+.btn[data-state="failed"] {
+  box-shadow: inset 0 0 0 1px rgba(255, 159, 74, 0.6);
+}
+
+.btn[data-state] [data-copy-label],
+.btn[data-state] [data-share-label] {
+  animation: label-in 0.2s var(--ease);
+}
+
+@keyframes label-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
 .btn .sub {
   font-weight: 500;
   opacity: 0.75;

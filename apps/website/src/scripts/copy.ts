@@ -18,14 +18,17 @@ export function initCopyButtons() {
       try {
         await navigator.clipboard.writeText(text);
         label.textContent = "Copied";
+        button.dataset.state = "copied";
         live.textContent = `Copied ${text}`;
       } catch {
         label.textContent = "Select and copy it";
+        button.dataset.state = "failed";
         live.textContent = "Couldn't copy. Select the address and copy it yourself.";
       }
       clearTimeout(timer);
       timer = setTimeout(() => {
         label.textContent = original;
+        delete button.dataset.state;
       }, 2500);
     });
   }

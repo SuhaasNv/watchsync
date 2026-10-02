@@ -23,6 +23,10 @@ const tabs = [
         WatchSync isn't on the Chrome Web Store yet, so you load it into your browser yourself.
         You only do this once. You'll need a computer: WatchSync doesn't run on phones.
       </p>
+      <p class="reassure">
+        Safe to install: the code is public on GitHub, and WatchSync only runs on Netflix, Prime
+        Video and JioHotstar.
+      </p>
       <div class="head-cta">
         <DownloadButton withVersion />
       </div>
@@ -128,15 +132,27 @@ const tabs = [
 
 <script>
   import { initCopyButtons } from "../scripts/copy";
+  import { initStepsProgress } from "../scripts/steps-progress";
   import { initTabs } from "../scripts/tabs";
   initTabs();
   initCopyButtons();
+  initStepsProgress();
 </script>
 
 <style>
   /* Two sticky bars: keep focused elements clear of them (WCAG 2.4.11). */
   :global(html) {
     scroll-padding-top: 170px;
+  }
+  .reassure {
+    max-width: 38em;
+    margin-top: 14px;
+    color: var(--text2);
+    font-size: 1rem;
+  }
+  /* The lede already says it needs a computer. */
+  .head-cta :global(.needs) {
+    display: none;
   }
   .head-cta {
     margin-top: 32px;
@@ -183,8 +199,28 @@ const tabs = [
     font-weight: 650;
     cursor: pointer;
   }
-  [role="tab"]:hover {
-    color: var(--text);
+  [role="tab"] {
+    transition:
+      color 0.15s,
+      background-color 0.15s,
+      transform 0.15s var(--ease);
+  }
+  [role="tab"]:active {
+    transform: scale(0.97);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    [role="tab"]:hover {
+      color: var(--text);
+    }
+  }
+  /* The new panel fades in; nothing slides, so the guide never jumps. */
+  .panel.fade-in {
+    animation: panel-in 0.2s ease-out;
+  }
+  @keyframes panel-in {
+    from {
+      opacity: 0;
+    }
   }
   [role="tab"][aria-selected="true"] {
     background: var(--acc);
