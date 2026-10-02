@@ -2,6 +2,30 @@ import path from "node:path";
 import { type BrowserContext, test as base, chromium } from "@playwright/test";
 
 const dist = path.resolve(import.meta.dirname, "../dist");
+const clip = path.resolve(import.meta.dirname, "mock/clip.webm");
+
+export const MOCK = "http://localhost:4173";
+const TITLES: Record<string, string> = {
+  ep1: "Demo Show, E1",
+  ep2: "Demo Show, E2",
+  film: "Demo Film",
+};
+
+/** The mock player (a stand-in for a streaming service) at localhost:4173/watch/<id>. */
+async function serveMockPlayer(context: BrowserContext) {
+  await context.route(`${MOCK}/**`, (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/clip.webm") return route.fulfill({ path: clip });
+    const id = url.pathname.match(/^\/watch\/([\w-]+)$/)?.[1];
+    if (!id) return route.fulfill({ status: 404, body: "not found" });
+    const next = id === "ep1" ? `<a href="/watch/ep2">Next episode</a>` : "";
+    return route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>Mock player</title><h1 data-title>${TITLES[id] ?? `Demo ${id}`}</h1>
+        <video src="/clip.webm" width="640" height="360" muted autoplay controls></video>${next}`,
+    });
+  });
+}
 
 /** A Chromium profile with the built extension loaded. Each test gets its own. */
 export async function launchWithExtension(): Promise<{
@@ -12,6 +36,7 @@ export async function launchWithExtension(): Promise<{
     channel: "chromium",
     args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
   });
+  await serveMockPlayer(context);
   let [worker] = context.serviceWorkers();
   worker ??= await context.waitForEvent("serviceworker");
   const extensionId = new URL(worker.url()).host;
