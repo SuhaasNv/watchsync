@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Welcome to WatchSync</title>
+    <link rel="icon" href="icons/32.png" />
+    <link rel="stylesheet" href="welcome.css" />
+  </head>
+  <body>
+    <a class="skip" href="#how">Skip to how it works</a>
+    <header class="top">
+      <span class="brand">
+        <svg class="brand-mark" viewBox="0 0 36 22" aria-hidden="true" focusable="false">
+          <circle cx="24" cy="11" r="7.6" class="ring" stroke-width="3" />
+          <circle cx="12" cy="11" r="9" class="dot" />
+        </svg>
+        <span class="word">WatchSync</span>
+      </span>
+      <button type="button" class="ghost" id="skip">Skip intro</button>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hello">
+        <div class="hero-mark" aria-hidden="true">
+          <span class="glow"></span>
+          <svg viewBox="0 0 124 76" aria-hidden="true" focusable="false">
+            <circle class="halo" cx="62" cy="38" r="38" />
+            <g class="ring-move"><circle cx="80" cy="38" r="21" class="ring" stroke-width="10" /></g>
+            <g class="dot-move"><circle cx="44" cy="38" r="26" class="dot" /></g>
+          </svg>
+        </div>
+        <h1 id="hello" class="h1 rise" style="--d: 420ms">Welcome to WatchSync</h1>
+        <p class="lead rise" style="--d: 520ms">
+          Watch together with friends, each on your own account.
+        </p>
+        <p class="works rise" style="--d: 600ms">Works with Netflix, Prime Video and JioHotstar.</p>
+        <a class="btn primary rise" style="--d: 680ms" href="#how">
+          See how it works
+          <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" />
+          </svg>
+        </a>
+      </section>
+
+      <section class="how" id="how" aria-labelledby="how-title" tabindex="-1">
+        <div class="section-head" data-reveal>
+          <h2 id="how-title" class="h2">How it works</h2>
+          <p class="sub">Four steps. You only do the first one once.</p>
+        </div>
+
+        <div class="tour" data-reveal style="--d: 80ms">
+          <div class="tabs" role="tablist" aria-label="Steps">
+            <button type="button" role="tab" id="tab-1" aria-controls="step-1" aria-selected="true">
+              <span class="num">1</span> Pin
+            </button>
+            <button type="button" role="tab" id="tab-2" aria-controls="step-2" aria-selected="false" tabindex="-1">
+              <span class="num">2</span> Room
+            </button>
+            <button type="button" role="tab" id="tab-3" aria-controls="step-3" aria-selected="false" tabindex="-1">
+              <span class="num">3</span> Open
+            </button>
+            <button type="button" role="tab" id="tab-4" aria-controls="step-4" aria-selected="false" tabindex="-1">
+              <span class="num">4</span> Watch
+            </button>
+          </div>
+
+          <div class="panel" role="tabpanel" id="step-1" aria-labelledby="tab-1">
+            <div class="copy">
+              <p class="kicker">Step 1 of 4</p>
+              <h3 class="h3">Pin WatchSync</h3>
+              <p>
+                Chrome tucks new extensions behind the puzzle icon in the toolbar. Click it, then
+                the pin next to WatchSync, so it's always one click away.
+              </p>
+            </div>
+            <div class="stage">
+              <svg class="scene s1" viewBox="0 0 320 220" aria-hidden="true" focusable="false">
+                <rect class="win" x="8" y="14" width="304" height="198" rx="14" />
+                <path class="bar" d="M8 28a14 14 0 0 1 14-14h276a14 14 0 0 1 14 14v26H8z" />
+                <rect class="addr" x="22" y="24" width="160" height="20" rx="10" />
+                <rect class="faint" x="36" y="32" width="72" height="4" rx="2" />
+                <g class="pinned">
+                  <circle cx="224" cy="34" r="5" class="ring" stroke-width="2.4" />
+                  <circle cx="216" cy="34" r="6.2" class="dot" />
+                </g>
+                <path class="puzzle" d="M245 30.5h4a2.5 2.5 0 1 1 5 0h4v4a2.5 2.5 0 1 1 0 5v4h-13z" />
+                <circle class="avatar-dim" cx="284" cy="34" r="8" />
+                <circle class="rip rip1" cx="251" cy="36" r="13" />
+                <g class="menu">
+                  <rect class="card" x="140" y="62" width="166" height="110" rx="12" />
+                  <text class="cap" x="154" y="83">Extensions</text>
+                  <rect class="row-hi" x="148" y="92" width="150" height="30" rx="8" />
+                  <circle cx="170" cy="107" r="4.4" class="ring" stroke-width="2.2" />
+                  <circle cx="163" cy="107" r="5.6" class="dot" />
+                  <text class="label" x="182" y="111">WatchSync</text>
+                  <path class="pin pin-on" d="M283 99h8l-1 5 3 3h-12l3-3zM287 107v6" />
+                  <rect class="faint" x="157" y="134" width="13" height="13" rx="4" />
+                  <rect class="faint" x="182" y="138" width="58" height="5" rx="2.5" />
+                  <path class="pin pin-off" d="M283 132h8l-1 5 3 3h-12l3-3zM287 140v6" />
+                </g>
+                <circle class="rip rip2" cx="287" cy="106" r="12" />
+                <path class="cursor" d="M0 0v17l4.6-4.2 3.2 7 3-1.3-3.1-6.8H14z" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="step-2" aria-labelledby="tab-2" hidden>
+            <div class="copy">
+              <p class="kicker">Step 2 of 4</p>
+              <h3 class="h3">Create a room, or join one</h3>
+              <p>
+                Click WatchSync and enter your name. Create a room, then send your friends the link
+                or the 6-letter code.
+              </p>
+              <p>Got a link from a friend? Open it, or type the code in WatchSync.</p>
+            </div>
+            <div class="stage">
+              <svg class="scene s2" viewBox="0 0 320 220" aria-hidden="true" focusable="false">
+                <rect class="card" x="66" y="10" width="188" height="200" rx="16" />
+                <circle cx="94" cy="32" r="5" class="ring" stroke-width="2.4" />
+                <circle cx="86" cy="32" r="6.2" class="dot" />
+                <text class="label strong" x="102" y="36">WatchSync</text>
+                <path class="hair" d="M66 50h188" />
+                <text class="cap" x="82" y="68">Your name</text>
+                <rect class="field" x="82" y="74" width="156" height="26" rx="8" />
+                <text class="label" x="92" y="91">Maya</text>
+                <rect class="typing" x="90" y="78" width="40" height="18" />
+                <g class="press">
+                  <rect class="btn-acc" x="82" y="108" width="156" height="28" rx="8" />
+                  <text class="on-acc" x="160" y="126" text-anchor="middle">Create a room</text>
+                </g>
+                <g class="room">
+                  <path class="hair" d="M82 150h156" />
+                  <text class="cap" x="82" y="168">Room code</text>
+                  <text class="code" x="82" y="192">K7M2QX</text>
+                  <rect class="code-cover" x="80" y="176" width="84" height="22" />
+                  <circle class="face" cx="200" cy="184" r="11" />
+                  <text class="initial" x="200" y="188" text-anchor="middle">M</text>
+                </g>
+                <g class="joined">
+                  <circle class="face in-sync" cx="224" cy="184" r="11" />
+                  <text class="initial" x="224" y="188" text-anchor="middle">A</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="step-3" aria-labelledby="tab-3" hidden>
+            <div class="copy">
+              <p class="kicker">Step 3 of 4</p>
+              <h3 class="h3">Open the same title</h3>
+              <p>
+                Each of you opens it on Netflix, Prime Video or JioHotstar, signed in to your own
+                account. If you're on different titles, WatchSync offers to open the right one.
+              </p>
+            </div>
+            <div class="stage">
+              <svg class="scene s3" viewBox="0 0 320 220" aria-hidden="true" focusable="false">
+                <g class="screen left">
+                  <rect class="frame" x="14" y="30" width="124" height="88" rx="10" />
+                  <path class="stand" d="M64 118h24v8H64zM52 126h48" />
+                  <g class="tiles">
+                    <rect x="24" y="40" width="32" height="20" rx="4" />
+                    <rect x="60" y="40" width="32" height="20" rx="4" />
+                    <rect x="96" y="40" width="32" height="20" rx="4" />
+                    <rect x="24" y="66" width="32" height="20" rx="4" />
+                    <rect x="60" y="66" width="32" height="20" rx="4" />
+                    <rect x="96" y="66" width="32" height="20" rx="4" />
+                  </g>
+                  <g class="poster">
+                    <rect class="poster-bg" x="22" y="38" width="108" height="72" rx="6" />
+                    <circle class="sun" cx="106" cy="60" r="11" />
+                    <path class="hill" d="M22 96c22-14 40-14 58-4s34 4 50-6v14a6 6 0 0 1-6 6H28a6 6 0 0 1-6-6z" />
+                    <rect class="t1" x="32" y="52" width="44" height="6" rx="3" />
+                    <rect class="t2" x="32" y="62" width="28" height="4" rx="2" />
+                  </g>
+                  <g class="tick"><circle cx="134" cy="34" r="8" /><path d="M130.5 34.2l2.4 2.4 4.6-4.8" /></g>
+                </g>
+                <g class="screen right">
+                  <rect class="frame" x="182" y="30" width="124" height="88" rx="10" />
+                  <path class="stand" d="M232 118h24v8h-24zM220 126h48" />
+                  <g class="tiles">
+                    <rect x="192" y="40" width="32" height="20" rx="4" />
+                    <rect x="228" y="40" width="32" height="20" rx="4" />
+                    <rect x="264" y="40" width="32" height="20" rx="4" />
+                    <rect x="192" y="66" width="32" height="20" rx="4" />
+                    <rect x="228" y="66" width="32" height="20" rx="4" />
+                    <rect x="264" y="66" width="32" height="20" rx="4" />
+                  </g>
+                  <g class="poster">
+                    <rect class="poster-bg" x="190" y="38" width="108" height="72" rx="6" />
+                    <circle class="sun" cx="274" cy="60" r="11" />
+                    <path class="hill" d="M190 96c22-14 40-14 58-4s34 4 50-6v14a6 6 0 0 1-6 6h-96a6 6 0 0 1-6-6z" />
+                    <rect class="t1" x="200" y="52" width="44" height="6" rx="3" />
+                    <rect class="t2" x="200" y="62" width="28" height="4" rx="2" />
+                  </g>
+                  <g class="tick"><circle cx="302" cy="34" r="8" /><path d="M298.5 34.2l2.4 2.4 4.6-4.8" /></g>
+                </g>
+                <path class="link" d="M142 74h36" />
+                <g class="link-mark">
+                  <circle cx="164" cy="74" r="4.4" class="ring" stroke-width="2.2" />
+                  <circle cx="157" cy="74" r="5.6" class="dot" />
+                </g>
+                <text class="label" x="76" y="152" text-anchor="middle">You</text>
+                <text class="cap" x="76" y="168" text-anchor="middle">your account</text>
+                <text class="label" x="244" y="152" text-anchor="middle">Asha</text>
+                <text class="cap" x="244" y="168" text-anchor="middle">her own account</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="panel" role="tabpanel" id="step-4" aria-labelledby="tab-4" hidden>
+            <div class="copy">
+              <p class="kicker">Step 4 of 4</p>
+              <h3 class="h3">Watch like you always do</h3>
+              <p>Play, pause and skip as usual. Everyone follows.</p>
+              <ul class="points">
+                <li>
+                  <strong>Nobody gets left behind.</strong> If someone is buffering or gets an ad,
+                  the room waits for them, then carries on together.
+                </li>
+                <li>
+                  <strong>Start together</strong> counts everyone in: a quick ready check, then 3,
+                  2, 1.
+                </li>
+              </ul>
+            </div>
+            <div class="stage">
+              <svg class="scene s4" viewBox="0 0 320 220" aria-hidden="true" focusable="false">
+                <text class="label" x="20" y="48">You</text>
+                <rect class="track" x="66" y="40" width="232" height="6" rx="3" />
+                <rect class="fill" x="66" y="40" width="232" height="6" rx="3" />
+                <circle class="head" cx="66" cy="43" r="7" />
+
+                <text class="label" x="20" y="104">Asha</text>
+                <rect class="track" x="66" y="96" width="232" height="6" rx="3" />
+                <rect class="fill" x="66" y="96" width="232" height="6" rx="3" />
+                <circle class="head" cx="66" cy="99" r="7" />
+                <g class="spinner">
+                  <circle class="spin-bg" cx="178" cy="99" r="11" />
+                  <path class="spin-arc" d="M178 92a7 7 0 0 1 7 7" />
+                </g>
+
+                <g class="notice">
+                  <rect class="card" x="40" y="136" width="258" height="50" rx="12" />
+                  <g class="waiting">
+                    <circle class="wait-dot" cx="60" cy="161" r="4" />
+                    <text class="label" x="74" y="165">Waiting for Asha to load</text>
+                  </g>
+                  <g class="together">
+                    <circle class="ok" cx="61" cy="161" r="8" />
+                    <path class="ok-tick" d="M57.6 161.2l2.4 2.4 4.4-4.6" />
+                    <text class="label" x="76" y="165">Back together</text>
+                  </g>
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          <div class="controls">
+            <button type="button" class="ghost replay" id="replay">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M3 8a5 5 0 1 0 1.6-3.7M3 2.5v2.8h2.8" />
+              </svg>
+              Replay
+            </button>
+            <span class="grow"></span>
+            <button type="button" class="btn" id="back" disabled>Back</button>
+            <button type="button" class="btn primary" id="next">Next</button>
+          </div>
+          <p class="sr" id="tour-live" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="trust" aria-labelledby="trust-title">
+        <div class="trust-card" data-reveal>
+          <div class="trust-copy">
+            <h2 id="trust-title" class="h2">What WatchSync can see</h2>
+            <p>
+              WatchSync only sees whether the video is playing, where it is, and its title. It
+              can't see your passwords, payments or other sites.
+            </p>
+            <a class="text-link" href="__API_URL__/privacy" target="_blank" rel="noopener"
+              >Read the privacy notice</a
+            >
+          </div>
+          <div class="lists">
+            <div>
+              <h3 class="list-head">Sees</h3>
+              <ul class="checks yes">
+                <li>Playing or paused</li>
+                <li>Where you are in the video</li>
+                <li>The title's name</li>
+              </ul>
+            </div>
+            <div>
+              <h3 class="list-head">Can't see</h3>
+              <ul class="checks no">
+                <li>Your passwords</li>
+                <li>Your payment details</li>
+                <li>Other sites you visit</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="finish" id="finish" aria-labelledby="finish-title">
+        <div class="section-head" data-reveal>
+          <h2 id="finish-title" class="h2" tabindex="-1">Before you go</h2>
+          <p class="sub">Two small things, and you're ready for your first room.</p>
+        </div>
+        <div class="cards">
+          <div class="box" data-reveal style="--d: 60ms">
+            <div class="box-head">
+              <h3 class="h3">Pin WatchSync</h3>
+              <span class="pin-state" id="pin-state" data-state="unknown">
+                <span class="pin-icon" aria-hidden="true"></span>
+                <span id="pin-text">Checking…</span>
+              </span>
+            </div>
+            <p class="dim">
+              Click the puzzle icon at the top right of Chrome, then the pin next to WatchSync.
+            </p>
+            <button type="button" class="btn" id="show-me">Show me where</button>
+          </div>
+          <form class="box" id="name-form" data-reveal style="--d: 140ms" novalidate>
+            <div class="box-head">
+              <h3 class="h3"><label for="name">Your name</label></h3>
+            </div>
+            <p class="dim" id="name-hint">Friends see this in the room. You can change it later.</p>
+            <div class="name-row">
+              <input
+                id="name"
+                class="input"
+                name="name"
+                maxlength="30"
+                autocomplete="nickname"
+                aria-describedby="name-hint name-status"
+              />
+              <button type="submit" class="btn" id="save-name">Save</button>
+            </div>
+            <p class="status" id="name-status" role="status"></p>
+          </form>
+        </div>
+        <div class="done" data-reveal style="--d: 200ms">
+          <button type="button" class="btn primary big" id="go">I've pinned it, let's go</button>
+          <p class="dim">Then click WatchSync in the toolbar to create your first room.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      WatchSync is not affiliated with Netflix, Amazon or JioStar.
+    </footer>
+
+    <div class="pointer" id="pointer" hidden>
+      <svg class="pointer-arrow" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+        <path d="M8 32 32 8M14 8h18v18" />
+      </svg>
+      <div class="pointer-card">
+        <p id="pointer-text">
+          Up here: click the puzzle icon, then the pin next to WatchSync.
+        </p>
+        <button type="button" class="ghost" id="pointer-close">Got it</button>
+      </div>
+    </div>
+
+    <script src="welcome.js"></script>
+  </body>
+</html>

@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { type BrowserContext, test as base, chromium, expect, type Route } from "@playwright/test";
+import {
+  type BrowserContext,
+  test as base,
+  chromium,
+  expect,
+  type Page,
+  type Route,
+} from "@playwright/test";
 
 const dist = path.resolve(import.meta.dirname, "../dist");
 const clipBytes = readFileSync(path.resolve(import.meta.dirname, "mock/clip.webm"));
@@ -43,8 +50,16 @@ async function serveMockPlayer(context: BrowserContext) {
   });
 }
 
-/** A Chromium profile with the built extension loaded. Each test gets its own. */
-export async function launchWithExtension(userDataDir = ""): Promise<{
+export const isWelcome = (page: Page) => page.url().endsWith("/welcome.html");
+
+/**
+ * A Chromium profile with the built extension loaded. Each test gets its own. A new profile
+ * is a first install, so the welcome tab opens; it is closed unless `keepWelcome`.
+ */
+export async function launchWithExtension(
+  userDataDir = "",
+  { keepWelcome = false } = {},
+): Promise<{
   context: BrowserContext;
   extensionId: string;
 }> {
@@ -53,6 +68,13 @@ export async function launchWithExtension(userDataDir = ""): Promise<{
     args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
   });
   await serveMockPlayer(context);
+  if (!keepWelcome) {
+    const close = (page: Page) => {
+      if (isWelcome(page)) page.close().catch(() => {});
+    };
+    for (const page of context.pages()) close(page);
+    context.on("page", close);
+  }
   let [worker] = context.serviceWorkers();
   worker ??= await context.waitForEvent("serviceworker");
   const extensionId = new URL(worker.url()).host;

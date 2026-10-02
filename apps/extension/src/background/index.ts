@@ -358,6 +358,11 @@ async function handleNow(req: Request): Promise<Reply> {
   }
 }
 
+// First install only (not updates or reloads): show what WatchSync does and how to start.
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason === "install") void chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
+});
+
 // Test builds only: lets end-to-end tests cut the connection like a network drop.
 if (__MOCK__) Object.assign(globalThis, { watchsyncDropSocket: () => socket?.close() });
 
