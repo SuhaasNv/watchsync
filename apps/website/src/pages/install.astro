@@ -1,5 +1,6 @@
 ---
 import DownloadButton from "../components/DownloadButton.astro";
+import Safety from "../components/install/Safety.astro";
 import Steps from "../components/install/Steps.astro";
 import Base from "../layouts/Base.astro";
 import { CONTACT_EMAIL } from "../lib/site";
@@ -23,13 +24,15 @@ const tabs = [
         You only do this once. You'll need a computer: WatchSync doesn't run on phones.
       </p>
       <p class="reassure">
-        Safe to install: the code is public on GitHub, and WatchSync only runs on Netflix, Prime
-        Video and JioHotstar.
+        The code is public on GitHub, and WatchSync only runs on Netflix, Prime Video and
+        JioHotstar. <a href="#safe">What it can reach, and how to check the download</a>
       </p>
       <div class="head-cta">
         <DownloadButton withVersion />
       </div>
     </header>
+
+    <Safety />
 
     <section class="guide" aria-labelledby="guide-title">
       <h2 id="guide-title" class="sr-only">Steps</h2>
@@ -129,7 +132,9 @@ const tabs = [
   import { initCopyButtons } from "../scripts/copy";
   import { initStepsProgress } from "../scripts/steps-progress";
   import { initTabs } from "../scripts/tabs";
+  import { showLatestChecksum } from "../scripts/version";
   initTabs();
+  showLatestChecksum();
   initCopyButtons();
   initStepsProgress();
 </script>
@@ -144,6 +149,10 @@ const tabs = [
     margin-top: 14px;
     color: var(--text2);
     font-size: 1rem;
+  }
+  .reassure a {
+    color: var(--text);
+    font-weight: 600;
   }
   /* The lede already says it needs a computer. */
   .head-cta :global(.needs) {

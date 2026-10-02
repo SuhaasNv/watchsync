@@ -34,6 +34,8 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
           <span data-version>{FALLBACK_VERSION}</span>
           <span aria-hidden="true"> · </span>
           <span>Free, from our public GitHub</span>
+          <span aria-hidden="true"> · </span>
+          <a href="/install/#safe">Is it safe?</a>
         </p>
         <div class="device-note" data-device-note hidden>
           <p data-device-text />
@@ -95,6 +97,10 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
     font-size: 0.8rem;
     color: var(--text2);
     letter-spacing: 0.02em;
+  }
+  .meta a {
+    color: var(--text);
+    text-underline-offset: 3px;
   }
   .device-note {
     display: grid;

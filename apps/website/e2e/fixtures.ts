@@ -12,6 +12,8 @@ export const PAGES = [
   "/nope/",
 ];
 
+export const ZIP_SHA256 = "0123456789abcdef".repeat(4);
+
 export const RELEASE = {
   tag_name: "v0.1.0-rc.1",
   name: "WatchSync v0.1.0",
@@ -19,7 +21,22 @@ export const RELEASE = {
   published_at: "2026-10-02T10:00:00Z",
   draft: false,
   prerelease: true,
-  body: '### Added\n- **Rooms**: share a `code` [docs](https://github.com/SuhaasNv/watchsync)\n- <img src=x onerror="window.__xss=1">\n\n### Known issues\n- Live streams aren\'t synced.',
+  body: [
+    "### Added",
+    "- **Rooms**: share a `code` [docs](https://github.com/SuhaasNv/watchsync)",
+    '- <img src=x onerror="window.__xss=1">',
+    "",
+    "### Known issues",
+    "- Live streams aren't synced.",
+    "",
+    "### Check this download",
+    "",
+    "Built by GitHub Actions from commit [4d10147](https://github.com/SuhaasNv/watchsync/commit/4d101475d8b20a2381f78447822ac1eab6504dd8) on `main`. [See the build](https://github.com/SuhaasNv/watchsync/actions/runs/1/attempts/1).",
+    "",
+    "SHA-256 of each file:",
+    "",
+    `- \`watchsync-extension.zip\`: \`${ZIP_SHA256}\``,
+  ].join("\n"),
   assets: [
     {
       name: "watchsync-extension.zip",

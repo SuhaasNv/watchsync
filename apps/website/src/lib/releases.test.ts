@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReleases, safeGithubUrl, versionLabel } from "./releases";
+import { checksumFor, parseReleases, safeGithubUrl, versionLabel } from "./releases";
 
 const release = {
   tag_name: "v0.1.0-rc.1",
@@ -51,5 +51,37 @@ describe("versionLabel", () => {
   it("spells out release candidates", () => {
     expect(versionLabel("v0.1.0-rc.2")).toBe("v0.1.0 release candidate");
     expect(versionLabel("v0.2.0")).toBe("v0.2.0");
+  });
+});
+
+describe("checksumFor", () => {
+  const hash = "0123456789abcdef".repeat(4);
+  const other = "f".repeat(64);
+  const body = [
+    "### Check this download",
+    `- \`watchsync-extension.zip\`: \`${hash.toUpperCase()}\``,
+    `- \`watchsync-extension-v0.1.0.zip\`: \`${other}\``,
+  ].join("\n");
+
+  it("finds the hash on the line that names the file, in lower case", () => {
+    expect(checksumFor(body, "watchsync-extension.zip")).toBe(hash);
+    expect(checksumFor(body, "watchsync-extension-v0.1.0.zip")).toBe(other);
+  });
+
+  it("reads sha256sum output too", () => {
+    expect(checksumFor(`${hash}  watchsync-extension.zip`, "watchsync-extension.zip")).toBe(hash);
+  });
+
+  it("does not match a longer file name, a short hash or a missing one", () => {
+    expect(
+      checksumFor(`- my-watchsync-extension.zip: ${hash}`, "watchsync-extension.zip"),
+    ).toBeNull();
+    expect(
+      checksumFor(`- watchsync-extension.zip: ${hash.slice(1)}`, "watchsync-extension.zip"),
+    ).toBeNull();
+    expect(
+      checksumFor(`- watchsync-extension.zip: ${hash}0`, "watchsync-extension.zip"),
+    ).toBeNull();
+    expect(checksumFor("### Added\n- Rooms", "watchsync-extension.zip")).toBeNull();
   });
 });
