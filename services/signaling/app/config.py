@@ -18,3 +18,7 @@ CREATE_PER_MINUTE = int(os.environ.get("CREATE_PER_MINUTE", "10"))
 JOIN_PER_MINUTE = int(os.environ.get("JOIN_PER_MINUTE", "30"))
 # Per connection, per 10 seconds.
 MESSAGES_PER_10S = int(os.environ.get("MESSAGES_PER_10S", "60"))
+# Behind Railway's edge, the client address arrives in X-Real-IP (set by the edge).
+TRUST_PROXY = os.environ.get("TRUST_PROXY") == "1"
+# Request bodies are tiny ({"name": ...}); anything bigger is refused.
+MAX_BODY_BYTES = 2048

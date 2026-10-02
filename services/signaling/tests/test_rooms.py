@@ -288,3 +288,32 @@ def test_expired_room_refuses_reconnect() -> None:
     with pytest.raises(WebSocketDisconnect) as closed, client.websocket_connect(url) as ws:
         ws.receive_json()
     assert closed.value.code == 1008
+
+
+def test_bad_bodies_get_clear_errors_not_500() -> None:
+    headers = {"content-type": "application/json"}
+    assert client.post("/api/v1/rooms", content=b"{not json", headers=headers).status_code == 422
+    big = b'{"name": "' + b"x" * 5000 + b'"}'
+    assert client.post("/api/v1/rooms", content=big, headers=headers).status_code == 413
+    assert (
+        client.post("/api/v1/rooms/ABC234/join", content=b"[]", headers=headers).status_code == 422
+    )
+
+
+def test_rate_limits_use_the_edge_client_ip_when_behind_a_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main, "create_limiter", main.Limiter(1, 60))
+    a = {"x-real-ip": "203.0.113.1"}
+    b = {"x-real-ip": "203.0.113.2"}
+    assert client.post("/api/v1/rooms", json={"name": "a"}, headers=a).status_code == 201
+    assert client.post("/api/v1/rooms", json={"name": "a"}, headers=a).status_code == 429
+    assert client.post("/api/v1/rooms", json={"name": "b"}, headers=b).status_code == 201
+
+
+def test_security_headers() -> None:
+    r = client.get("/j/ABC234")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]

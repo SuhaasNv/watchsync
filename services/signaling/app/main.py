@@ -1,9 +1,11 @@
 """HTTP and WebSocket entry points. Room logic lives in rooms.py."""
 
+import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from . import config, join_page
 from .protocol import is_client_message, is_create_request, message, now_ms
@@ -22,7 +24,35 @@ sockets: dict[str, WebSocket] = {}
 
 
 def client_ip(request: Request) -> str:
+    real = request.headers.get("x-real-ip")
+    if config.TRUST_PROXY and real:
+        return real
     return request.client.host if request.client else "unknown"
+
+
+@app.middleware("http")
+async def security_headers(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+async def read_name(request: Request) -> str:
+    """The display name from a create or join body; 413 or 422 on anything else."""
+    body = await request.body()
+    if len(body) > config.MAX_BODY_BYTES:
+        raise HTTPException(413, "Request too large.")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        data = None
+    if not is_create_request(data):
+        raise HTTPException(422, "A name of 1 to 30 characters is required.")
+    name: str = data["name"].strip()
+    return name or "Guest"
 
 
 @app.get("/health")
@@ -34,10 +64,7 @@ def health() -> dict[str, str]:
 async def create_room(request: Request) -> dict[str, str]:
     if not create_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many rooms created. Try again in a minute.")
-    body = await request.json()
-    if not is_create_request(body):
-        raise HTTPException(422, "A name of 1 to 30 characters is required.")
-    return rooms.create(body["name"].strip() or "Guest")
+    return rooms.create(await read_name(request))
 
 
 @app.get("/j/{code}", response_class=HTMLResponse)
@@ -53,11 +80,9 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
     # Every attempt counts, including wrong codes, so codes cannot be guessed.
     if not join_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many join attempts. Try again in a minute.")
-    body = await request.json()
-    if not is_create_request(body):
-        raise HTTPException(422, "A name of 1 to 30 characters is required.")
+    name = await read_name(request)
     try:
-        return rooms.join(code.upper(), body["name"].strip() or "Guest")
+        return rooms.join(code.upper(), name)
     except RoomError as e:
         raise HTTPException(ERROR_STATUS[e.code], e.message) from e
 
