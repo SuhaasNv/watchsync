@@ -1,0 +1,37 @@
+[project]
+name = "watchsync-signaling"
+version = "0.1.0"
+description = "WatchSync room service: rooms, presence and playback state."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.142.2",
+    "jsonschema>=4.26.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["S101"]
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+    "types-jsonschema>=4.26.0.20260518",
+]
