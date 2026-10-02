@@ -66,6 +66,6 @@ pnpm --filter @watchsync/extension dev                                     # bui
 
 Load `apps/extension/dist` with **Load unpacked**. Before a merge, run `pnpm check` (lint, types, unit tests, the extension's end-to-end tests against a mock player, and the room service's tests). The website runs with `pnpm --filter @watchsync/website dev` and tests with `pnpm --filter @watchsync/website e2e`.
 
-Releases are tags on `main`; each one publishes the zip above. Deploys and releases: [docs/DEPLOY.md](docs/DEPLOY.md). Product and architecture: [docs/PRD.md](docs/PRD.md), [docs/TRD.md](docs/TRD.md), [docs/TECH-STACK.md](docs/TECH-STACK.md).
+Releases are tags on `main`; each one publishes the zip above. Deploys and releases: [docs/DEPLOY.md](docs/DEPLOY.md). Product and architecture: [docs/PRD.md](docs/PRD.md), [docs/TRD.md](docs/TRD.md), [docs/TECH-STACK.md](docs/TECH-STACK.md). How far each part really is: [docs/MATURITY.md](docs/MATURITY.md).
 
 Questions or problems: suhaasnvs@gmail.com.
