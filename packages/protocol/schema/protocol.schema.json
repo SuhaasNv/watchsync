@@ -145,11 +145,16 @@
       }
     },
     "Leave": {
+      "description": "Leave the room; the token stops working. The last one out ends the room, unless keepRoom (the browser closed: the room waits for a rejoin until it expires).",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "type": "object",
       "properties": {
         "type": { "const": "ROOM.LEAVE" },
-        "payload": { "type": "object", "additionalProperties": false }
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "keepRoom": { "type": "boolean" } }
+        }
       }
     },
     "HoldUpdate": {
@@ -250,7 +255,11 @@
           "required": ["participant", "event"],
           "properties": {
             "participant": { "$ref": "#/$defs/Participant" },
-            "event": { "type": "string", "enum": ["joined", "updated", "left"] }
+            "event": {
+              "description": "rejoined: someone who left (or whose browser closed) came back under the same name.",
+              "type": "string",
+              "enum": ["joined", "rejoined", "updated", "left"]
+            }
           }
         }
       }

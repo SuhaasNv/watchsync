@@ -41,9 +41,14 @@ export type Ping = Envelope & {
     t1: number;
   };
 };
+/**
+ * Leave the room; the token stops working. The last one out ends the room, unless keepRoom (the browser closed: the room waits for a rejoin until it expires).
+ */
 export type Leave = Envelope & {
   type?: "ROOM.LEAVE";
-  payload?: {};
+  payload?: {
+    keepRoom?: boolean;
+  };
 };
 /**
  * This player is buffering or showing an ad (or no longer is); the room waits for it.
@@ -97,7 +102,10 @@ export type ParticipantChanged = Envelope & {
   type?: "ROOM.PARTICIPANT";
   payload?: {
     participant: Participant;
-    event: "joined" | "updated" | "left";
+    /**
+     * rejoined: someone who left (or whose browser closed) came back under the same name.
+     */
+    event: "joined" | "rejoined" | "updated" | "left";
   };
 };
 /**
