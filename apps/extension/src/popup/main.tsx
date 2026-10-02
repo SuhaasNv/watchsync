@@ -1,5 +1,5 @@
 import type { Participant } from "@watchsync/protocol";
-import { useEffect, useState } from "react";
+import { type Ref, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   type AppState,
@@ -12,6 +12,14 @@ import {
 } from "../shared/messages";
 
 export const inviteLink = (code: string) => `${__API_URL__}/j/${code}`;
+
+/** Moves focus to a screen's main control when the screen appears (WCAG 2.4.3 focus order). */
+function useFocusOnShow<T extends HTMLElement>(key?: unknown) {
+  const ref = useRef<T>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refocus when `key` changes
+  useEffect(() => ref.current?.focus(), [key]);
+  return ref;
+}
 
 function useAppState() {
   const [state, setState] = useState<AppState | null>(null);
@@ -68,6 +76,7 @@ function ErrorLine({ error }: { error: string | null }) {
 function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () => void }) {
   const [name, setName] = useState(initial);
   const { busy, error, run } = useAction();
+  const input = useFocusOnShow<HTMLInputElement>();
   return (
     <>
       <Header />
@@ -87,6 +96,7 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
         <label className="field">
           <span className="label">Your name</span>
           <input
+            ref={input}
             className="input"
             value={name}
             maxLength={30}
@@ -107,12 +117,14 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
 function HomeScreen({ state }: { state: AppState }) {
   const { busy, error, run } = useAction("We couldn't create the room. Try again.");
   const [editing, setEditing] = useState(false);
+  const create = useFocusOnShow<HTMLButtonElement>(editing);
   if (editing) return <NameScreen initial={state.name ?? ""} onDone={() => setEditing(false)} />;
   return (
     <>
       <Header />
       <div className="body">
         <button
+          ref={create}
           className="btn primary"
           type="button"
           disabled={busy}
@@ -199,10 +211,18 @@ function Watching({ p }: { p: Participant }) {
   return <span className="hint">{p.titleName ? `${service} · ${p.titleName}` : service}</span>;
 }
 
-function CopyButton({ text, label, primary }: { text: string; label: string; primary?: boolean }) {
+interface CopyButtonProps {
+  text: string;
+  label: string;
+  primary?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
+}
+
+function CopyButton({ text, label, primary, buttonRef }: CopyButtonProps) {
   const [done, setDone] = useState(false);
   return (
     <button
+      ref={buttonRef}
       className={`btn ${primary ? "primary" : ""} grow`}
       type="button"
       onClick={async () => {
@@ -217,6 +237,7 @@ function CopyButton({ text, label, primary }: { text: string; label: string; pri
 }
 
 function RoomScreen({ state }: { state: AppState }) {
+  const copy = useFocusOnShow<HTMLButtonElement>();
   const s = state.session;
   if (!s) return null;
   const status = {
@@ -236,7 +257,7 @@ function RoomScreen({ state }: { state: AppState }) {
           </p>
         </div>
         <div className="row">
-          <CopyButton text={inviteLink(s.code)} label="Copy link" primary />
+          <CopyButton text={inviteLink(s.code)} label="Copy link" primary buttonRef={copy} />
           <CopyButton text={s.code} label="Copy code" />
         </div>
         <p className="hint">Your friend needs the WatchSync extension and their own account.</p>

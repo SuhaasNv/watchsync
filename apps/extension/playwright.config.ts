@@ -9,9 +9,12 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   // The room service the built extension talks to (API http://localhost:8000).
   webServer: {
-    command: "uv run uvicorn app.main:app --port 8000",
+    // The suite creates many rooms from one IP, so it runs with high rate limits;
+    // the limits themselves are covered by the service's pytest suite.
+    command: "CREATE_PER_MINUTE=1000 JOIN_PER_MINUTE=1000 uv run uvicorn app.main:app --port 8000",
     cwd: "../../services/signaling",
     url: "http://localhost:8000/health",
-    reuseExistingServer: true,
+    // Always a fresh server, so a stale one from earlier never hides a change.
+    reuseExistingServer: false,
   },
 });

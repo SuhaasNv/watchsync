@@ -1,0 +1,74 @@
+// WCAG 2.2 AA gate (DEC-022): every WatchSync surface, in each state a person can reach.
+import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
+import { expect, MOCK, room, test } from "./fixtures";
+
+const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+
+async function audit(page: Page, include?: string) {
+  const builder = new AxeBuilder({ page }).withTags(WCAG);
+  const { violations } = await (include ? builder.include(include) : builder).analyze();
+  const summary = violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(", ")}`);
+  expect(summary).toEqual([]);
+}
+
+test("popup: name, home, join error and room screens", async ({ ext }) => {
+  const page = await ext.context.newPage();
+  await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
+  await audit(page);
+
+  await page.getByLabel("Your name").fill("Suhaas");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await audit(page);
+
+  await page.getByRole("textbox", { name: "Or join a friend's room" }).fill("ZZZZZZ");
+  await page.getByRole("button", { name: "Join", exact: true }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await audit(page);
+
+  await page.getByRole("button", { name: "Create a room" }).click();
+  await expect(page.getByText("Connected")).toBeVisible();
+  await audit(page);
+});
+
+test("invite page, with and without the extension", async ({ ext, page }) => {
+  await page.goto("http://localhost:8000/j/ABC234");
+  await audit(page);
+
+  const withExt = await ext.context.newPage();
+  await withExt.goto("http://localhost:8000/j/ABC234");
+  await expect(withExt.getByRole("button", { name: "Join room" })).toBeVisible();
+  await audit(withExt);
+});
+
+test("on-page prompt and notices", async ({ ext }) => {
+  const { hostTab, friend } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/film`);
+    await expect(tab.getByText("Open it?")).toBeVisible({ timeout: 5000 });
+    await audit(tab, "watchsync-overlay");
+
+    await tab.getByRole("button", { name: "Open" }).click();
+    await tab.waitForURL(`${MOCK}/watch/ep1`);
+    await tab.waitForTimeout(1500);
+    await hostTab.evaluate(() => document.querySelector("video")?.pause());
+    await expect(tab.getByText("Suhaas paused")).toBeVisible();
+    await audit(tab, "watchsync-overlay");
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("the popup works by keyboard alone", async ({ ext }) => {
+  const page = await ext.context.newPage();
+  await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
+  await expect(page.getByLabel("Your name")).toBeFocused();
+  await page.keyboard.type("Suhaas");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Create a room" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Copy link" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Copy code" })).toBeFocused();
+});
