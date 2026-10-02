@@ -506,6 +506,9 @@ function Footer({ update }: { update: AppState["update"] }) {
         </p>
       )}
       <p className="foot-row">
+        <a href={__SITE_URL__} target="_blank" rel="noreferrer">
+          {new URL(__SITE_URL__).host}
+        </a>
         <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
           Privacy
         </a>

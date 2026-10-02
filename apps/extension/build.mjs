@@ -71,6 +71,9 @@ const common = {
     __MOCK__: String(mock),
     __CHANNEL__: JSON.stringify(channel),
     __BUILD__: JSON.stringify(build),
+    __SITE_URL__: JSON.stringify(
+      channel === "dev" ? "https://dev.watchsync.space" : "https://watchsync.space",
+    ),
     __TITLE_PAGES__: JSON.stringify(serviceMatches),
   },
   logLevel: "warning",

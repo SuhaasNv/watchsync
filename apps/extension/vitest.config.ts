@@ -6,6 +6,7 @@ export default defineConfig({
     __MOCK__: "false",
     __CHANNEL__: JSON.stringify("prod"),
     __BUILD__: JSON.stringify(""),
+    __SITE_URL__: JSON.stringify("https://watchsync.space"),
     __TITLE_PAGES__: JSON.stringify([
       "https://www.netflix.com/*",
       "https://www.amazon.in/gp/video/*",
