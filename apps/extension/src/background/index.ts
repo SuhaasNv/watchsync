@@ -22,7 +22,14 @@ const state: AppState = {
   playback: null,
   following: true,
   clockOffset: 0,
+  lastRoom: null,
+  notice: null,
 };
+const ENDED = "This room is no longer available. Ask your friend for a new code.";
+const DAY = 24 * 3600 * 1000;
+let lastTicket: Session | null = null;
+let attempt = 0;
+let retry: ReturnType<typeof setTimeout> | undefined;
 let socket: WebSocket | null = null;
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 const samples: ClockSample[] = [];
@@ -50,6 +57,14 @@ async function restore() {
   if (session) {
     state.session = session as Session;
     connect();
+    return;
+  }
+  // The browser restarted (session storage is gone): offer the last room back for a day.
+  const { lastRoom } = await chrome.storage.local.get("lastRoom");
+  const saved = lastRoom as { ticket: Session; at: number } | undefined;
+  if (saved && Date.now() - saved.at < DAY) {
+    lastTicket = saved.ticket;
+    state.lastRoom = saved.ticket.code;
   }
 }
 const ready = restore();
@@ -85,10 +100,14 @@ function sendServer(msg: AnyClientMessage) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
+/** 1, 2, 4, 8, 16, then every 30 s, each with up to 30% jitter so clients don't stampede. */
+const backoff = (n: number) => Math.min(30_000, 1000 * 2 ** n) * (1 + Math.random() * 0.3);
+
 function connect() {
   const s = state.session;
   if (!s) return;
-  state.connection = state.connection === "connected" ? "reconnecting" : "connecting";
+  clearTimeout(retry);
+  if (state.connection !== "reconnecting") state.connection = "connecting";
   changed();
   const ws = new WebSocket(
     `${API.replace(/^http/, "ws")}/ws/rooms/${s.code}?token=${encodeURIComponent(s.token)}`,
@@ -111,11 +130,20 @@ function connect() {
     pingTimer = setInterval(ping, 20_000);
     sendPresence();
   };
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
     clearInterval(pingTimer);
-    state.connection = "idle";
+    if (e.code === 1008) {
+      // The room ended or our token was revoked; retrying can't help.
+      void endSession(ENDED);
+    } else if (e.code === 4000) {
+      // A newer connection of ours took over (worker restart); it owns the room now.
+      state.connection = "idle";
+    } else if (state.session) {
+      state.connection = "reconnecting";
+      retry = setTimeout(connect, backoff(attempt++));
+    }
     changed();
   };
 }
@@ -131,6 +159,8 @@ function onServer(msg: AnyServerMessage) {
   switch (msg.type) {
     case "ROOM.STATE":
       state.connection = "connected";
+      state.notice = null;
+      attempt = 0;
       state.participants = msg.payload.participants;
       for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
@@ -160,14 +190,35 @@ function onServer(msg: AnyServerMessage) {
   push({ kind: "server", message: msg });
 }
 
-async function startSession(ticket: Session) {
-  socket?.close(); // switching rooms from the invite page
+function reset() {
+  clearTimeout(retry);
+  socket?.close(); // onclose ignores it: socket is no longer this one
   socket = null;
   seen.clear();
-  Object.assign(state, { participants: [], media: null, playback: null });
+  attempt = 0;
+  Object.assign(state, { participants: [], media: null, playback: null, connection: "idle" });
+}
+
+async function startSession(ticket: Session) {
+  reset(); // also covers switching rooms from the invite page
   state.session = ticket;
+  state.notice = null;
+  state.lastRoom = null;
+  lastTicket = ticket;
   await chrome.storage.session.set({ session: ticket });
+  await chrome.storage.local.set({ lastRoom: { ticket, at: Date.now() } });
   connect();
+}
+
+async function endSession(notice: string | null) {
+  reset();
+  state.session = null;
+  state.notice = notice;
+  state.lastRoom = null;
+  lastTicket = null;
+  await chrome.storage.session.remove("session");
+  await chrome.storage.local.remove("lastRoom");
+  changed();
 }
 
 async function handle(req: Request): Promise<Reply> {
@@ -196,6 +247,16 @@ async function handle(req: Request): Promise<Reply> {
         break;
       }
       case "leave":
+        sendServer(envelope("ROOM.LEAVE", {})); // revokes our token
+        await endSession(null);
+        break;
+      case "rejoin":
+        if (!lastTicket) throw new Error("expired");
+        await startSession(lastTicket);
+        break;
+      case "forgetRoom":
+        await endSession(null);
+        break;
       case "follow":
         throw new Error("unsupported");
     }
@@ -205,6 +266,9 @@ async function handle(req: Request): Promise<Reply> {
     return { ok: false, error: e instanceof Error ? e.message : "unreachable", state };
   }
 }
+
+// Test builds only: lets end-to-end tests cut the connection like a network drop.
+if (__MOCK__) Object.assign(globalThis, { watchsyncDropSocket: () => socket?.close() });
 
 chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
   if (sender.id !== chrome.runtime.id) return false;
