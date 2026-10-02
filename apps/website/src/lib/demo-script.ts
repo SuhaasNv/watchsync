@@ -4,17 +4,17 @@
  * The wording of every notice is the extension's own (apps/extension/src/content/index.ts).
  */
 
-export type Who = "suhaas" | "asha" | "ravi";
+export type Who = "sam" | "maya" | "leo";
 
 export const PEOPLE: { id: Who; name: string; place: string; time: string }[] = [
-  { id: "suhaas", name: "Suhaas", place: "Bengaluru", time: "9:30 pm" },
-  { id: "asha", name: "Asha", place: "Dubai", time: "8:00 pm" },
-  { id: "ravi", name: "Ravi", place: "London", time: "5:00 pm" },
+  { id: "sam", name: "Sam", place: "Bengaluru", time: "9:30 pm" },
+  { id: "maya", name: "Maya", place: "Dubai", time: "8:00 pm" },
+  { id: "leo", name: "Leo", place: "London", time: "5:00 pm" },
 ];
 
-const WHO: Who[] = ["suhaas", "asha", "ravi"];
+const WHO: Who[] = ["sam", "maya", "leo"];
 
-const NAMES: Record<Who, string> = { suhaas: "Suhaas", asha: "Asha", ravi: "Ravi" };
+const NAMES: Record<Who, string> = { sam: "Sam", maya: "Maya", leo: "Leo" };
 
 /** The film is 1:52:00 long and the demo starts at 40:50. */
 export const DURATION = 6720;
@@ -27,11 +27,11 @@ type Event =
   | { at: number; kind: "hold"; by: Who; reason: "ad" | "loading"; until: number };
 
 export const EVENTS: Event[] = [
-  { at: 3.4, kind: "pause", by: "asha" },
-  { at: 6.8, kind: "play", by: "suhaas" },
-  { at: 10.6, kind: "seek", by: "ravi", to: 2530 },
-  { at: 14.5, kind: "hold", by: "asha", reason: "ad", until: 22.5 },
-  { at: 26, kind: "hold", by: "ravi", reason: "loading", until: 28.6 },
+  { at: 3.4, kind: "pause", by: "maya" },
+  { at: 6.8, kind: "play", by: "sam" },
+  { at: 10.6, kind: "seek", by: "leo", to: 2530 },
+  { at: 14.5, kind: "hold", by: "maya", reason: "ad", until: 22.5 },
+  { at: 26, kind: "hold", by: "leo", reason: "loading", until: 28.6 },
 ];
 
 export interface Step {
@@ -44,12 +44,12 @@ export interface Step {
 
 export const STEPS: Step[] = [
   { at: 0, still: 1.2, caption: "Three friends in three cities, on the same film." },
-  { at: 3, still: 4.4, caption: "Asha pauses. Everyone pauses, and sees who did it." },
-  { at: 6.4, still: 7.8, caption: "Suhaas presses play. Everyone plays." },
-  { at: 10.2, still: 11.6, caption: "Ravi skips ahead. Everyone lands on 42:10." },
-  { at: 14.2, still: 16.6, caption: "Asha gets an ad. The room waits for her and says why." },
+  { at: 3, still: 4.4, caption: "Maya pauses. Everyone pauses, and sees who did it." },
+  { at: 6.4, still: 7.8, caption: "Sam presses play. Everyone plays." },
+  { at: 10.2, still: 11.6, caption: "Leo skips ahead. Everyone lands on 42:10." },
+  { at: 14.2, still: 16.6, caption: "Maya gets an ad. The room waits for her and says why." },
   { at: 22.3, still: 23.2, caption: "Her ad ends. Everyone starts again, together." },
-  { at: 25.8, still: 27.2, caption: "Ravi's video is loading. The room waits for him too." },
+  { at: 25.8, still: 27.2, caption: "Leo's video is loading. The room waits for him too." },
 ];
 
 export interface CursorMove {
@@ -63,9 +63,9 @@ export interface CursorMove {
 }
 
 export const CURSOR: CursorMove[] = [
-  { start: 2.3, arrive: 3.2, click: 3.4, leave: 4.4, screen: "asha", target: "play" },
-  { start: 5.7, arrive: 6.6, click: 6.8, leave: 7.8, screen: "suhaas", target: "play" },
-  { start: 9.4, arrive: 10.4, click: 10.6, leave: 11.8, screen: "ravi", target: 2530 / DURATION },
+  { start: 2.3, arrive: 3.2, click: 3.4, leave: 4.4, screen: "maya", target: "play" },
+  { start: 5.7, arrive: 6.6, click: 6.8, leave: 7.8, screen: "sam", target: "play" },
+  { start: 9.4, arrive: 10.4, click: 10.6, leave: 11.8, screen: "leo", target: 2530 / DURATION },
 ];
 
 export interface Notice {
@@ -114,11 +114,11 @@ export function stateAt(t: number): DemoState {
   let playing = true;
   let last = 0;
   const screens: Record<Who, ScreenState> = {
-    suhaas: { notice: null, ad: null, loading: false },
-    asha: { notice: null, ad: null, loading: false },
-    ravi: { notice: null, ad: null, loading: false },
+    sam: { notice: null, ad: null, loading: false },
+    maya: { notice: null, ad: null, loading: false },
+    leo: { notice: null, ad: null, loading: false },
   };
-  const synced: Record<Who, boolean> = { suhaas: true, asha: true, ravi: true };
+  const synced: Record<Who, boolean> = { sam: true, maya: true, leo: true };
   const others = (who: Who) => WHO.filter((w) => w !== who);
 
   for (const e of EVENTS) {

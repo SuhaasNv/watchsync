@@ -16,7 +16,6 @@ const changelogHtml = renderMarkdown(changelog.replace(/^# Changelog\s*/, ""), {
 >
   <div class="wrap">
     <header class="page-head">
-      <p class="eyebrow">Release notes</p>
       <h1>What's <span class="em">new.</span></h1>
       <p class="lede">
         Every version of WatchSync, newest first. Each one comes from our public GitHub, with its
@@ -104,7 +103,7 @@ const changelogHtml = renderMarkdown(changelog.replace(/^# Changelog\s*/, ""), {
     display: none;
   }
   .changelog {
-    margin-top: clamp(72px, 10vw, 140px);
+    margin-top: clamp(40px, 10vw, 140px);
     padding-top: 40px;
     box-shadow: inset 0 1px 0 var(--line);
   }

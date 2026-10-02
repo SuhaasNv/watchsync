@@ -1,14 +1,13 @@
 ---
 const lanes = [
-  { name: "Suhaas", hold: null },
-  { name: "Asha", hold: "ad" },
-  { name: "Ravi", hold: null },
+  { name: "Sam", hold: null },
+  { name: "Maya", hold: "ad" },
+  { name: "Leo", hold: null },
 ] as const;
 ---
 
 <section class="flag" aria-labelledby="flag-title" data-reveal>
   <div class="wrap">
-    <p class="eyebrow">The part we are proudest of</p>
     <h2 id="flag-title" class="giant">
       <span class="l1">Nobody</span>
       <span class="l2">gets left</span>
@@ -18,7 +17,7 @@ const lanes = [
     <div class="grid">
       <div class="copy">
         <p class="lede">
-          Asha's video stops for an ad. On a normal watch party, the room drifts apart and someone
+          Maya's video stops for an ad. On a normal watch party, the room drifts apart and someone
           types "wait, pause". WatchSync pauses everyone, tells them why, and starts the room again
           the moment she's back.
         </p>
@@ -46,13 +45,13 @@ const lanes = [
         </div>
         <div class="cards" aria-hidden="true">
           <p class="card wait-card">
-            <span class="dot"></span>Asha is on an ad · about 0:20 left
+            <span class="dot"></span>Maya is on an ad · about 0:20 left
           </p>
           <p class="card back">Back together</p>
         </div>
         <figcaption>
-          While Asha watches her ad, Suhaas and Ravi wait at the same frame. Their screens say
-          "Asha is on an ad · about 0:20 left", then "Back together" when everyone plays again.
+          While Maya watches her ad, Sam and Leo wait at the same frame. Their screens say
+          "Maya is on an ad · about 0:20 left", then "Back together" when everyone plays again.
         </figcaption>
       </figure>
     </div>
@@ -62,7 +61,7 @@ const lanes = [
 <style>
   .flag {
     position: relative;
-    padding-top: clamp(96px, 13vw, 200px);
+    padding-top: clamp(48px, 13vw, 200px);
   }
   .giant {
     margin-top: 22px;

@@ -8,20 +8,30 @@ export function initTabs() {
   const tabs = [...list.querySelectorAll<HTMLButtonElement>("[data-tab]")];
   const panels = [...document.querySelectorAll<HTMLElement>("[data-panel]")];
 
-  const select = (id: string, focus: boolean) => {
+  const select = (id: string, focus: boolean, fade = false) => {
     for (const tab of tabs) {
       const on = tab.dataset.tab === id;
       tab.setAttribute("aria-selected", String(on));
       tab.tabIndex = on ? 0 : -1;
       if (on && focus) tab.focus();
     }
-    for (const panel of panels) panel.hidden = panel.dataset.panel !== id;
+    for (const panel of panels) {
+      panel.hidden = panel.dataset.panel !== id;
+      // A short fade on the panel you switched to, never on first load.
+      panel.classList.remove("fade-in");
+      if (fade && !panel.hidden) {
+        panel.classList.add("fade-in");
+        panel.addEventListener("animationend", () => panel.classList.remove("fade-in"), {
+          once: true,
+        });
+      }
+    }
   };
 
   tabs.forEach((tab, i) => {
     tab.addEventListener("click", () => {
       const id = tab.dataset.tab ?? "chrome";
-      select(id, false);
+      select(id, false, true);
       history.replaceState(null, "", `#${id}`);
     });
     tab.addEventListener("keydown", (e) => {
@@ -39,7 +49,7 @@ export function initTabs() {
       const target = tabs[next];
       if (!target) return;
       e.preventDefault();
-      select(target.dataset.tab ?? "chrome", true);
+      select(target.dataset.tab ?? "chrome", true, true);
     });
   });
 

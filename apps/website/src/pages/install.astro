@@ -18,11 +18,14 @@ const tabs = [
   <div class="wrap">
     <header class="page-head">
       <p class="eyebrow">Install guide</p>
-      <h1>Let's get you <span class="em">set up.</span></h1>
+      <h1>Install it in <span class="em">seven steps.</span></h1>
       <p class="lede">
         WatchSync isn't on the Chrome Web Store yet, so you load it into your browser yourself.
-        It's seven steps, and you only do them once. You'll need a computer: WatchSync doesn't run
-        on phones.
+        You only do this once. You'll need a computer: WatchSync doesn't run on phones.
+      </p>
+      <p class="reassure">
+        Safe to install: the code is public on GitHub, and WatchSync only runs on Netflix, Prime
+        Video and JioHotstar.
       </p>
       <div class="head-cta">
         <DownloadButton withVersion />
@@ -68,13 +71,12 @@ const tabs = [
     </section>
 
     <section class="help" aria-labelledby="help-title">
-      <p class="eyebrow">If something looks wrong</p>
-      <h2 id="help-title">Small hiccups, <span class="em">quick fixes.</span></h2>
+      <h2 id="help-title">If something <span class="em">looks wrong.</span></h2>
       <div class="issues">
         <article>
           <h3>"Manifest file is missing or unreadable"</h3>
           <p>
-            You picked the wrong folder. Choose the folder that directly contains
+            You picked the wrong folder. Choose the folder that directly contains{" "}
             <code>manifest.json</code>. If you see another <code>watchsync-extension</code> folder
             inside the one you picked, choose that inner one. If you picked the zip file, unzip it
             first.
@@ -97,7 +99,7 @@ const tabs = [
         <article>
           <h3>Something else?</h3>
           <p>
-            Write to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>, or read the
+            Write to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>, or read the{" "}
             <a href="/faq/">FAQ</a>.
           </p>
         </article>
@@ -105,7 +107,6 @@ const tabs = [
     </section>
 
     <section class="update" id="updating" aria-labelledby="update-title">
-      <p class="eyebrow">Updating</p>
       <h2 id="update-title">Getting a <span class="em">new version.</span></h2>
       <ol>
         <li>
@@ -131,15 +132,27 @@ const tabs = [
 
 <script>
   import { initCopyButtons } from "../scripts/copy";
+  import { initStepsProgress } from "../scripts/steps-progress";
   import { initTabs } from "../scripts/tabs";
   initTabs();
   initCopyButtons();
+  initStepsProgress();
 </script>
 
 <style>
   /* Two sticky bars: keep focused elements clear of them (WCAG 2.4.11). */
   :global(html) {
     scroll-padding-top: 170px;
+  }
+  .reassure {
+    max-width: 38em;
+    margin-top: 14px;
+    color: var(--text2);
+    font-size: 1rem;
+  }
+  /* The lede already says it needs a computer. */
+  .head-cta :global(.needs) {
+    display: none;
   }
   .head-cta {
     margin-top: 32px;
@@ -186,8 +199,28 @@ const tabs = [
     font-weight: 650;
     cursor: pointer;
   }
-  [role="tab"]:hover {
-    color: var(--text);
+  [role="tab"] {
+    transition:
+      color 0.15s,
+      background-color 0.15s,
+      transform 0.15s var(--ease);
+  }
+  [role="tab"]:active {
+    transform: scale(0.97);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    [role="tab"]:hover {
+      color: var(--text);
+    }
+  }
+  /* The new panel fades in; nothing slides, so the guide never jumps. */
+  .panel.fade-in {
+    animation: panel-in 0.2s ease-out;
+  }
+  @keyframes panel-in {
+    from {
+      opacity: 0;
+    }
   }
   [role="tab"][aria-selected="true"] {
     background: var(--acc);
@@ -195,7 +228,7 @@ const tabs = [
   }
   .help,
   .update {
-    padding-top: clamp(72px, 10vw, 140px);
+    padding-top: clamp(40px, 10vw, 140px);
   }
   .help h2,
   .update h2 {
@@ -250,7 +283,7 @@ const tabs = [
     font-weight: 600;
   }
   .trust-wrap {
-    margin-top: clamp(72px, 10vw, 140px);
+    margin-top: clamp(40px, 10vw, 140px);
   }
   @media (max-width: 760px) {
     .issues {

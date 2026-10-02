@@ -5,6 +5,7 @@ import {
   type DemoState,
   DURATION,
   LOOP,
+  PEOPLE,
   STEPS,
   stateAt,
   type Who,
@@ -18,13 +19,23 @@ interface ScreenEls {
   head: HTMLElement;
   time: HTMLElement;
   adLeft: HTMLElement | null;
+  view: HTMLElement;
   play: HTMLElement;
   track: HTMLElement;
   faces: Map<Who, HTMLElement>;
 }
 
-const WHO: Who[] = ["suhaas", "asha", "ravi"];
-const isWho = (v: string | undefined): v is Who => v === "suhaas" || v === "asha" || v === "ravi";
+const WHO: Who[] = ["sam", "maya", "leo"];
+const isWho = (v: string | undefined): v is Who => v === "sam" || v === "maya" || v === "leo";
+
+interface Toast {
+  by: Who;
+  text: string;
+  until: number;
+}
+
+const TOAST_MS = 2600;
+const LIVE_CAPTION = "You're driving. Pause, play or skip on any screen, and everyone follows.";
 
 function req<T extends Element>(root: ParentNode, selector: string, type: new () => T): T {
   const el = root.querySelector(selector);
@@ -97,6 +108,7 @@ export function startDemo(root: HTMLElement) {
       head: req(el, "[data-head]", HTMLElement),
       time: req(el, "[data-time]", HTMLElement),
       adLeft: el.querySelector<HTMLElement>("[data-ad-left]"),
+      view: req(el, ".viewport", HTMLElement),
       play: req(el, "[data-play]", HTMLElement),
       track: req(el, "[data-track]", HTMLElement),
       faces,
@@ -113,6 +125,8 @@ export function startDemo(root: HTMLElement) {
   let prev = 0;
   let lastTime = "";
   let lastStep = -1;
+  // Once a visitor clicks a player, the story stops and the room is theirs to drive.
+  let live: { position: number; playing: boolean; toast: Toast | null } | null = null;
 
   function setToggle() {
     toggle.setAttribute("aria-pressed", String(userPaused));
@@ -156,6 +170,11 @@ export function startDemo(root: HTMLElement) {
   }
 
   function renderCursor() {
+    if (live) {
+      cursor.style.opacity = "0";
+      ripple.style.opacity = "0";
+      return;
+    }
     const move = CURSOR.find((m) => t >= m.start && t <= m.leave + 0.4);
     if (!move) {
       cursor.style.opacity = "0";
@@ -178,14 +197,54 @@ export function startDemo(root: HTMLElement) {
     ripple.style.transform = `scale(${r < 0 ? 0.3 : 0.3 + r * 0.9})`;
   }
 
+  function liveState(room: NonNullable<typeof live>): DemoState {
+    const now = performance.now();
+    const toast = room.toast && now < room.toast.until ? room.toast : null;
+    const screen = (who: Who) => ({
+      notice: toast && toast.by !== who ? { text: toast.text, kind: "toast" as const } : null,
+      ad: null,
+      loading: false,
+    });
+    return {
+      position: room.position,
+      playing: room.playing,
+      screens: { sam: screen("sam"), maya: screen("maya"), leo: screen("leo") },
+      synced: { sam: true, maya: true, leo: true },
+      step: -1,
+    };
+  }
+
+  /** A visitor's click on someone's player: everyone follows, the others see who did it. */
+  function act(who: Who, change: { play: boolean } | { to: number }) {
+    if (!live) {
+      const s = stateAt(t);
+      live = { position: s.position, playing: s.playing, toast: null };
+    }
+    const name = PEOPLE.find((p) => p.id === who)?.name ?? "";
+    let text: string;
+    if ("play" in change) {
+      live.playing = change.play;
+      text = change.play ? `${name} pressed play` : `${name} paused`;
+    } else {
+      const ahead = change.to > live.position;
+      live.position = change.to;
+      text = `${name} ${ahead ? "skipped ahead" : "went back"} to ${clock(change.to)}`;
+    }
+    live.toast = { by: who, text, until: performance.now() + TOAST_MS };
+    userPaused = false;
+    setToggle();
+    render();
+    schedule();
+  }
+
   function render() {
-    const s = stateAt(t);
+    const s = live ? liveState(live) : stateAt(t);
     paint(s.position);
     renderScreens(s);
     renderCursor();
     if (s.step !== lastStep) {
       lastStep = s.step;
-      caption.textContent = STEPS[s.step]?.caption ?? "";
+      caption.textContent = live ? LIVE_CAPTION : (STEPS[s.step]?.caption ?? "");
       stepButtons.forEach((b, i) => {
         if (i === s.step) b.setAttribute("aria-current", "step");
         else b.removeAttribute("aria-current");
@@ -197,6 +256,12 @@ export function startDemo(root: HTMLElement) {
     frame = 0;
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
+    if (live) {
+      if (live.playing) live.position = Math.min(DURATION, live.position + dt);
+      render();
+      schedule();
+      return;
+    }
     t += dt;
     if (t >= LOOP) {
       t = 0;
@@ -233,10 +298,24 @@ export function startDemo(root: HTMLElement) {
       if (!step) return;
       // Playing: start the step from its beginning. Paused or reduced motion: show its still.
       const running = !userPaused;
+      live = null;
+      lastStep = -2;
       t = running ? step.at : step.still;
       render();
     });
   });
+
+  for (const [who, el] of screens) {
+    el.view.addEventListener("click", (e) => {
+      if (e.target instanceof Node && el.track.contains(e.target)) {
+        const r = el.track.getBoundingClientRect();
+        const k = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+        act(who, { to: Math.round(k * DURATION) });
+      } else {
+        act(who, { play: !(live ? live.playing : stateAt(t).playing) });
+      }
+    });
+  }
 
   reduce.addEventListener("change", () => {
     if (reduce.matches) userPaused = true;

@@ -1,0 +1,49 @@
+---
+import DownloadButton from "../components/DownloadButton.astro";
+import Details from "../components/home/Details.astro";
+import StartTogether from "../components/home/StartTogether.astro";
+import Trust from "../components/Trust.astro";
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Features · WatchSync"
+  description="Start together with a 3-2-1, rooms that wait for buffering and ads, quiet drift correction, next episodes together, and what WatchSync can and can't see."
+>
+  <div class="wrap">
+    <header class="page-head">
+      <h1>Everything it <span class="em">does.</span></h1>
+      <p class="lede">
+        Small things that keep a movie night together, so nobody has to ask what minute you're on.
+      </p>
+    </header>
+  </div>
+  <StartTogether />
+  <Details />
+  <Trust />
+  <div class="wrap cta">
+    <p class="cta-title">Install it once, then make a room.</p>
+    <DownloadButton withVersion>
+      <a class="btn ghost" href="/install/">How to install</a>
+    </DownloadButton>
+  </div>
+</Base>
+
+<style>
+  .cta {
+    display: grid;
+    gap: 24px;
+    justify-items: start;
+    margin-top: clamp(36px, 9vw, 120px);
+  }
+  .cta-title {
+    font-family: var(--display);
+    font-size: clamp(2.2rem, 5vw, 3.6rem);
+    font-weight: 560;
+    font-variation-settings:
+      "opsz" 144,
+      "SOFT" 60;
+    letter-spacing: -0.035em;
+    line-height: 1;
+  }
+</style>

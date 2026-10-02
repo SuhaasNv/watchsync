@@ -5,8 +5,7 @@ import Mark from "../Mark.astro";
 <section class="how" aria-labelledby="how-title">
   <div class="wrap">
     <header class="head">
-      <p class="eyebrow">How it works</p>
-      <h2 id="how-title">Four steps, then <span class="em">popcorn.</span></h2>
+      <h2 id="how-title">How it <span class="em">works.</span></h2>
     </header>
 
     <ol class="steps">
@@ -67,7 +66,7 @@ import Mark from "../Mark.astro";
 
 <style>
   .how {
-    padding-top: clamp(80px, 11vw, 160px);
+    padding-top: clamp(44px, 11vw, 160px);
   }
   .head {
     display: grid;
@@ -126,9 +125,7 @@ import Mark from "../Mark.astro";
     height: 150px;
     margin-top: 10px;
     border-radius: var(--radius);
-    background:
-      radial-gradient(80% 90% at 50% 100%, rgba(255, 210, 90, 0.07), transparent 70%),
-      var(--surface);
+    background: var(--surface);
     box-shadow: inset 0 0 0 1px var(--line);
   }
   .t {

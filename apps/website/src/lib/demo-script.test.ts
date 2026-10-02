@@ -12,26 +12,26 @@ describe("stateAt", () => {
     const s = stateAt(4);
     expect(s.playing).toBe(false);
     expect(s.position).toBeCloseTo(START + 3.4);
-    expect(s.screens.suhaas.notice?.text).toBe("Asha paused");
-    expect(s.screens.ravi.notice?.text).toBe("Asha paused");
-    expect(s.screens.asha.notice).toBeNull();
+    expect(s.screens.sam.notice?.text).toBe("Maya paused");
+    expect(s.screens.leo.notice?.text).toBe("Maya paused");
+    expect(s.screens.maya.notice).toBeNull();
   });
 
   it("lands everyone on the skip target", () => {
     const s = stateAt(11);
     expect(s.position).toBeCloseTo(2530.4);
-    expect(s.screens.asha.notice?.text).toBe("Ravi skipped ahead to 42:10");
+    expect(s.screens.maya.notice?.text).toBe("Leo skipped ahead to 42:10");
   });
 
   it("waits for the person on an ad and counts down", () => {
     const s = stateAt(16.6);
     expect(s.playing).toBe(false);
-    expect(s.screens.asha.ad).toBe(6);
-    expect(s.screens.suhaas.notice).toEqual({
-      text: "Asha is on an ad · about 0:06 left",
+    expect(s.screens.maya.ad).toBe(6);
+    expect(s.screens.sam.notice).toEqual({
+      text: "Maya is on an ad · about 0:06 left",
       kind: "wait",
     });
-    expect(s.synced.asha).toBe(false);
+    expect(s.synced.maya).toBe(false);
   });
 
   it("resumes everyone together from the same position", () => {
@@ -39,14 +39,14 @@ describe("stateAt", () => {
     const after = stateAt(23);
     expect(after.playing).toBe(true);
     expect(after.position).toBeCloseTo(during + 0.5);
-    expect(after.screens.ravi.notice?.text).toBe("Back together");
-    expect(after.synced.asha).toBe(true);
+    expect(after.screens.leo.notice?.text).toBe("Back together");
+    expect(after.synced.maya).toBe(true);
   });
 
   it("waits for a loading player", () => {
     const s = stateAt(27);
-    expect(s.screens.ravi.loading).toBe(true);
-    expect(s.screens.asha.notice?.text).toBe("Waiting for Ravi to load");
+    expect(s.screens.leo.loading).toBe(true);
+    expect(s.screens.maya.notice?.text).toBe("Waiting for Leo to load");
   });
 
   it("reports the step for every still", () => {
