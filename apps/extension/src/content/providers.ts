@@ -28,10 +28,10 @@ export interface StreamingProvider {
   ad(): { left: number | null } | null;
 }
 
-/** "Ad 0:20", "Ad · 1:05 left" → seconds; null when there's no time on the page. */
+/** "Ad 0:20", "Ad · 1:05 left", "1:05:00" → seconds; null when there's no time on the page. */
 export function adSeconds(text: string | null | undefined): number | null {
-  const m = text?.match(/(\d+):(\d{2})/);
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  const m = text?.match(/(?:(\d+):)?(\d+):(\d{2})/);
+  return m ? Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
 }
 
 /** HAVE_FUTURE_DATA: below it, a playing video can't advance. */
