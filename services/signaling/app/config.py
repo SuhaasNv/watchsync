@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[3]
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "development")
 VERSION = "0.1.0"
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000")
+# The website; someone who opens the room service's own address is sent there (BUG-046).
+SITE_URL = os.environ.get("SITE_URL", "https://watchsync.space")
 PROTOCOL_SCHEMA = Path(
     os.environ.get("PROTOCOL_SCHEMA", ROOT / "packages/protocol/schema/protocol.schema.json")
 )
