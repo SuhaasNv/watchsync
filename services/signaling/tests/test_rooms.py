@@ -78,6 +78,11 @@ def join(code: str, name: str = "Asha") -> httpx.Response:
     return client.post(f"/api/v1/rooms/{code}/join", json={"name": name})
 
 
+def rejoin(code: str, name: str, token: str | None) -> httpx.Response:
+    body = {"name": name} | ({"token": token} if token else {})
+    return client.post(f"/api/v1/rooms/{code}/join", json=body)
+
+
 def test_join_returns_a_ticket_and_host_sees_arrival() -> None:
     host = create()
     with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as hws:
@@ -111,6 +116,25 @@ def test_join_is_rate_limited_even_for_wrong_codes(monkeypatch: pytest.MonkeyPat
     assert join("ZZZZZZ").status_code == 429
 
 
+def test_wrong_codes_from_everyone_together_are_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-042: guessing codes from many addresses, each under its own limit, stays slow."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main, "failed_join_limiter", main.Limiter(3, 60))
+    room = create()
+
+    def attempt(code: str, ip: str) -> int:
+        r = client.post(f"/api/v1/rooms/{code}/join", json={"name": "a"}, headers={"x-real-ip": ip})
+        return r.status_code
+
+    assert attempt(room["code"], "192.0.2.1") == 201  # right codes never count
+    for i in range(3):
+        assert attempt("ZZZZZZ", f"192.0.2.{10 + i}") == 404
+    # Past the shared budget every join waits, right code or not: a 201 would tell a
+    # guesser which code is real.
+    assert attempt("ZZZZZZ", "192.0.2.50") == 429
+    assert attempt(room["code"], "192.0.2.51") == 429
+
+
 def test_presence_update_reaches_everyone_and_sets_room_media() -> None:
     host = create()
     with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
@@ -133,6 +157,47 @@ def test_presence_update_reaches_everyone_and_sets_room_media() -> None:
         assert update["payload"]["participant"]["titleName"] == "Stranger Things"
         room_media = ws.receive_json()
         assert room_media["type"] == "ROOM.MEDIA" and room_media["payload"]["media"] == media
+
+
+def test_title_links_off_a_title_page_never_reach_the_room() -> None:
+    """BUG-039: friends' browsers open the room's titleUrl, so only a title page counts."""
+    host = create()
+    bad = [
+        ("netflix", "https://www.netflix.com/YourAccount"),
+        ("netflix", "https://www.netflix.com/watch/1/../../signout"),
+        ("netflix", "https://user@www.netflix.com/watch/1"),
+        ("netflix", "https://www.netflix.com/watch/1?x=1"),
+        ("netflix", "https://www.primevideo.com/detail/B0X"),  # another service's page
+        ("prime", "https://www.amazon.in/gp/video/settings"),
+        ("prime", "https://www.amazon.in/gp/video/detail/.."),
+        ("prime", "https://www.amazon.fr/gp/video/detail/B0X"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/subscribe"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/%2e%2e/1260123456/watch"),
+        ("mock", "http://localhost:4173/settings"),
+    ]
+    good = [
+        ("netflix", "https://www.netflix.com/watch/80057281"),
+        ("prime", "https://www.primevideo.com/detail/0TQV0X9RJF64O24RIRD1BHH37H"),
+        ("prime", "https://www.amazon.in/gp/video/detail/B0ABC12345"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/shows/panchayat/1260123456/watch"),
+        ("mock", "http://localhost:4173/watch/demo"),
+    ]
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        for i, (service, title_url) in enumerate(bad + good):
+            media = {
+                "service": service,
+                "titleId": f"t{i}",
+                "titleName": "X",
+                "titleUrl": title_url,
+            }
+            payload = {"service": service, "following": True, "media": media}
+            ws.send_json(msg("PRESENCE.UPDATE", payload))
+            moved = next_of(ws, "ROOM.MEDIA")["payload"]["media"]
+            expected = title_url if (service, title_url) in good else None
+            assert moved["titleUrl"] == expected, title_url
+            assert moved["titleId"] == f"t{i}"  # the title still counts; only the link goes
+            assert main.rooms.rooms[host["code"]].media == moved
 
 
 def test_a_title_name_that_arrives_late_reaches_the_room() -> None:
@@ -362,6 +427,81 @@ def test_rate_limits_use_the_edge_client_ip_when_behind_a_proxy(
     assert client.post("/api/v1/rooms", json={"name": "a"}, headers=a).status_code == 201
     assert client.post("/api/v1/rooms", json={"name": "a"}, headers=a).status_code == 429
     assert client.post("/api/v1/rooms", json={"name": "b"}, headers=b).status_code == 201
+
+
+def test_one_address_holds_few_rooms_nobody_joined(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-040: one client can't fill every room slot with rooms nobody uses."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main.config, "ROOMS_PER_IP", 2)
+    a = {"x-real-ip": "198.51.100.7"}
+
+    def make(headers: dict[str, str]) -> httpx.Response:
+        return client.post("/api/v1/rooms", json={"name": "a"}, headers=headers)
+
+    first = make(a).json()
+    assert make(a).status_code == 201
+    third = make(a)
+    assert third.status_code == 429 and third.headers["retry-after"] == "60"
+    assert make({"x-real-ip": "198.51.100.8"}).status_code == 201  # someone else
+    assert join(first["code"]).status_code == 201  # a friend joined: it's a real room now
+    assert make(a).status_code == 201
+    # IPv6: one line gets a whole /64, so the /64 is the client.
+    six = {"x-real-ip": "2001:db8:aa:bb::1"}
+    assert make(six).status_code == 201
+    assert make({"x-real-ip": "2001:db8:aa:bb:ffff::2"}).status_code == 201
+    assert make({"x-real-ip": "2001:db8:aa:bb:1234::3"}).status_code == 429
+    assert make({"x-real-ip": "2001:db8:aa:cc::1"}).status_code == 201
+
+
+def test_limits_key_ipv6_on_its_64_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-040: per-address limits would be no limit for a client with a /64 to rotate in."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main, "join_limiter", main.Limiter(2, 60))
+    for i in range(2):
+        r = client.post(
+            "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": f"2001:db8::{i}"}
+        )
+        assert r.status_code == 404
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "2001:db8::99"}
+    )
+    assert r.status_code == 429
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "2001:db9::1"}
+    )
+    assert r.status_code == 404
+    # An IPv4 client seen over IPv6 counts as its IPv4 address.
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "::ffff:192.0.2.1"}
+    )
+    assert r.status_code == 404
+    assert "192.0.2.1" in main.join_limiter.hits
+
+
+def test_a_room_nobody_ever_connected_to_ends_after_two_minutes() -> None:
+    """BUG-040: unused codes free their slot soon; rooms people used keep the idle expiry."""
+    unused = create()
+    used = create()
+    with client.websocket_connect(f"/ws/rooms/{used['code']}?token={used['token']}") as ws:
+        ws.receive_json()
+        ws.send_json(msg("ROOM.LEAVE", {"keepRoom": True}))  # the browser closed
+    main.rooms.sweep(now=main.now_ms() + (main.config.UNUSED_ROOM_EXPIRY_SECONDS + 1) * 1000)
+    assert join(unused["code"]).status_code == 410
+    assert join(used["code"], "Suhaas").status_code == 201  # still waiting for a rejoin
+    main.rooms.sweep(now=main.now_ms() + (main.config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000)
+    assert join(used["code"]).status_code == 410
+
+
+def test_a_client_sent_real_ip_is_ignored_unless_behind_the_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only Railway's edge may name the client's address (TRUST_PROXY=1, docs/DEPLOY.md);
+    run directly, a spoofed X-Real-IP must not buy a fresh rate-limit budget."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", False)
+    monkeypatch.setattr(main, "create_limiter", main.Limiter(1, 60))
+    assert client.post("/api/v1/rooms", json={"name": "a"}).status_code == 201
+    spoofed = {"x-real-ip": "203.0.113.77"}
+    assert client.post("/api/v1/rooms", json={"name": "a"}, headers=spoofed).status_code == 429
 
 
 def test_security_headers() -> None:
@@ -933,7 +1073,7 @@ def test_the_last_one_out_by_closing_keeps_the_room_until_it_expires(live: TestC
     assert join(host["code"]).status_code == 410
 
 
-def test_rejoining_under_the_same_name_replaces_the_away_row(
+def test_rejoining_with_the_last_token_replaces_the_away_row(
     live: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     host = create()
@@ -946,7 +1086,7 @@ def test_rejoining_under_the_same_name_replaces_the_away_row(
             gws.receive_json()
         next_of(hws, "ROOM.PARTICIPANT")  # joined
         next_of(hws, "ROOM.PARTICIPANT")  # away
-        back = join(host["code"], "Asha").json()
+        back = rejoin(host["code"], "Asha", guest["token"]).json()
         assert back["participantId"] == guest["participantId"]  # same row, new token
         assert refused(live, url + guest["token"])
         with live.websocket_connect(url + back["token"]) as gws:
@@ -955,10 +1095,46 @@ def test_rejoining_under_the_same_name_replaces_the_away_row(
             assert came["event"] == "rejoined" and came["participant"]["connected"]
             names = [p.name for p in main.rooms.rooms[host["code"]].participants.values()]
             assert sorted(names) == ["Asha", "Suhaas"]
-        # Someone connected is never replaced, and another name is someone new.
-        other = join(host["code"], "Suhaas").json()
+        # Someone connected is never replaced, even with their token: it's someone new.
+        other = rejoin(host["code"], "Suhaas", host["token"]).json()
         assert other["participantId"] != host["participantId"]
         assert not main.rooms.rooms[host["code"]].participants[other["participantId"]].rejoined
+
+
+def test_a_name_alone_cannot_take_over_someone_away(
+    live: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BUG-041: anyone with the code could kick a dropped friend by joining under their name."""
+    host = create()
+    guest = join(host["code"]).json()
+    elsewhere = create("Asha")
+    url = f"/ws/rooms/{host['code']}?token="
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 0.5)
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+        next_of(hws, "ROOM.PARTICIPANT")  # joined
+        next_of(hws, "ROOM.PARTICIPANT")  # away
+        # Same name, no token (or a token from another room): a separate participant.
+        for token in (None, elsewhere["token"], "x" * 43):
+            r = rejoin(host["code"], "Asha", token).json()
+            assert r["participantId"] != guest["participantId"]
+            assert not main.rooms.rooms[host["code"]].participants[r["participantId"]].rejoined
+        assert main.rooms.rooms[host["code"]].participants[guest["participantId"]].name == "Asha"
+        with live.websocket_connect(url + r["token"]) as nws:
+            nws.receive_json()
+            came = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert came["event"] == "joined" and came["participant"]["id"] == r["participantId"]
+            # The real Asha's row stays until her own grace period ends.
+            left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert left["event"] == "left" and left["participant"]["id"] == guest["participantId"]
+    assert (
+        client.post(
+            f"/api/v1/rooms/{host['code']}/join", json={"name": "Asha", "token": "bad token!"}
+        ).status_code
+        == 422
+    )
 
 
 def test_leaving_then_joining_again_is_a_rejoin_and_keep_room_keeps_it(live: TestClient) -> None:

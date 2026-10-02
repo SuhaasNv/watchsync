@@ -11,14 +11,18 @@ class Limiter:
         self.hits: defaultdict[str, deque[float]] = defaultdict(deque)
 
     def allow(self, key: str) -> bool:
+        if self.full(key):
+            return False
+        self.hits[key].append(time.monotonic())
+        return True
+
+    def full(self, key: str) -> bool:
+        """Whether key has used its limit in the window, without counting a hit."""
         now = time.monotonic()
         q = self.hits[key]
         while q and now - q[0] > self.window_s:
             q.popleft()
-        if len(q) >= self.limit:
-            return False
-        q.append(now)
-        return True
+        return len(q) >= self.limit
 
     def prune(self) -> None:
         """Forget keys with no hits inside the window, so memory doesn't grow (BUG-011)."""

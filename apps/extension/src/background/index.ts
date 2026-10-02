@@ -1,6 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { Media, Service } from "@watchsync/protocol";
+import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -68,18 +68,20 @@ function sendPresence() {
 function push(msg: Push) {
   for (const p of ports) p.postMessage(msg);
 }
-/** Only the popup may see the room token; pages' content scripts never need it. */
-function stateFor(port: chrome.runtime.Port): AppState {
-  if (port.name === "popup") return state;
+/**
+ * The state other contexts see: never the room token. Only this worker uses it, and a port's
+ * name or a reply can reach a content script on a service page (BUG-044).
+ */
+function shared(): AppState {
   return { ...state, session: state.session && { ...state.session, token: "" } };
 }
 function changed() {
-  for (const p of ports) p.postMessage({ kind: "state", state: stateFor(p) } satisfies Push);
+  for (const p of ports) p.postMessage({ kind: "state", state: shared() } satisfies Push);
 }
 
 async function restore() {
   const { name } = await chrome.storage.local.get("name");
-  const { session } = await chrome.storage.session.get("session");
+  const { session, lastTicket: kept } = await chrome.storage.session.get(["session", "lastTicket"]);
   // A name saved by an older version may hold marks the service now refuses.
   state.name = typeof name === "string" ? cleanName(name) || null : null;
   if (isRoomTicket(session)) {
@@ -87,20 +89,24 @@ async function restore() {
     connect();
     return;
   }
-  // The browser restarted (session storage is gone): offer the last room back for a day.
+  // Offer the last room back for a day. Local storage keeps only its code, since content
+  // scripts can read it (BUG-044); the token survives in session storage while the browser
+  // runs, and without it a Rejoin is a plain join.
   const { lastRoom } = await chrome.storage.local.get("lastRoom");
   if (isSaved(lastRoom) && Date.now() - lastRoom.at < DAY) {
-    lastTicket = lastRoom.ticket;
-    state.lastRoom = lastRoom.ticket.code;
+    const ticket = isRoomTicket(kept) && kept.code === lastRoom.code ? kept : null;
+    lastTicket = ticket ?? { code: lastRoom.code, token: "", participantId: "" };
+    state.lastRoom = lastRoom.code;
   } else if (lastRoom !== undefined) {
-    await chrome.storage.local.remove("lastRoom"); // stale or malformed: forget it
+    // Stale or malformed, or saved by an older version with its token: forget it.
+    await chrome.storage.local.remove("lastRoom");
   }
 }
 
-function isSaved(v: unknown): v is { ticket: Session; at: number } {
+function isSaved(v: unknown): v is { code: string; at: number } {
   if (typeof v !== "object" || v === null) return false;
-  const { ticket, at } = v as { ticket?: unknown; at?: unknown };
-  return typeof at === "number" && isRoomTicket(ticket);
+  const { code, at } = v as { code?: unknown; at?: unknown };
+  return typeof at === "number" && typeof code === "string" && /^[A-HJ-NP-Z2-9]{6}$/.test(code);
 }
 const ready = restore();
 
@@ -300,7 +306,7 @@ async function startSession(ticket: Session) {
   state.lastRoom = null;
   lastTicket = ticket;
   await chrome.storage.session.set({ session: ticket });
-  await chrome.storage.local.set({ lastRoom: { ticket, at: Date.now() } });
+  await chrome.storage.local.set({ lastRoom: { code: ticket.code, at: Date.now() } });
   connect();
 }
 
@@ -310,7 +316,7 @@ async function endSession(notice: string | null) {
   state.notice = notice;
   state.lastRoom = null;
   lastTicket = null;
-  await chrome.storage.session.remove("session");
+  await chrome.storage.session.remove(["session", "lastTicket"]);
   await chrome.storage.local.remove("lastRoom");
   changed();
 }
@@ -340,7 +346,8 @@ async function leaveForNow() {
   state.lastRoom = s.code;
   lastTicket = s;
   await chrome.storage.session.remove("session");
-  await chrome.storage.local.set({ lastRoom: { ticket: s, at: Date.now() } });
+  await chrome.storage.session.set({ lastTicket: s });
+  await chrome.storage.local.set({ lastRoom: { code: s.code, at: Date.now() } });
   changed();
 }
 
@@ -351,13 +358,18 @@ chrome.windows.onRemoved.addListener(() => {
     .catch(() => {});
 });
 
-/** Back into the last room under our name; the room tells everyone we rejoined. */
+/**
+ * Back into the last room under our name; the room tells everyone we rejoined. Our last
+ * token proves it's us, so the room gives back our place if it still holds it (BUG-041).
+ */
 async function rejoin() {
   if (!lastTicket) throw new Error("expired");
   if (!state.name) throw new Error("invalid");
+  const { code, token } = lastTicket;
+  const body: JoinRoomRequest = { name: state.name, ...(token ? { token } : {}) };
   let ticket: Session;
   try {
-    ticket = await api(`/api/v1/rooms/${lastTicket.code}/join`, { name: state.name });
+    ticket = await api(`/api/v1/rooms/${code}/join`, body);
   } catch (e) {
     const gone = e instanceof Error && (e.message === "expired" || e.message === "not_found");
     if (!gone) throw e;
@@ -410,9 +422,9 @@ async function handleNow(req: Request): Promise<Reply> {
         break;
     }
     changed();
-    return { ok: true, state };
+    return { ok: true, state: shared() };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "unreachable", state };
+    return { ok: false, error: e instanceof Error ? e.message : "unreachable", state: shared() };
   }
 }
 
@@ -506,5 +518,5 @@ chrome.runtime.onConnect.addListener((port) => {
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
-  ready.then(() => port.postMessage({ kind: "state", state: stateFor(port) } satisfies Push));
+  ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
 });

@@ -189,7 +189,7 @@ export interface ProtocolRoot {
   Media?: Media;
   Playback?: Playback;
   Participant?: Participant;
-  CreateRoomRequest?: JoinRoomRequest;
+  CreateRoomRequest?: CreateRoomRequest;
   JoinRoomRequest?: JoinRoomRequest;
   RoomTicket?: RoomTicket;
   Envelope?: Envelope;
@@ -247,8 +247,15 @@ export interface Participant {
    */
   adLeft: number | null;
 }
+export interface CreateRoomRequest {
+  name: Name;
+}
 export interface JoinRoomRequest {
   name: Name;
+  /**
+   * Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041).
+   */
+  token?: string;
 }
 /**
  * Returned by create and join. The token authorises the WebSocket and is revoked on leave.

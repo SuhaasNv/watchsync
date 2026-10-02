@@ -69,7 +69,19 @@
       "required": ["name"],
       "properties": { "name": { "$ref": "#/$defs/Name" } }
     },
-    "JoinRoomRequest": { "$ref": "#/$defs/CreateRoomRequest" },
+    "JoinRoomRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/Name" },
+        "token": {
+          "description": "Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041).",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        }
+      }
+    },
     "RoomTicket": {
       "description": "Returned by create and join. The token authorises the WebSocket and is revoked on leave.",
       "type": "object",

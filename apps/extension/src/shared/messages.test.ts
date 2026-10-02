@@ -12,6 +12,44 @@ test("invites only redirect to supported service pages", () => {
   expect(safeTitleUrl(null)).toBeNull();
 });
 
+test("title links must be the exact title page each provider reports (BUG-039)", () => {
+  const good = [
+    "https://www.netflix.com/watch/80057281",
+    "https://www.primevideo.com/detail/0TQV0X9RJF64O24RIRD1BHH37H",
+    "https://www.amazon.in/gp/video/detail/B0ABC12345",
+    "https://www.amazon.co.uk/gp/video/detail/amzn1.dv.gti.1234-ab",
+    "https://www.jiohotstar.com/in/shows/panchayat/1260123456/watch",
+    "https://www.hotstar.com/in/movies/film-name/1260000001/watch",
+  ];
+  for (const url of good) expect(safeTitleUrl(url)).toBe(url);
+  const bad = [
+    // Anywhere else on the service site: account pages, sign-out, search.
+    "https://www.netflix.com/YourAccount",
+    "https://www.netflix.com/signout",
+    "https://www.netflix.com/watch/1/../../YourAccount",
+    "https://www.netflix.com/watch/1?x=1",
+    "https://www.netflix.com/watch/1#x",
+    "https://www.netflix.com/watch/abc",
+    "https://user:pw@www.netflix.com/watch/1",
+    "https://www.netflix.com:8443/watch/1",
+    "http://www.netflix.com/watch/1",
+    "https://www.amazon.in/gp/video/settings",
+    "https://www.amazon.in/gp/video/detail/..",
+    "https://www.amazon.in/gp/video/detail/%2e%2e",
+    "https://www.amazon.fr/gp/video/detail/B0X",
+    "https://www.jiohotstar.com/in/subscribe",
+    "https://www.jiohotstar.com/in/%2e%2e/1260123456/watch",
+    "https://www.jiohotstar.com/in/../1260123456/watch",
+    "https://www.jiohotstar.com/in/shows/x/1260123456/watch/more",
+    // The test player only exists in mock builds.
+    "http://localhost:4173/watch/demo",
+  ];
+  for (const url of bad) expect(safeTitleUrl(url), url).toBeNull();
+  // A link must belong to the service the room says it is on.
+  expect(safeTitleUrl("https://www.netflix.com/watch/1", "prime")).toBeNull();
+  expect(safeTitleUrl("https://www.netflix.com/watch/1", "netflix")).not.toBeNull();
+});
+
 test("names keep what the room service accepts", () => {
   expect(cleanName("  Asha  ")).toBe("Asha");
   expect(cleanName("   ")).toBe("");

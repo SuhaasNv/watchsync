@@ -19,6 +19,7 @@ def _validator(definition: str) -> Draft202012Validator:
 _client = _validator("ClientMessage")
 _server = _validator("ServerMessage")
 _create = _validator("CreateRoomRequest")
+_join = _validator("JoinRoomRequest")
 
 
 def is_client_message(data: Any) -> bool:
@@ -31,6 +32,10 @@ def is_server_message(data: Any) -> bool:
 
 def is_create_request(data: Any) -> bool:
     return bool(_create.is_valid(data))
+
+
+def is_join_request(data: Any) -> bool:
+    return bool(_join.is_valid(data))
 
 
 def now_ms() -> float:

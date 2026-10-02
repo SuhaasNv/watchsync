@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -11,9 +12,9 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from . import config, join_page
-from .protocol import is_client_message, is_create_request, message, now_ms
+from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
 from .ratelimit import Limiter
-from .rooms import Participant, Room, RoomError, rooms
+from .rooms import Participant, Room, RoomError, rooms, safe_media
 
 
 @contextlib.asynccontextmanager
@@ -25,7 +26,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         while True:
             await asyncio.sleep(60)
             rooms.sweep()
-            for limiter in (create_limiter, join_limiter, message_limiter, connect_limiter):
+            limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
+            for limiter in (*limiters, failed_join_limiter):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
@@ -47,13 +49,21 @@ create_limiter = Limiter(config.CREATE_PER_MINUTE, 60)
 join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
 message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
 connect_limiter = Limiter(config.CONNECTS_PER_MINUTE, 60)
+failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
+EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
 # newer connection of the same person (stop), anything else = network trouble (reconnect).
 REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
 FLOOD_LIMIT = 100
-ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409, "busy": 503}
+ERROR_STATUS = {
+    "not_found": 404,
+    "room_ended": 410,
+    "room_full": 409,
+    "busy": 503,
+    "too_many_rooms": 429,
+}
 # A player that shows its ad in a separate video pauses the film first, and the ad is seen
 # up to a poll later; a pause this recent from the same person was the ad's.
 AD_PAUSE_MS = 2000
@@ -63,10 +73,21 @@ away: dict[str, asyncio.Task[None]] = {}
 
 
 def client_ip(request: Request | WebSocket) -> str:
+    """The key per-client limits use: the client's address, or its /64 for IPv6, since one
+    home or phone line gets a whole /64 to pick addresses from (BUG-040)."""
     real = request.headers.get("x-real-ip")
-    if config.TRUST_PROXY and real:
-        return real
-    return request.client.host if request.client else "unknown"
+    host = real if config.TRUST_PROXY and real else None
+    if host is None:
+        host = request.client.host if request.client else "unknown"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network((ip, 64), strict=False))
+    return str(ip)
 
 
 @app.middleware("http")
@@ -83,8 +104,8 @@ async def security_headers(
     return response
 
 
-async def read_name(request: Request) -> str:
-    """The display name from a create or join body; 413, 415 or 422 on anything else."""
+async def read_body(request: Request, valid: Callable[[Any], bool]) -> dict[str, Any]:
+    """A create or join body; 413, 415 or 422 on anything else."""
     if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
         # Also forces a CORS preflight, so other sites can't post here (no CORS allowed).
         raise HTTPException(415, "Send JSON.")
@@ -100,9 +121,14 @@ async def read_name(request: Request) -> str:
         data = json.loads(body, parse_constant=reject_constant)
     except ValueError:
         data = None
-    if not is_create_request(data):
+    if not valid(data):
         raise HTTPException(422, "A name of 1 to 30 characters is required.")
-    name: str = data["name"].strip()
+    body_: dict[str, Any] = data
+    return body_
+
+
+def name_in(body: dict[str, Any]) -> str:
+    name: str = body["name"].strip()
     return name or "Guest"
 
 
@@ -121,7 +147,9 @@ async def create_room(request: Request) -> dict[str, str]:
     if not create_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many rooms created. Try again in a minute.", TRY_LATER)
     try:
-        return rooms.create(await read_name(request))
+        return rooms.create(
+            name_in(await read_body(request, is_create_request)), client_ip(request)
+        )
     except RoomError as e:
         raise HTTPException(ERROR_STATUS[e.code], e.message, TRY_LATER) from e
 
@@ -155,10 +183,15 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
     # Every attempt counts, including wrong codes, so codes cannot be guessed.
     if not join_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
-    name = await read_name(request)
+    # Too many wrong codes from everyone at once: someone is guessing from many addresses.
+    if failed_join_limiter.full(EVERYONE):
+        raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
+    body = await read_body(request, is_join_request)
     try:
-        return rooms.join(code.upper(), name)
+        return rooms.join(code.upper(), name_in(body), body.get("token"))
     except RoomError as e:
+        if e.code == "not_found":
+            failed_join_limiter.allow(EVERYONE)
         raise HTTPException(ERROR_STATUS[e.code], e.message) from e
 
 
@@ -185,7 +218,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
     if msg["type"] == "SYS.PING":
         await send(p, "SYS.PONG", {"t1": payload["t1"], "serverTime": now_ms()})
     elif msg["type"] == "PRESENCE.UPDATE":
-        media = payload["media"]
+        media = safe_media(payload["media"])
         room_title = room.media["titleId"] if room.media else None
         # Straight from the room's title to another one of the same show: the next episode.
         # A different show (say, a film the service autoplays after the credits) is a new
@@ -215,7 +248,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         # The room takes the first title anyone opens, then moves with whoever was watching
         # with it and opened another title. People watching on their own never move it.
         moves = media is not None and p.following and media["titleId"] != room_title
-        if moves and (room_title is None or was_with_room):
+        if media is not None and moves and (room_title is None or was_with_room):
             room.media = media
             # The next episode starts from the top for everyone; arriving followers catch up
             # to this clock (US-020). A newly picked title keeps no clock: its opener may be
@@ -451,6 +484,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     if pending is not None:  # back within the grace period: nobody hears they were gone
         pending.cancel()
     p.connected = True
+    room.used = True
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
     arrived = "rejoined" if p.rejoined else "joined"
