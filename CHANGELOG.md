@@ -33,7 +33,7 @@ Streaming Sync: a Chrome and Brave extension that keeps friends' Netflix, Prime 
 - Reconnecting after a Wi-Fi drop takes seconds instead of up to a minute, and an ended room no longer shows "Reconnecting" forever.
 
 ### Known issues
-- Tested by two people on real accounts: Netflix, and JioHotstar from India with ads. Prime Video's latest fixes still need that two-person run, and its ad countdown hasn't been seen live.
+- Tested by two people on real accounts on Netflix, Prime Video and JioHotstar (from India, with ads). Prime Video's ad countdown hasn't been seen live yet.
 - On Netflix the room waits while someone is loading, but WatchSync never says they're on an ad.
 - On Prime Video, when the room moves to another episode of the same show, friends pick it in the player themselves.
 - The invite page can stay on "Joining…" if the extension reloads while it's open; reload the page.
