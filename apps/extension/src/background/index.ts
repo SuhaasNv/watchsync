@@ -451,8 +451,20 @@ function presenceTabClosed() {
   presencePort = null;
   presenceTabId = undefined;
   if (presence.media === null) return;
+  titleTabGone();
+}
+
+/**
+ * The tab with our title is gone. Another tab still playing a title takes over; only if none
+ * answers is nothing open (BUG-051): it reported once, on its own title change, long ago.
+ */
+function titleTabGone() {
+  presenceTabId = undefined;
   presence = { service: "none", media: null };
-  sendPresence();
+  push({ kind: "report" });
+  setTimeout(() => {
+    if (presenceTabId === undefined) sendPresence();
+  }, 500);
 }
 
 // Closing the tab: no need to wait out the 3 s page-load allowance below.
@@ -476,10 +488,7 @@ chrome.runtime.onConnect.addListener((port) => {
     presencePort = null;
     // A page load (next episode, Open) drops the port for a moment; only report the
     // title as closed if no tab reports again soon, so the room keeps following us.
-    tabGone = setTimeout(() => {
-      presence = { service: "none", media: null };
-      sendPresence();
-    }, 3000);
+    tabGone = setTimeout(titleTabGone, 3000);
   });
   if (port.name === "tab")
     port.onMessage.addListener((e: TabEvent) => {
