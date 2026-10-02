@@ -9,7 +9,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, join_page
 from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
@@ -135,6 +137,20 @@ def name_in(body: dict[str, Any]) -> str:
 def reject_constant(name: str) -> None:
     """JSON allows no NaN or Infinity, but Python's parser does; refuse them (BUG-008)."""
     raise ValueError(f"{name} is not allowed")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def page_not_found(request: Request, exc: StarletteHTTPException) -> Response:
+    """A person who opens a wrong address sees our page, not JSON; the API keeps JSON errors."""
+    if exc.status_code == 404 and not request.url.path.startswith("/api/"):
+        return HTMLResponse(join_page.not_found(), status_code=404)
+    return await http_exception_handler(request, exc)
+
+
+@app.get("/", include_in_schema=False)
+def home() -> RedirectResponse:
+    # join.watchsync.space on its own is someone looking for WatchSync (BUG-046).
+    return RedirectResponse(config.SITE_URL, status_code=302)
 
 
 @app.get("/health")

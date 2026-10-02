@@ -877,6 +877,18 @@ def test_legal_pages_robots_and_html_not_found() -> None:
     assert invite.headers["x-robots-tag"] == "noindex, nofollow"
 
 
+def test_home_goes_to_the_website_and_unknown_pages_are_ours() -> None:
+    # BUG-046: the bare address and unknown pages showed {"detail": "Not Found"}.
+    home = client.get("/", follow_redirects=False)
+    assert home.status_code == 302 and home.headers["location"] == "https://watchsync.space"
+    for path in ("/nope", "/j/", "/j/ABC234/extra"):
+        r = client.get(path)
+        assert r.status_code == 404 and "That link doesn't work" in r.text, path
+        assert r.headers["content-security-policy"] == main.join_page.CSP
+    api = client.get("/api/v1/nope")
+    assert api.status_code == 404 and api.json() == {"detail": "Not Found"}
+
+
 def test_room_cap_and_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main.config, "MAX_ROOMS", 0)
     r = client.post("/api/v1/rooms", json={"name": "a"})
