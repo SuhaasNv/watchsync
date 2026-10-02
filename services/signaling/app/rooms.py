@@ -52,8 +52,6 @@ class Participant:
     token: str
     service: str = "none"
     title_id: str | None = None
-    # The last title this person had open, kept while they browse between titles (BUG-014).
-    last_title_id: str | None = None
     title_name: str | None = None
     # What this person has open now, as the room would take it (BUG-047).
     media: dict[str, Any] | None = None

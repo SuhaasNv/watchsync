@@ -242,15 +242,11 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         shows = (show(media), show(room.media)) if media and room.media else (None, None)
         same_show = None in shows or shows[0] == shows[1]
         straight = room_title is not None and p.title_id == room_title and same_show
-        # Came from the room's title, maybe through the service's browse page (BUG-014).
-        was_with_room = room_title is not None and p.last_title_id == room_title
         p.service = payload["service"]
         p.following = payload["following"]
         p.title_id = media["titleId"] if media else None
         p.title_name = media["titleName"] if media else None
         p.media = media
-        if media is not None:
-            p.last_title_id = media["titleId"]
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
         # Netflix shows the title text only with its controls, so the first report can come
         # without a name; fill it in from a later report of the same title (BUG-025).
@@ -262,16 +258,15 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             and not room.media.get("titleName")
         ):
             room.media = {**room.media, "titleName": media["titleName"]}
-        # The room takes the first title anyone opens, then moves with whoever was watching
-        # with it and opened another title. People watching on their own never move it.
+        # The room goes to the last title anyone following it opens (DEC-030); friends are
+        # offered it. People watching on their own never move it.
         moves = media is not None and p.following and media["titleId"] != room_title
         # Once nobody here has the room's title open, it goes to whoever follows the room on
-        # another title, the sender first, so the order of leaving and opening doesn't
-        # matter (BUG-047).
+        # another title, so the order of leaving and opening doesn't matter (BUG-047).
         abandoned = room_title is not None and not any(
             x.connected and x.title_id == room_title for x in room.participants.values()
         )
-        mover = p if moves and (room_title is None or was_with_room or abandoned) else None
+        mover = p if moves else None
         if mover is None and abandoned:
             mover = next(
                 (x for x in room.participants.values() if x.connected and x.following and x.media),
