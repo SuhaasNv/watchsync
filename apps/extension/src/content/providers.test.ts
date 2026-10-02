@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { align } from "./align";
 import { clock } from "./playback";
 import {
+  capName,
   hotstarMedia,
   longestVideo,
   mainVideo,
@@ -150,4 +151,17 @@ test("an ad in its own short video counts as an ad only while the film waits (BU
   expect(separateAd(d)).toBeNull(); // film playing: a short video is a preview, not an ad
   set(film, { duration: 100, paused: true });
   expect(separateAd(d)).toBeNull(); // no film loaded (detail page trailer)
+});
+
+test("title names over 200 characters are cut, not refused by the room", () => {
+  const long = {
+    service: "netflix",
+    titleId: "1",
+    titleName: "x".repeat(250),
+    titleUrl: null,
+  } as const;
+  const name = capName(long)?.titleName ?? "";
+  expect([...name].length).toBe(200);
+  expect(name.endsWith("…")).toBe(true);
+  expect(capName({ ...long, titleName: "Dune" })?.titleName).toBe("Dune");
 });
