@@ -175,3 +175,14 @@ describe("no ad when there isn't one (BUG-055)", () => {
     expect(primeAd(d)).toBeNull();
   });
 });
+
+test("a Prime detail page's preloaded film isn't watching; on screen it is (BUG-058)", () => {
+  // As seen on primevideo.com, 3 Oct 2026: a muted 15 s trailer plays full width while the
+  // 43-minute episode sits loaded, paused and 0 px wide.
+  const trailer = { readyState: 4, duration: 15, paused: false, muted: true, clientWidth: 1905 };
+  const preloaded = { ...FILM, paused: true, clientWidth: 0 };
+  const { d } = page(trailer, preloaded);
+  expect(longestVideo(d)?.clientWidth).toBe(0);
+  expect(playingWithSound(d)).toBe(false);
+  expect(separateAd(d)).not.toBeNull(); // why Prime no longer uses this guess (BUG-055)
+});

@@ -335,9 +335,10 @@ export function providerFor(host: string): StreamingProvider | null {
 function serviceProvider(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
   if (PRIME_HOSTS.test(host)) {
-    // Watching once the film is loaded, or already while Prime's ads play before it: they
-    // play with sound, a detail page's trailer plays muted (BUG-056).
-    const open = () => longestVideo() !== null || playingWithSound();
+    // Watching once the film is on screen, or already while Prime's ads play before it: they
+    // play with sound, a detail page's trailer plays muted (BUG-056). A detail page also
+    // preloads the film paused and 0 px wide; that is browsing, not watching (BUG-058).
+    const open = () => (longestVideo()?.clientWidth ?? 0) > 0 || playingWithSound();
     const media = () => primeMedia(new URL(location.href), document, open());
     return {
       ...videoProvider("prime", media),
