@@ -1,8 +1,31 @@
-node_modules/
-**/node_modules/
-.venv/
-**/.venv/
-apps/
-docs/
-.git/
-*.zip
+# One build context serves both images (Railway builds every service from the repo root),
+# so this is an allowlist of what either Dockerfile copies. Each Dockerfile copies only its
+# own paths, so the room service image stays lean.
+*
+
+# Workspace manifests (website build)
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+
+# Shared packages: protocol schema (room service), workspace dependencies (website)
+!packages/
+
+# Room service
+!services/signaling/pyproject.toml
+!services/signaling/uv.lock
+!services/signaling/app/
+
+# Website, plus the extension's manifest so pnpm sees the whole workspace the lockfile lists
+!apps/website/
+!apps/extension/package.json
+
+# Never: installs, builds and caches from a local checkout
+**/node_modules
+**/.venv
+**/__pycache__
+**/dist
+**/.astro
+**/*.zip
+**/.env

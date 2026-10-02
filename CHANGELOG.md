@@ -15,9 +15,15 @@ Streaming Sync: a Chrome extension that keeps friends' Netflix, Prime Video and 
 - Service adapters for Netflix (player API through a page bridge), Prime Video (episodes and ads read from its player) and JioHotstar (live streams are not synced and say so).
 - Room service on Railway with rate limits, room expiry, input validation and security headers; privacy notice and terms at /privacy and /terms.
 - Accessibility: WCAG 2.2 AA gate (axe) in the test suite, keyboard paths, reduced motion (DEC-022).
+- Update notice: once a day the extension checks GitHub for a newer release, and the popup says "WatchSync 0.1.1 is out · Download" when there is one.
+- Downloads from the website: every release tag publishes a GitHub Release with the extension zip, and the website links to the latest one.
 
 ### Fixed
 - BUG-002 to BUG-013, including: autoplay on arrival pulling the room back (BUG-004), a first jump pausing everyone (BUG-005), the sender's own room clock going stale (BUG-006), NaN breaking a room (BUG-008), endless Reconnecting after a room ended (BUG-009), a dropped friend disconnecting the sender (BUG-010), and idle rooms and limiter keys not being cleaned up (BUG-011).
+- BUG-014: friends are told when someone opens another title ("Suhaas opened Vaarasudu.") and choose Continue with Suhaas or Watch on my own; going back to the browse page between titles no longer stops the room following.
+- BUG-015: Prime Video detection rebuilt from its live player, after Prime moved to generated class names and WatchSync no longer found the title.
+- BUG-016: the popup leads with the people in the room once anyone else has joined; the invite code moves to a small line below.
+- BUG-017: a tidy two-line popup footer instead of one line that wrapped mid-sentence.
 
 ### Known issues
 - Not yet confirmed on real accounts: the Netflix player API, Prime Video's selectors and ad timer, JioHotstar's page structure (DEC-019). The release acceptance test with two people covers these.

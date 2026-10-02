@@ -1,0 +1,88 @@
+name: Release
+
+# Pushing a tag vX.Y.Z or vX.Y.Z-rc.N (owner approval each time, see docs/DEPLOY.md) runs the
+# full CI, packs the extension against the production room service and publishes a GitHub
+# Release with the zip and the matching CHANGELOG.md section as its notes.
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its files
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tag matches the extension version
+        id: version
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::Tag $TAG is not vX.Y.Z or vX.Y.Z-rc.N."
+            exit 1
+          fi
+          base="${TAG#v}"
+          base="${base%%-rc.*}"
+          pkg=$(node -p "require('./apps/extension/package.json').version")
+          if [ "$base" != "$pkg" ]; then
+            echo "::error::Tag $TAG is for $base but apps/extension/package.json says $pkg. Bump the version or fix the tag."
+            exit 1
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG" == *-rc.* ]]; then
+            echo "title=WatchSync $TAG (release candidate)" >> "$GITHUB_OUTPUT"
+          else
+            echo "title=WatchSync $TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Release notes from CHANGELOG.md
+        run: node scripts/release-notes.mjs "${{ steps.version.outputs.base }}" > release-notes.md
+
+      - name: Pack the extension (production room service)
+        run: |
+          pnpm --filter @watchsync/extension zip
+          zip="apps/extension/watchsync-extension-v${{ steps.version.outputs.base }}.zip"
+          # The website links to releases/latest/download/watchsync-extension.zip, so every
+          # release carries the zip under that stable name as well as a versioned one.
+          cp "$zip" watchsync-extension.zip
+          cp "$zip" "watchsync-extension-$TAG.zip"
+          unzip -p watchsync-extension.zip manifest.json | node -e '
+            const m = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            if (m.host_permissions.some((p) => p.includes("localhost"))) throw new Error("localhost in a release build");
+            console.log("manifest " + m.version + ", hosts " + m.host_permissions.join(" "));'
+
+      # Release candidates are published as normal releases, not --prerelease, on purpose:
+      # GitHub's /releases/latest (the website's download link and the popup's update check)
+      # skips prereleases, and friends testing v0.1 install the candidate from the website.
+      # The title says "(release candidate)" instead.
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ steps.version.outputs.title }}
+        run: |
+          files=(watchsync-extension.zip "watchsync-extension-$TAG.zip")
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # A re-run after a partial failure: refresh the files, keep the release.
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" --verify-tag --latest \
+              --title "$TITLE" --notes-file release-notes.md
+          fi

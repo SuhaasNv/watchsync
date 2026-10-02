@@ -10,6 +10,7 @@ import {
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
 import type { AppState, Push, Reply, Request, Session, TabEvent } from "../shared/messages";
+import { isUpdate, latestRelease, RELEASES_API, type UpdateCheck } from "../shared/update";
 
 const API = __API_URL__;
 
@@ -25,6 +26,7 @@ const state: AppState = {
   lastRoom: null,
   notice: null,
   mediaMove: null,
+  update: null,
 };
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
@@ -81,6 +83,31 @@ function isSaved(v: unknown): v is { ticket: Session; at: number } {
   return typeof at === "number" && isRoomTicket(ticket);
 }
 const ready = restore();
+
+/** Looks for a newer release at most once a day; any failure just means no notice. */
+async function checkForUpdate() {
+  const latest = await latestRelease({
+    now: Date.now(),
+    load: async () => (await chrome.storage.local.get("updateCheck")).updateCheck,
+    save: (updateCheck: UpdateCheck) => chrome.storage.local.set({ updateCheck }),
+    fetchLatest: async () => {
+      // Test builds stay off the network; they read only what a test put in the cache.
+      if (__MOCK__) throw new Error("offline in tests");
+      const res = await fetch(RELEASES_API, {
+        headers: { accept: "application/vnd.github+json" },
+        credentials: "omit",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw new Error(`releases ${res.status}`);
+      return res.json();
+    },
+  });
+  const installed = chrome.runtime.getManifest().version;
+  await ready; // never push a half-restored state to an open popup
+  state.update = latest && isUpdate(latest.version, installed) ? latest : null;
+  changed();
+}
+checkForUpdate().catch(() => {});
 
 async function api(path: string, body: unknown) {
   let res: Response;

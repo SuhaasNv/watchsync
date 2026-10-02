@@ -278,6 +278,10 @@ h2.label {
 .foot p {
   margin: 0;
 }
+.foot p.update {
+  margin-bottom: 8px;
+  color: var(--text2);
+}
 .foot p.foot-row {
   display: flex;
   gap: 14px;
