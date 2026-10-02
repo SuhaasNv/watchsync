@@ -1,5 +1,5 @@
 ---
-import { RELEASES_URL, REPO_URL } from "../../lib/site";
+import { REPO_URL } from "../../lib/site";
 
 /** Everything here must match apps/extension/build.mjs (the manifest) and release.yml. */
 const WORKFLOW_URL = `${REPO_URL}/blob/main/.github/workflows/release.yml`;
@@ -18,79 +18,24 @@ const commands = [
 <section class="safe" id="safe" aria-labelledby="safe-title">
   <h2 id="safe-title">Is it <span class="em">safe?</span></h2>
   <p class="intro">
-    You're installing WatchSync from outside the Chrome Web Store, so Google hasn't reviewed it.
-    Here is everything it can reach, what it never does, and how to check the file yourself.
+    It runs only on Netflix, Prime Video and JioHotstar pages, and only tells our room service
+    (<code>join.watchsync.space</code>) whether the video is playing, where it is and what's on. It never reads the picture, your passwords or your
+    history, loads no code from the internet and doesn't track you.
   </p>
-
-  <div class="pair">
-    <div class="block">
-      <h3>What it can reach</h3>
-      <ul class="can">
-        <li>
-          <strong>Storage in your browser.</strong> Your name, and your room for up to 24 hours so
-          you can rejoin after a restart.
-        </li>
-        <li>
-          <strong>The WatchSync room service</strong> at <code>join.watchsync.space</code>, to send
-          play, pause and the position to your room, and to open invite links.
-        </li>
-        <li>
-          <strong>Netflix, Prime Video and JioHotstar pages.</strong> It reads whether the video is
-          playing, where it is and which title is open, applies play, pause and jumps from your room,
-          and shows small notices on the player.
-        </li>
-        <li>
-          <strong>GitHub, at most once a day</strong>, to see whether a newer version is out.
-        </li>
-      </ul>
-      <p class="note">
-        That's the whole list. Its permissions are in <code>manifest.json</code>, in the folder
-        you unzip, and the code that uses them is public.
-      </p>
-    </div>
-    <div class="block">
-      <h3>What it never does</h3>
-      <ul class="never">
-        <li>Read the picture, the sound or the rest of the page</li>
-        <li>See your passwords, payments or account details</li>
-        <li>Read your browsing history, or run on any other site</li>
-        <li>Load code from the internet: everything it runs is in the zip</li>
-        <li>Track you: no analytics, no ads, no cookies</li>
-      </ul>
-      <p class="note"><a href="/privacy/">Read the privacy notice</a></p>
-    </div>
-  </div>
-
-  <div class="pair">
-    <div class="block">
-      <h3>How the zip is made</h3>
-      <p>
-        All of WatchSync's code is <a href={REPO_URL} rel="noopener">public on GitHub</a>. Each
-        release zip is built by GitHub Actions from a tagged commit on the main branch, using a <a
-          href={WORKFLOW_URL}
-          rel="noopener">public workflow</a
-        >, and published on <a href={RELEASES_URL} rel="noopener">GitHub Releases</a>. The notes of
-        every release name the commit and link to the build.
-      </p>
-    </div>
-    <div class="block">
-      <h3>Why Chrome shows a warning</h3>
-      <p>
-        Chrome shows a banner about developer-mode extensions for every extension that didn't come
-        from the Chrome Web Store. It's about where the extension came from, not something Chrome
-        found in it.
-      </p>
-    </div>
-  </div>
-
-  <div class="block check" id="check">
-    <h3>Check your download</h3>
+  <p class="intro">
+    Every line is <a href={REPO_URL} rel="noopener">public on GitHub</a>, and each zip is built
+    there by a <a href={WORKFLOW_URL} rel="noopener">public workflow</a>. <a href="/privacy/"
+      >Privacy notice</a
+    >.
+  </p>
+  <details class="block check" id="check">
+    <summary>Check your download</summary>
     <ol>
       <li>
         <p>
-          Find the SHA-256 of the release: it's next to each download on the <a href="/releases/"
+          Find the release's SHA-256 next to its download on the <a href="/releases/"
             >release notes</a
-          > page, and in <code>SHA256SUMS.txt</code> on GitHub Releases.
+          > page.
         </p>
         <p class="latest" data-latest-sum hidden>
           <span>Latest, <span data-sum-version></span>:</span>{" "}
@@ -98,10 +43,7 @@ const commands = [
         </p>
       </li>
       <li>
-        <p>
-          Ask your computer for the SHA-256 of the file you downloaded. If your browser renamed it,
-          use that name.
-        </p>
+        <p>Ask your computer for the SHA-256 of the file you downloaded. The two must match.</p>
         <dl class="cmds">
           {
             commands.map((c) => (
@@ -124,13 +66,11 @@ const commands = [
             ))
           }
         </dl>
-        <p>The two must match exactly. If they don't, don't install it, and tell us.</p>
       </li>
       <li>
         <p>
-          Optional, with the <a href="https://cli.github.com/" rel="noopener">GitHub CLI</a>
-          (<code>gh</code>): this checks GitHub's signed record that our workflow built this exact
-          file from our public code.
+          Optional, with the <a href="https://cli.github.com/" rel="noopener">GitHub CLI</a>: check
+          GitHub's signed record that our workflow built this exact file.
         </p>
         <div class="cmd solo">
           <code>{ATTEST}</code>
@@ -145,8 +85,18 @@ const commands = [
         </div>
       </li>
     </ol>
-  </div>
+  </details>
 </section>
+
+<script>
+  // The release notes link to /install/#check: open the steps when someone lands there.
+  const check = document.getElementById("check");
+  const openCheck = () => {
+    if (location.hash === "#check" && check instanceof HTMLDetailsElement) check.open = true;
+  };
+  openCheck();
+  window.addEventListener("hashchange", openCheck);
+</script>
 
 <style>
   .safe {
@@ -155,6 +105,21 @@ const commands = [
     border-radius: 24px;
     background: var(--surface);
     box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .check summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .check[open] summary {
+    margin-bottom: 14px;
+  }
+  .check summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
   }
   h2 {
     font-size: clamp(2rem, 4vw, 3rem);
@@ -166,29 +131,14 @@ const commands = [
     color: var(--text2);
     font-size: clamp(1.05rem, 1.5vw, 1.2rem);
   }
-  .pair {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0 clamp(24px, 4vw, 56px);
-  }
   .block {
     margin-top: clamp(24px, 3vw, 36px);
     padding-top: 18px;
     box-shadow: inset 0 1px 0 var(--line2);
   }
-  h3 {
-    font-family: var(--sans);
-    font-size: 1.1rem;
-    font-weight: 750;
-    letter-spacing: 0;
-    margin-bottom: 12px;
-  }
   p,
   li {
     color: var(--text2);
-  }
-  strong {
-    color: var(--text);
   }
   a {
     color: var(--text);
@@ -201,45 +151,6 @@ const commands = [
     border-radius: 6px;
     font-size: 0.92em;
     overflow-wrap: anywhere;
-  }
-  ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: grid;
-    gap: 10px;
-  }
-  ul li {
-    position: relative;
-    padding-left: 26px;
-  }
-  ul li::before {
-    content: "";
-    position: absolute;
-    left: 2px;
-    top: 0.55em;
-    width: 12px;
-    height: 7px;
-    border-left: 2px solid currentColor;
-    border-bottom: 2px solid currentColor;
-    transform: rotate(-45deg);
-    color: var(--pres);
-  }
-  .never li::before {
-    top: 0.75em;
-    height: 0;
-    border-left: 0;
-    transform: none;
-    color: var(--warn);
-  }
-  .note {
-    margin-top: 14px;
-    font-size: 0.95rem;
-  }
-  .note a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
   }
   .check ol {
     display: grid;
