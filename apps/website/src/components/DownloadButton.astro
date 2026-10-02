@@ -29,6 +29,7 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
   {
     withVersion && (
       <>
+        <p class="needs">Needs Chrome or Brave on a computer.</p>
         <p class="meta">
           <span data-version>{FALLBACK_VERSION}</span>
           <span aria-hidden="true"> · </span>
@@ -59,12 +60,35 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
     flex-wrap: wrap;
     gap: 12px;
   }
+  .btn svg {
+    transition: transform 0.2s var(--ease);
+  }
+  /* The arrow drops toward the tray: the button shows what it does. */
+  @media (hover: hover) and (pointer: fine) {
+    .btn.primary:hover svg {
+      transform: translateY(2px);
+    }
+  }
   .compact .btn {
     min-height: 40px;
     padding: 0 14px;
     border-radius: 10px;
     font-size: 0.95rem;
     gap: 8px;
+  }
+  /* Small screens only: someone on a narrow window should know before they download. */
+  .needs {
+    display: none;
+    color: var(--text2);
+    font-size: 0.95rem;
+  }
+  @media (max-width: 720px) {
+    .needs {
+      display: block;
+    }
+  }
+  :global(.on-phone) .needs {
+    display: none;
   }
   .meta {
     font-family: var(--mono);
@@ -101,6 +125,7 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
     display: none;
   }
   :global(.on-phone) .download:has(.device-note:not([hidden])) .btn.primary {
+    transition: none;
     background: var(--raised);
     color: var(--text);
     box-shadow: inset 0 0 0 1px var(--line2);

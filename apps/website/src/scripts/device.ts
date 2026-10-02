@@ -56,13 +56,16 @@ async function shareOrCopy(button: HTMLButtonElement, label: HTMLElement, status
   try {
     await navigator.clipboard.writeText(url);
     label.textContent = "Link copied";
+    button.dataset.state = "copied";
     status.textContent = "Link copied. Paste it into a message to yourself.";
   } catch {
     label.textContent = "Copy failed: copy the address bar instead";
+    button.dataset.state = "failed";
     status.textContent = "Couldn't copy. Copy the address from the address bar instead.";
   }
   setTimeout(() => {
     label.textContent = button.dataset.label ?? "Copy the link to this page";
+    delete button.dataset.state;
   }, 3000);
 }
 

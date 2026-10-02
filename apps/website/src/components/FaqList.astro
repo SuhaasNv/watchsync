@@ -52,8 +52,13 @@ const H = headingLevel === 2 ? "h2" : "h3";
       "opsz" 48,
       "SOFT" 100;
   }
-  summary:hover .q {
-    color: var(--acc);
+  .q {
+    transition: color 0.15s;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    summary:hover .q {
+      color: var(--acc);
+    }
   }
   .sign {
     position: relative;
@@ -62,6 +67,12 @@ const H = headingLevel === 2 ? "h2" : "h3";
     height: 32px;
     border-radius: 50%;
     box-shadow: inset 0 0 0 1px var(--line2);
+    transition:
+      background-color 0.2s,
+      transform 0.15s var(--ease);
+  }
+  summary:active .sign {
+    transform: scale(0.92);
   }
   .sign::before,
   .sign::after {
@@ -74,7 +85,9 @@ const H = headingLevel === 2 ? "h2" : "h3";
     margin: -1px 0 0 -6px;
     border-radius: 2px;
     background: var(--text);
-    transition: transform 0.25s var(--ease);
+    transition:
+      transform 0.25s var(--ease),
+      background-color 0.2s;
   }
   .sign::after {
     transform: rotate(90deg);
@@ -89,6 +102,38 @@ const H = headingLevel === 2 ? "h2" : "h3";
   details[open] .sign::before,
   details[open] .sign::after {
     background: var(--on-acc);
+  }
+  /*
+   * The answer slides open and closed where the browser supports ::details-content; elsewhere
+   * the native instant toggle remains. Closing (0.18s) is quicker than opening (0.28s).
+   */
+  @supports selector(::details-content) {
+    details {
+      interpolate-size: allow-keywords;
+    }
+    details::details-content {
+      height: 0;
+      overflow: clip;
+      opacity: 0;
+      transition:
+        height 0.18s ease-out,
+        opacity 0.12s ease-out,
+        content-visibility 0.18s allow-discrete;
+    }
+    details[open]::details-content {
+      height: auto;
+      opacity: 1;
+      transition:
+        height 0.28s var(--ease),
+        opacity 0.22s ease-out 0.04s,
+        content-visibility 0.28s allow-discrete;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    details::details-content,
+    details[open]::details-content {
+      transition: none;
+    }
   }
   .a {
     padding-bottom: 24px;
