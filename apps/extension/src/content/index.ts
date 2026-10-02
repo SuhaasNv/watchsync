@@ -116,6 +116,7 @@ function onPush(m: Push) {
     const holder = room.participants.find((p) => p.id === byId && p.hold);
     if (holder && action === "pause") return; // the wait card explains it (drawWait)
     if (action === "play" && waitShownAt) return; // drawWait says "Back together"
+    if (byId === room.session?.participantId) return; // never a notice about myself (BUG-022)
     if (action !== "seek")
       return toast(`${byName} ${NOTICE[action]}`, 3000, { who: byName, icon: action });
     const to = expectedPosition(playback, serverNow);
@@ -401,7 +402,7 @@ function drawWait() {
   const who = waiting[0];
   if (!who) {
     if (waitShownAt) {
-      clearPrompt("wait");
+      clearPrompt(waitKey); // "wait" or "wait-late", whichever is showing (BUG-021)
       toast("Back together", 3000, { icon: "check", tone: "ok" });
       waitShownAt = 0;
       waitKey = "";
