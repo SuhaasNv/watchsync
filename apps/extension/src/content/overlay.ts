@@ -281,6 +281,9 @@ export interface PillModel {
   onOwn: () => void;
   /** Start together; null hides the button (not on the room's title, or alone). */
   onStart: (() => void) | null;
+  /** This tab's player is playing: the start button becomes Pause together. */
+  playing: boolean;
+  onPause: () => void;
 }
 
 const pill = document.createElement("div");
@@ -288,6 +291,8 @@ pill.className = "pill";
 pill.setAttribute("role", "region");
 pill.setAttribute("aria-label", "WatchSync room");
 let corner: "tr" | "tl" = "tr";
+/** Folded down to the faces, so the pill stays out of the way of the player (owner, 2 Oct). */
+let collapsed = false;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Like the player's own controls: visible while the mouse moves, faded after 3 s still.
@@ -298,9 +303,14 @@ function wake() {
 }
 document.addEventListener("mousemove", wake, { passive: true });
 
-chrome.storage.local.get("pillCorner").then(({ pillCorner }) => {
-  if (pillCorner === "tl") corner = "tl";
+let lastModel: PillModel | null = null;
+chrome.storage.local.get(["pillCorner", "pillCollapsed"]).then(({ pillCorner, pillCollapsed }) => {
+  if (pillCorner === "tl") corner = "tl"; // set by earlier versions, which could move the pill
   pill.dataset.corner = corner;
+  if (pillCollapsed === true) {
+    collapsed = true;
+    if (lastModel) renderPill(lastModel);
+  }
 });
 
 interface ButtonLook {
@@ -328,6 +338,7 @@ function button(label: string, run: () => void, look: ButtonLook = {}): HTMLButt
 
 /** Shows who's here and in sync; null hides it (not in a room). */
 export function renderPill(model: PillModel | null) {
+  lastModel = model;
   if (!model) return pill.remove();
   mount();
   if (!pill.isConnected) root.append(pill);
@@ -347,6 +358,25 @@ export function renderPill(model: PillModel | null) {
     f.setAttribute("aria-label", p.label);
     faces.append(f);
   }
+  // The fold arrow points to the edge the pill tucks into, and back out when folded.
+  const toEdge: IconName = corner === "tr" ? "right" : "left";
+  const fromEdge: IconName = corner === "tr" ? "left" : "right";
+  const fold = button(
+    collapsed ? "Show room controls" : "Hide room controls",
+    () => {
+      collapsed = !collapsed;
+      void chrome.storage.local.set({ pillCollapsed: collapsed });
+      renderPill(model);
+      pill.querySelector<HTMLButtonElement>("button:last-of-type")?.focus();
+    },
+    { icon: collapsed ? fromEdge : toEdge, bare: true },
+  );
+  fold.setAttribute("aria-expanded", String(!collapsed));
+  pill.classList.toggle("folded", collapsed);
+  if (collapsed) {
+    pill.replaceChildren(faces, fold);
+    return wake();
+  }
   const sep = document.createElement("span");
   sep.className = "sep";
   sep.setAttribute("aria-hidden", "true");
@@ -359,24 +389,22 @@ export function renderPill(model: PillModel | null) {
         icon: "sync",
         hint: "Follow the room again, from where it is now.",
       });
-  const goLeft = corner === "tr";
-  const move = button(
-    goLeft ? "Move to the left side" : "Move to the right side",
-    () => {
-      corner = corner === "tr" ? "tl" : "tr";
-      void chrome.storage.local.set({ pillCorner: corner });
-      renderPill(model);
-    },
-    { icon: goLeft ? "left" : "right", bare: true },
-  );
-  const start = model.onStart
+  // Start together while paused; once everyone is playing, the same place pauses everyone.
+  const together = model.onStart
     ? [
-        button("Start together", model.onStart, {
-          icon: "play",
-          hint: "Pause everyone, count down 3-2-1, start at the same moment",
-        }),
+        model.playing
+          ? button("Pause together", model.onPause, {
+              primary: true,
+              icon: "pause",
+              hint: "Pause everyone in the room",
+            })
+          : button("Start together", model.onStart, {
+              primary: true,
+              icon: "play",
+              hint: "Pause everyone, count down 3-2-1, start at the same moment",
+            }),
       ]
     : [];
-  pill.replaceChildren(faces, sep, toggle, ...start, move);
+  pill.replaceChildren(faces, sep, toggle, ...together, fold);
   wake();
 }

@@ -130,7 +130,7 @@ test("watching on my own stops following until Sync", async ({ ext }) => {
   }
 });
 
-test("the pill shows who is here, moves, and stays in full screen", async ({ ext }) => {
+test("the pill shows who is here, folds away, and stays in full screen", async ({ ext }) => {
   const { friend } = await room(ext);
   try {
     const tab = await friend.context.newPage();
@@ -139,10 +139,19 @@ test("the pill shows who is here, moves, and stays in full screen", async ({ ext
     await expect(region.getByRole("img", { name: "Suhaas, in sync" })).toBeVisible();
     await expect(region.getByRole("img", { name: "Asha (you), in sync" })).toBeVisible();
 
-    await region.getByRole("button", { name: "Move to the left side" }).click();
-    await expect(region.getByRole("button", { name: "Move to the right side" })).toBeVisible();
-    const box = await region.boundingBox();
-    expect(box?.x).toBeLessThan(100);
+    // The arrow folds the pill down to the faces, and back (owner, 2 October 2026).
+    await region.getByRole("button", { name: "Hide room controls" }).click();
+    await expect(region.getByRole("button", { name: "Watch on my own" })).toHaveCount(0);
+    await expect(region.getByRole("img", { name: "Suhaas, in sync" })).toBeVisible();
+    await region.getByRole("button", { name: "Show room controls" }).click();
+    await expect(region.getByRole("button", { name: "Watch on my own" })).toBeVisible();
+
+    // Playing together, the start button pauses everyone instead; paused, it starts again.
+    const pauseAll = region.getByRole("button", { name: "Pause together" });
+    await expect(pauseAll).toBeVisible();
+    await pauseAll.click();
+    await expect.poll(() => playing(tab)).toBe(false);
+    await expect(region.getByRole("button", { name: "Start together" })).toBeVisible();
 
     await tab.getByRole("button", { name: "Full screen" }).click();
     await expect

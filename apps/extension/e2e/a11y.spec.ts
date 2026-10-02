@@ -104,6 +104,8 @@ test("flagship: wait card and countdown", async ({ ext }) => {
       delete document.body.dataset.buffering;
     });
     await expect(hostTab.getByText("Back together")).toBeVisible({ timeout: 5000 });
+    // Playing, the pill offers Pause together; paused, Start together.
+    await hostTab.getByRole("button", { name: "Pause together" }).click();
     await hostTab.getByRole("button", { name: "Start together" }).click();
     await expect(tab.getByText(/Starting together in|Getting ready/)).toBeVisible();
     await audit(tab, "watchsync-overlay");
