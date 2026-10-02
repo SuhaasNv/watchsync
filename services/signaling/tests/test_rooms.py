@@ -116,6 +116,25 @@ def test_join_is_rate_limited_even_for_wrong_codes(monkeypatch: pytest.MonkeyPat
     assert join("ZZZZZZ").status_code == 429
 
 
+def test_wrong_codes_from_everyone_together_are_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-042: guessing codes from many addresses, each under its own limit, stays slow."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main, "failed_join_limiter", main.Limiter(3, 60))
+    room = create()
+
+    def attempt(code: str, ip: str) -> int:
+        r = client.post(f"/api/v1/rooms/{code}/join", json={"name": "a"}, headers={"x-real-ip": ip})
+        return r.status_code
+
+    assert attempt(room["code"], "192.0.2.1") == 201  # right codes never count
+    for i in range(3):
+        assert attempt("ZZZZZZ", f"192.0.2.{10 + i}") == 404
+    # Past the shared budget every join waits, right code or not: a 201 would tell a
+    # guesser which code is real.
+    assert attempt("ZZZZZZ", "192.0.2.50") == 429
+    assert attempt(room["code"], "192.0.2.51") == 429
+
+
 def test_presence_update_reaches_everyone_and_sets_room_media() -> None:
     host = create()
     with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:

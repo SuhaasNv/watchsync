@@ -26,7 +26,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         while True:
             await asyncio.sleep(60)
             rooms.sweep()
-            for limiter in (create_limiter, join_limiter, message_limiter, connect_limiter):
+            limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
+            for limiter in (*limiters, failed_join_limiter):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
@@ -48,6 +49,8 @@ create_limiter = Limiter(config.CREATE_PER_MINUTE, 60)
 join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
 message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
 connect_limiter = Limiter(config.CONNECTS_PER_MINUTE, 60)
+failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
+EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
 # newer connection of the same person (stop), anything else = network trouble (reconnect).
@@ -180,10 +183,15 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
     # Every attempt counts, including wrong codes, so codes cannot be guessed.
     if not join_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
+    # Too many wrong codes from everyone at once: someone is guessing from many addresses.
+    if failed_join_limiter.full(EVERYONE):
+        raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
     body = await read_body(request, is_join_request)
     try:
         return rooms.join(code.upper(), name_in(body), body.get("token"))
     except RoomError as e:
+        if e.code == "not_found":
+            failed_join_limiter.allow(EVERYONE)
         raise HTTPException(ERROR_STATUS[e.code], e.message) from e
 
 

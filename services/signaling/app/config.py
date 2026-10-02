@@ -23,6 +23,9 @@ MAX_PARTICIPANTS = int(os.environ.get("MAX_PARTICIPANTS", "8"))
 # Per client IP, per minute.
 CREATE_PER_MINUTE = int(os.environ.get("CREATE_PER_MINUTE", "10"))
 JOIN_PER_MINUTE = int(os.environ.get("JOIN_PER_MINUTE", "30"))
+# Wrong codes per minute from everyone together: past it, every join waits (BUG-042), so
+# guessing codes from many addresses stays slow.
+FAILED_JOINS_PER_MINUTE = int(os.environ.get("FAILED_JOINS_PER_MINUTE", "100"))
 # Per connection, per 10 seconds.
 MESSAGES_PER_10S = int(os.environ.get("MESSAGES_PER_10S", "60"))
 # Behind Railway's edge, the client address arrives in X-Real-IP (set by the edge).
