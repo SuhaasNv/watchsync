@@ -1,50 +1,71 @@
-# WatchSync
+<p align="center">
+  <a href="https://watchsync.space"><img src="apps/website/public/og.png" alt="WatchSync: press play here, it plays there." width="720" /></a>
+</p>
 
-Watch together in sync with friends, each on your own account. A Chrome extension plus a small room service. Works with Netflix, Prime Video and JioHotstar (not affiliated with them).
+<p align="center">
+  <strong>Movie night with friends in other cities, in sync.</strong><br />
+  A browser extension for Chrome and Brave. Each of you watches on your own Netflix, Prime Video or JioHotstar account; WatchSync keeps the tabs in step.
+</p>
 
-**Install it (friends):** see [docs/INSTALL.md](docs/INSTALL.md). **Release notes:** [CHANGELOG.md](CHANGELOG.md). **Privacy:** https://room-service-production-e5dd.up.railway.app/privacy
+<p align="center">
+  <a href="https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip"><strong>Download</strong></a>
+  ·
+  <a href="https://watchsync.space">Website</a>
+  ·
+  <a href="https://watchsync.space/install/">How to install</a>
+  ·
+  <a href="CHANGELOG.md">Release notes</a>
+  ·
+  <a href="https://watchsync.space/faq/">FAQ</a>
+</p>
 
-## Supported services (v0.1)
+<p align="center">
+  <a href="https://github.com/SuhaasNv/watchsync/actions/workflows/ci.yml"><img src="https://github.com/SuhaasNv/watchsync/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI" /></a>
+</p>
 
-| Service | Sync | Next episode | Ads wait |
+## How it works
+
+1. **Make a room.** Click WatchSync, pick a name, create a room and send the link to your friends.
+2. **Open the same title.** If someone is on another episode, WatchSync offers to open the right one.
+3. **Press play.** Play, pause and skips reach everyone. When someone hits an ad or a slow connection, the room waits for them and says why, then starts again together.
+
+## Works with
+
+| Service | Play, pause, skip | Next episode | Waits for ads |
 |---|---|---|---|
-| Netflix | Player API (page bridge) | URL change | Buffering wait only |
-| Prime Video | `<video>` | In-player (friends pick it) | Yes (ad timer) |
-| JioHotstar | `<video>`, on-demand only | URL change | Buffering wait only |
+| Netflix | Yes | Yes | Waits while someone buffers |
+| Prime Video | Yes | Friends pick it in the player | Yes, with the time left |
+| JioHotstar | Yes (not live streams) | Yes | Yes, still being checked on real accounts |
 
-## Run it locally
+Not affiliated with Netflix, Amazon or JioStar.
+
+## Install
+
+WatchSync isn't in the Chrome Web Store yet, so you load it yourself. It takes a minute:
+
+1. [Download the zip](https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip) and unzip it. Keep the folder.
+2. Open `chrome://extensions` (or `brave://extensions`) and turn on **Developer mode**.
+3. Click **Load unpacked** and choose the unzipped folder.
+4. Pin WatchSync from the puzzle icon in the toolbar.
+
+The [install guide](https://watchsync.space/install/) walks through it with pictures. When a new version is out, the popup tells you.
+
+## Privacy
+
+WatchSync shares only what keeps you in sync: your name, the room, and whether you're playing or paused and where. It never reads the picture, records anything, or touches your account. Rooms live in memory and disappear soon after everyone leaves. Details: [privacy notice](https://watchsync.space/privacy/).
+
+## For developers
+
+A pnpm monorepo: the extension (`apps/extension`, Manifest V3, TypeScript, React popup), the room service (`services/signaling`, FastAPI and WebSockets), the website (`apps/website`, Astro) and the shared protocol (`packages/protocol`, JSON Schema).
 
 ```bash
 pnpm install
 cd services/signaling && uv sync && uv run uvicorn app.main:app --reload   # room service on :8000
-pnpm --filter @watchsync/extension dev                                     # builds apps/extension/dist and rebuilds on change
+pnpm --filter @watchsync/extension dev                                     # builds apps/extension/dist, rebuilds on change
 ```
 
-Load `apps/extension/dist` in `chrome://extensions` (Developer mode → Load unpacked).
+Load `apps/extension/dist` with **Load unpacked**. Before a merge, run `pnpm check` (lint, types, unit tests, the extension's end-to-end tests against a mock player, and the room service's tests). The website runs with `pnpm --filter @watchsync/website dev` and tests with `pnpm --filter @watchsync/website e2e`.
 
-## Checks
+Releases are tags on `main`; each one publishes the zip above. Deploys and releases: [docs/DEPLOY.md](docs/DEPLOY.md). Product and architecture: [docs/PRD.md](docs/PRD.md), [docs/TRD.md](docs/TRD.md), [docs/TECH-STACK.md](docs/TECH-STACK.md).
 
-```bash
-pnpm check                                       # everything below, fail-fast (use before every merge)
-pnpm lint && pnpm typecheck && pnpm test          # TypeScript packages
-pnpm --filter @watchsync/extension e2e:install    # once: Chromium for the tests, kept in apps/extension/.browsers
-pnpm --filter @watchsync/extension e2e            # extension against the local mock player
-cd services/signaling && uv run ruff check . && uv run mypy app && uv run pytest
-pnpm gen:protocol                                  # after editing packages/protocol/schema
-```
-
-## Website
-
-`apps/website` is the public site (Astro, static). `pnpm --filter @watchsync/website dev` runs it on :4321; `build` writes `apps/website/dist` (set `PUBLIC_SITE_URL` for absolute links in previews and the sitemap). `pnpm --filter @watchsync/website e2e` builds it and runs the Playwright and axe checks (GitHub's API is mocked; browsers from `e2e:install` above).
-
-## Release build and deploy
-
-`pnpm --filter @watchsync/extension zip` builds the zip against production (it refuses a mock build). The room service runbook is [docs/DEPLOY.md](docs/DEPLOY.md).
-
-## Configuration
-
-Service settings come from environment variables, extension settings from build-time variables. See `.env.example`.
-
-## Docs
-
-`CLAUDE.md` (how we work), `docs/PRD.md`, `docs/TRD.md`, `docs/TECH-STACK.md`. Plan and status live in Notion.
+Questions or problems: suhaasnvs@gmail.com.

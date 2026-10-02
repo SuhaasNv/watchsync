@@ -26,6 +26,7 @@ jobs:
     env:
       SHA: ${{ github.event.workflow_run.head_sha }}
       WATCHSYNC_API: ${{ vars.DEV_API_URL }}
+      WATCHSYNC_SITE: ${{ vars.DEV_SITE_URL }}
     steps:
       - uses: actions/checkout@v4
         with: { ref: "${{ github.event.workflow_run.head_sha }}" }

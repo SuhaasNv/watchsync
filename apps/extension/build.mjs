@@ -75,7 +75,10 @@ const common = {
     __CHANNEL__: JSON.stringify(channel),
     __BUILD__: JSON.stringify(build),
     __SITE_URL__: JSON.stringify(
-      channel === "dev" ? "https://dev.watchsync.space" : "https://watchsync.space",
+      // The dev site's address comes from CI (repository variable DEV_SITE_URL), not the source.
+      channel === "dev" && process.env.WATCHSYNC_SITE
+        ? process.env.WATCHSYNC_SITE
+        : "https://watchsync.space",
     ),
     __TITLE_PAGES__: JSON.stringify(serviceMatches),
   },

@@ -21,7 +21,7 @@ Streaming Sync: a Chrome extension that keeps friends' Netflix, Prime Video and 
 - Welcome page: the first time you install WatchSync, a short tour shows how to pin it, make or join a room, and watch together.
 - The popup, welcome page and website share one look, and the popup links to the website.
 - Invite links now use WatchSync's own address, for example https://join.watchsync.space/j/ABC234.
-- A separate WatchSync Dev build for testers, with a DEV badge, its own room service and its own download on dev.watchsync.space, so new work can be tried without touching the real one.
+- A separate WatchSync Dev build for testers, with a DEV badge and its own room service, so new work can be tried without touching the real one.
 
 ### Fixed
 - BUG-002 to BUG-013, including: autoplay on arrival pulling the room back (BUG-004), a first jump pausing everyone (BUG-005), the sender's own room clock going stale (BUG-006), NaN breaking a room (BUG-008), endless Reconnecting after a room ended (BUG-009), a dropped friend disconnecting the sender (BUG-010), and idle rooms and limiter keys not being cleaned up (BUG-011).
@@ -37,7 +37,7 @@ Streaming Sync: a Chrome extension that keeps friends' Netflix, Prime Video and 
 
 ### Known issues
 - Netflix has been tested by two people on real accounts. Prime Video still needs that two-person test, and JioHotstar can only be checked from India (it redirects elsewhere), including how it tells ads apart.
-- Ads are detected on Prime Video only; on Netflix and JioHotstar the buffering wait still applies but WatchSync never claims an ad.
+- Ads are detected on Prime Video and JioHotstar (JioHotstar still to be checked from India); on Netflix the buffering wait still applies but WatchSync never claims an ad.
 - On Prime Video, when the room moves to another episode of the same show, friends pick it in the player themselves.
 - Installed as an unpacked zip (Developer mode); a Chrome Web Store listing waits for the legal review (DEC-024).
 - A redeploy of the room service ends every open room.
