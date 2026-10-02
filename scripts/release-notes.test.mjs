@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -156,4 +156,18 @@ test("the command appends the check section only when every build detail is give
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("refuses notes that mention planning IDs", () => {
+  const log = "# Changelog\n\n## [0.1.0] - 2026-10-03\n\n### Fixed\n- BUG-047: the room moved.\n";
+  assert.throws(() => releaseNotes(log, "0.1.0"), /mentions BUG-047/);
+  assert.equal(
+    releaseNotes(log.replace("BUG-047: t", "T"), "0.1.0"),
+    "### Fixed\n- The room moved.",
+  );
+});
+
+test("the real changelog's 0.1.0 notes have no planning IDs", () => {
+  const real = new URL("../CHANGELOG.md", import.meta.url);
+  assert.ok(releaseNotes(readFileSync(real, "utf8"), "0.1.0"));
 });
