@@ -17,6 +17,8 @@ const TITLES: Record<string, string> = {
   ep1: "Demo Show, E1",
   ep2: "Demo Show, E2",
   film: "Demo Film",
+  // Netflix shows its title text only with the controls: a page that starts without one.
+  untitled: "",
 };
 
 /** Byte ranges make the clip seekable; without them Chrome snaps every seek back to 0. */

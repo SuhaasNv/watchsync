@@ -196,6 +196,16 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         if media is not None:
             p.last_title_id = media["titleId"]
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
+        # Netflix shows the title text only with its controls, so the first report can come
+        # without a name; fill it in from a later report of the same title (BUG-025).
+        if (
+            media is not None
+            and room.media is not None
+            and media["titleId"] == room.media["titleId"]
+            and media["titleName"]
+            and not room.media.get("titleName")
+        ):
+            room.media = {**room.media, "titleName": media["titleName"]}
         # The room takes the first title anyone opens, then moves with whoever was watching
         # with it and opened another title. People watching on their own never move it.
         moves = media is not None and p.following and media["titleId"] != room_title
