@@ -15,6 +15,7 @@ Load `apps/extension/dist` in `chrome://extensions` (Developer mode → Load unp
 ## Checks
 
 ```bash
+pnpm check                                       # everything below, fail-fast (use before every merge)
 pnpm lint && pnpm typecheck && pnpm test          # TypeScript packages
 pnpm --filter @watchsync/extension e2e            # extension against the local mock player
 cd services/signaling && uv run ruff check . && uv run mypy app && uv run pytest
