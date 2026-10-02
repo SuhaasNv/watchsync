@@ -906,6 +906,38 @@ def test_too_many_socket_connects_are_told_to_try_later(monkeypatch: pytest.Monk
     assert closed.value.code == 1013
 
 
+def test_a_title_nobody_has_open_gives_way_in_either_order() -> None:
+    # BUG-047: the guest opened a title, closed it, and the host's new title never moved
+    # the room, because the host had never been on the room's title.
+    for host_first in (False, True):
+        host = create()
+        guest = join(host["code"]).json()
+        url = f"/ws/rooms/{host['code']}?token="
+        with (
+            client.websocket_connect(url + host["token"]) as hws,
+            client.websocket_connect(url + guest["token"]) as gws,
+        ):
+            hws.receive_json()
+            gws.receive_json()
+            presence(gws, "1")  # the guest's title becomes the room's
+            next_of(gws, "ROOM.MEDIA")
+            next_of(hws, "ROOM.MEDIA")
+            if host_first:
+                presence(hws, "7")  # the guest is still on 1: the room stays
+                next_of(hws, "ROOM.PARTICIPANT")
+                presence(gws, None)  # the guest closes it: the room goes to the host's
+                moved = next_of(gws, "ROOM.MEDIA")["payload"]
+            else:
+                presence(gws, None)  # the guest closes it first
+                next_of(gws, "ROOM.PARTICIPANT")
+                presence(hws, "7")  # the host's new title takes the room
+                next_of(hws, "ROOM.MEDIA")
+                moved = next_of(gws, "ROOM.MEDIA")["payload"]
+            assert moved["media"]["titleId"] == "7", host_first
+            assert moved["byName"] == "Suhaas" and moved["how"] == "new"
+            assert main.rooms.rooms[host["code"]].playback is None
+
+
 def test_opening_another_title_via_browse_moves_the_room_as_new() -> None:
     """BUG-014: a gap with no title (the service's browse page) must not lose the room."""
     host = create()
