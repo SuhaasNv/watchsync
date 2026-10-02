@@ -43,8 +43,8 @@ root.innerHTML = `<style>
     box-shadow: 0 0 0 2px #151d21; }
   .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px;
     justify-content: flex-end; margin-top: 12px; }
-  button { height: 36px; border: 0; border-radius: 10px; padding: 0 14px; font: inherit;
-    font-weight: 600; cursor: pointer; background: rgba(214, 236, 240, 0.1); color: #ecf2f1;
+  button { height: 36px; border: 0; border-radius: 12px; padding: 0 14px; font: inherit;
+    font-weight: 650; cursor: pointer; background: rgba(214, 236, 240, 0.1); color: #ecf2f1;
     display: inline-flex; align-items: center; gap: 6px; transition: background 120ms; }
   button:hover { background: rgba(214, 236, 240, 0.17); }
   button.primary { background: #ffd25a; color: #1b1503; }

@@ -143,7 +143,9 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
               <span className="logo" />
             </span>
           )}
-          <h1 className="title">Watch together, in sync</h1>
+          <h1 className="title">
+            Watch together, <span className="em">in sync</span>
+          </h1>
           <p className="dim">
             Works with Netflix, Prime Video and JioHotstar. Each of you uses your own account.
           </p>
@@ -180,7 +182,9 @@ function HomeScreen({ state }: { state: AppState }) {
       <Header />
       <div className="body">
         <div>
-          <h1 className="title">Start a room</h1>
+          <h1 className="title">
+            Start <span className="em">a room</span>
+          </h1>
           <p className="dim">
             Send the link to a friend. Every play, pause and jump stays in step.
           </p>
@@ -431,8 +435,8 @@ function RoomScreen({ state }: { state: AppState }) {
       <div className="body">
         {alone ? (
           <section className="invite-card" aria-labelledby="invite-title">
-            <p className="dim" id="invite-title">
-              Send this to your friends
+            <p className="invite-title" id="invite-title">
+              Send this to <span className="em">your friends</span>
             </p>
             <p className="code" data-testid="room-code">
               {s.code}
@@ -502,6 +506,9 @@ function Footer({ update }: { update: AppState["update"] }) {
         </p>
       )}
       <p className="foot-row">
+        <a href={__SITE_URL__} target="_blank" rel="noreferrer">
+          {new URL(__SITE_URL__).host}
+        </a>
         <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
           Privacy
         </a>
@@ -509,7 +516,7 @@ function Footer({ update }: { update: AppState["update"] }) {
           Terms
         </a>
         <span className="grow" />
-        <span>v{chrome.runtime.getManifest().version}</span>
+        <span className="version">v{chrome.runtime.getManifest().version}</span>
       </p>
     </footer>
   );
