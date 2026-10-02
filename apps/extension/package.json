@@ -8,7 +8,7 @@
     "dev": "node build.mjs --watch",
     "typecheck": "tsc -p .",
     "test": "vitest run",
-    "zip": "node build.mjs --zip",
+    "zip": "WATCHSYNC_API=https://room-service-production-e5dd.up.railway.app node build.mjs --zip",
     "e2e": "WATCHSYNC_MOCK=1 node build.mjs && playwright test"
   },
   "dependencies": {

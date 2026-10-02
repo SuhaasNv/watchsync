@@ -1,0 +1,21 @@
+# Room service image. Built from the repo root because the service validates messages
+# against the shared protocol schema in packages/protocol.
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
+
+WORKDIR /app/services/signaling
+COPY services/signaling/pyproject.toml services/signaling/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY packages/protocol/schema /app/packages/protocol/schema
+COPY services/signaling/app ./app
+
+RUN useradd --system --no-create-home watchsync
+USER watchsync
+
+ENV ENVIRONMENT=production TRUST_PROXY=1
+# One worker: rooms live in this process's memory (DEC-003).
+# No access log and warning-level logs: WebSocket URLs carry room tokens (BUG-003). 16 KB frame cap: messages are tiny.
+CMD ["sh", "-c", "exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-access-log --log-level warning --ws-max-size 16384"]
