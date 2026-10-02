@@ -244,14 +244,17 @@ const netflixCommand = async (action: NetflixAction, ms = 0) =>
   (await netflixCall(action, { ms })).ok;
 
 function netflixProvider(): StreamingProvider {
-  let lastName: string | null = null;
+  // The last name read, for its own title only: never carried over to the next one.
+  let last: { id: string; name: string | null } | null = null;
   // The name from Netflix's player data, per video: it doesn't need the controls (BUG-025).
   const apiNames = new Map<string, string>();
   const asked = new Set<string>();
   // ponytail: ~10 tries per title, then the page text alone; enough while the player loads.
   const tries = new Map<string, number>();
   const base = videoProvider("netflix", () => {
-    const m = netflixMedia(new URL(location.href), document, lastName);
+    const url = new URL(location.href);
+    const urlId = url.pathname.match(/^\/watch\/(\d+)/)?.[1];
+    const m = netflixMedia(url, document, last && last.id === urlId ? last.name : null);
     const id = m?.titleId;
     if (!m || typeof id !== "string") return m;
     const tried = tries.get(id) ?? 0;
@@ -263,8 +266,11 @@ function netflixProvider(): StreamingProvider {
         else asked.delete(id); // the player wasn't ready: ask again on the next poll
       });
     }
+    // Hold back a new title for a couple of polls until its name is known, so the room
+    // (and the "opened a title" notice) gets the name with the title, not after it.
+    if (!apiNames.has(id) && !m.titleName && tried < 3) return null;
     const named = { ...m, titleName: apiNames.get(id) ?? m.titleName };
-    lastName = named.titleName;
+    last = { id, name: named.titleName };
     return named;
   });
   return {

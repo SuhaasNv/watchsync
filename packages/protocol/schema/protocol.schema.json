@@ -122,7 +122,7 @@
           "additionalProperties": false,
           "required": ["action", "status", "position", "rate", "titleId"],
           "properties": {
-            "action": { "type": "string", "enum": ["play", "pause", "seek"] },
+            "action": { "type": "string", "enum": ["play", "pause", "seek", "sync"] },
             "status": { "type": "string", "enum": ["playing", "paused"] },
             "position": { "$ref": "#/$defs/Seconds" },
             "rate": { "$ref": "#/$defs/Rate" },
@@ -288,7 +288,7 @@
           "required": ["playback", "action", "byId", "byName", "serverTime"],
           "properties": {
             "playback": { "$ref": "#/$defs/Playback" },
-            "action": { "type": "string", "enum": ["play", "pause", "seek"] },
+            "action": { "type": "string", "enum": ["play", "pause", "seek", "sync"] },
             "byId": { "type": "string" },
             "byName": { "$ref": "#/$defs/Name" },
             "serverTime": { "type": "number" }

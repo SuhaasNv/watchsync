@@ -53,7 +53,8 @@ export type TabEvent =
   | { kind: "presence"; service: Service; media: Media | null }
   | {
       kind: "playback";
-      action: "play" | "pause" | "seek";
+      /** "sync": everyone jumps to the sender's exact position, without pausing. */
+      action: "play" | "pause" | "seek" | "sync";
       status: "playing" | "paused";
       position: number;
       rate: number;
