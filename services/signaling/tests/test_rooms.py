@@ -226,3 +226,65 @@ def test_playback_update_is_stamped_kept_and_sent_to_others_only() -> None:
         assert got["playback"]["position"] == 61.5
         assert got["playback"]["updatedAt"] >= before
         assert main.rooms.rooms[host["code"]].playback == got["playback"]
+
+
+def test_leave_revokes_the_token_and_tells_the_room() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with client.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with client.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+            next_of(hws, "ROOM.PARTICIPANT")  # joined
+            gws.send_json({"id": "l", "type": "ROOM.LEAVE", "timestamp": 1, "payload": {}})
+            left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert left["event"] == "left" and left["participant"]["name"] == "Asha"
+        with (
+            pytest.raises(WebSocketDisconnect),
+            client.websocket_connect(url + guest["token"]) as ws,
+        ):
+            ws.receive_json()
+        assert [p.name for p in main.rooms.rooms[host["code"]].participants.values()] == ["Suhaas"]
+
+
+def test_last_one_out_ends_the_room() -> None:
+    host = create()
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        ws.send_json({"id": "l", "type": "ROOM.LEAVE", "timestamp": 1, "payload": {}})
+    assert join(host["code"]).status_code == 410
+
+
+def test_a_newer_connection_replaces_the_old_one_with_code_4000() -> None:
+    host = create()
+    url = f"/ws/rooms/{host['code']}?token={host['token']}"
+    with client.websocket_connect(url) as old:
+        old.receive_json()
+        with client.websocket_connect(url) as new:
+            new.receive_json()
+            with pytest.raises(WebSocketDisconnect) as closed:
+                old.receive_json()
+            assert closed.value.code == 4000
+
+
+def test_message_flood_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main, "message_limiter", main.Limiter(2, 10))
+    host = create()
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        for i in range(3):
+            ws.send_json({"id": str(i), "type": "SYS.PING", "timestamp": 1, "payload": {"t1": i}})
+        assert ws.receive_json()["type"] == "SYS.PONG"
+        assert ws.receive_json()["type"] == "SYS.PONG"
+        err = ws.receive_json()
+        assert err["type"] == "SYS.ERROR" and err["payload"]["code"] == "rate_limited"
+
+
+def test_expired_room_refuses_reconnect() -> None:
+    host = create()
+    main.rooms.sweep(now=main.now_ms() + (main.config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000)
+    url = f"/ws/rooms/{host['code']}?token={host['token']}"
+    with pytest.raises(WebSocketDisconnect) as closed, client.websocket_connect(url) as ws:
+        ws.receive_json()
+    assert closed.value.code == 1008

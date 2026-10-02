@@ -110,7 +110,16 @@ class Rooms:
             raise RoomError("not_found", "No room has that code.")
         return self._add(room, name)
 
+    def leave(self, room: Room, p: Participant) -> None:
+        """Remove someone for good: their token stops working. The last one out ends the room."""
+        room.participants.pop(p.id, None)
+        self.tokens.pop(p.token, None)
+        if not room.participants:
+            del self.rooms[room.code]
+            self.ended[room.code] = now_ms()
+
     def authenticate(self, code: str, token: str) -> tuple[Room, Participant] | None:
+        self.sweep()
         found = self.tokens.get(token)
         if found is None or found[0] != code or code not in self.rooms:
             return None

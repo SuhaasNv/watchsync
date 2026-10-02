@@ -13,6 +13,10 @@ from .rooms import Participant, Room, RoomError, rooms
 app = FastAPI(title="WatchSync room service", version=config.VERSION)
 create_limiter = Limiter(config.CREATE_PER_MINUTE, 60)
 join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
+message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
+# Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
+# newer connection of the same person (stop), anything else = network trouble (reconnect).
+REPLACED = 4000
 ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409}
 sockets: dict[str, WebSocket] = {}
 
@@ -127,31 +131,44 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     await ws.accept()
     old = sockets.get(p.id)
     sockets[p.id] = ws
-    if old is not None:  # the same person reconnected (new tab or network change): newest wins
-        await old.close(code=status.WS_1000_NORMAL_CLOSURE)
+    if old is not None:  # the same person reconnected (network change, restart): newest wins
+        await old.close(code=REPLACED)
     p.connected = True
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
     await broadcast(
         room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "joined"}, skip=p.id
     )
+    left = False
     try:
         while True:
             msg = await ws.receive_json()
+            if not message_limiter.allow(p.id):
+                await send(
+                    p, "SYS.ERROR", {"code": "rate_limited", "message": "Slow down a little."}
+                )
+                continue
             if not is_client_message(msg):
                 await send(
                     p, "SYS.ERROR", {"code": "invalid_message", "message": "Unknown message."}
                 )
                 continue
+            if msg["type"] == "ROOM.LEAVE":
+                left = True
+                rooms.leave(room, p)
+                event = {"participant": p.public() | {"connected": False}, "event": "left"}
+                await broadcast(room, "ROOM.PARTICIPANT", event, skip=p.id)
+                await ws.close(code=status.WS_1000_NORMAL_CLOSURE)
+                break
             await handle(room, p, msg)
     except (WebSocketDisconnect, ValueError):  # ValueError: client sent non-JSON
         pass
     finally:
-        if sockets.get(p.id) is ws:
+        if sockets.get(p.id) is ws:  # not replaced by a newer connection
             del sockets[p.id]
             p.connected = False
-            await broadcast(
-                room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"}
-            )
+            if not left:
+                away = {"participant": p.public(), "event": "updated"}
+                await broadcast(room, "ROOM.PARTICIPANT", away)
             if not any(x.connected for x in room.participants.values()):
                 room.empty_since = now_ms()
