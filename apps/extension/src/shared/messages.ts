@@ -1,5 +1,6 @@
 // Messages between the extension's own contexts (popup, content scripts, background).
 import type { AnyServerMessage, Media, Participant, Playback, Service } from "@watchsync/protocol";
+import type { Update } from "./update";
 
 export interface Session {
   code: string;
@@ -25,6 +26,8 @@ export interface AppState {
   mediaMove: { how: "next" | "new"; byId: string; byName: string } | null;
   /** Why we're no longer in a room, shown once in the popup. */
   notice: string | null;
+  /** A newer release than this install, from the daily GitHub check (UC-012). */
+  update: Update | null;
 }
 
 /** One-shot requests to the background (chrome.runtime.sendMessage). */

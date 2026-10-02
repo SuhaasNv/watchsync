@@ -144,6 +144,9 @@ PRIVACY = """  <h1>Privacy notice</h1>
   <p>The people in your room see your name, which service and title you have open, and whether
     you are in sync, loading or on an ad. The room service runs on Railway in the United
     States. Nobody else receives your data, and it is never sold.</p>
+  <p>Once a day the extension asks GitHub whether a newer version of WatchSync is out. GitHub
+    sees that request like any visit to a web page, including your IP address; nothing about
+    you or your room is sent with it.</p>
   <h2>How long it is kept</h2>
   <ul>
     <li>Rooms live in the service's memory only. When you leave a room, your entry is deleted

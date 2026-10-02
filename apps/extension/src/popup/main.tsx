@@ -319,9 +319,17 @@ function RoomScreen({ state }: { state: AppState }) {
   );
 }
 
-function Footer() {
+function Footer({ update }: { update: AppState["update"] }) {
   return (
     <footer className="foot">
+      {update && (
+        <p className="update">
+          WatchSync {update.version} is out ·{" "}
+          <a href={update.url} target="_blank" rel="noreferrer">
+            Download
+          </a>
+        </p>
+      )}
       <p className="foot-row">
         <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
           Privacy
@@ -349,7 +357,7 @@ function Popup() {
   return (
     <>
       <Screen state={state} />
-      <Footer />
+      <Footer update={state.update} />
     </>
   );
 }
