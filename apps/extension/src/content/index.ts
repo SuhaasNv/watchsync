@@ -38,6 +38,18 @@ function whoIsOn(media: Media): string {
   return friendOn(media) ?? "Your friend";
 }
 
+/** The room's title name, or the name someone on that title reported later (BUG-025). */
+function nameOf(media: Media): string | null {
+  if (media.titleName) return media.titleName;
+  return (
+    room?.participants.find((x) => x.titleId === media.titleId && x.titleName)?.titleName ?? null
+  );
+}
+
+/** The last reconcile's input, and whether its prompt had to say "a title" (BUG-025). */
+let lastBefore: Media | null = null;
+let unnamed = false;
+
 /** Called when the room's title or this tab's title changes. */
 function reconcile(roomBefore: Media | null) {
   if (!room?.session || !roomMedia) return clearPrompt("align");
@@ -45,7 +57,9 @@ function reconcile(roomBefore: Media | null) {
   const media = roomMedia;
   const step = align(roomBefore, media, mine, room.following);
   if (step.kind === "none") return clearPrompt("align");
-  const title = media.titleName ?? "a title";
+  lastBefore = roomBefore;
+  unnamed = !nameOf(media);
+  const title = nameOf(media) ?? "a title";
   if (new URL(step.url).pathname === location.pathname) {
     // Same page, different episode (Prime changes episodes inside its player): there is
     // no address to open, so say where the room is instead of reloading the page.
@@ -163,6 +177,8 @@ function onPush(m: Push) {
     const before = roomMedia;
     roomMedia = next;
     reconcile(before);
+  } else if (unnamed && roomMedia && nameOf(roomMedia)) {
+    reconcile(lastBefore); // the name arrived after the prompt: say it (BUG-025)
   }
 }
 

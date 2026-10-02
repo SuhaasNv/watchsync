@@ -132,6 +132,45 @@ def test_presence_update_reaches_everyone_and_sets_room_media() -> None:
         assert room_media["type"] == "ROOM.MEDIA" and room_media["payload"]["media"] == media
 
 
+def test_a_title_name_that_arrives_late_reaches_the_room() -> None:
+    """BUG-025: Netflix shows its title text only with the controls, so the first report
+    can come without a name. A later report of the same title fills it in."""
+    host = create()
+    media = {
+        "service": "netflix",
+        "titleId": "80057281",
+        "titleName": None,
+        "titleUrl": "https://www.netflix.com/watch/80057281",
+    }
+
+    def report(ws: Any, name: str | None) -> None:
+        ws.send_json(
+            {
+                "id": "n",
+                "type": "PRESENCE.UPDATE",
+                "timestamp": 1,
+                "payload": {
+                    "service": "netflix",
+                    "following": True,
+                    "media": {**media, "titleName": name},
+                },
+            }
+        )
+
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        report(ws, None)
+        ws.receive_json()  # participant update
+        assert ws.receive_json()["payload"]["media"]["titleName"] is None  # ROOM.MEDIA
+        report(ws, "Stranger Things")
+        ws.receive_json()  # participant update, no second ROOM.MEDIA: the room didn't move
+        friend = join(host["code"]).json()
+        with client.websocket_connect(f"/ws/rooms/{host['code']}?token={friend['token']}") as fws:
+            state = fws.receive_json()
+            assert state["type"] == "ROOM.STATE"
+            assert state["payload"]["media"]["titleName"] == "Stranger Things"
+
+
 def test_invite_page_shows_the_code_without_scripts() -> None:
     r = client.get("/j/abc234")
     assert r.status_code == 200

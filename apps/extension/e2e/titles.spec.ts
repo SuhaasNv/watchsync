@@ -1,4 +1,38 @@
-import { expect, MOCK, room, test } from "./fixtures";
+import { expect, launchWithExtension, MOCK, popup, room, test } from "./fixtures";
+
+test("a title name that shows up late still reaches the friend's prompt (BUG-025)", async ({
+  ext,
+}) => {
+  const host = await popup(ext, "Suhaas");
+  await host.getByRole("button", { name: "Create a room" }).click();
+  const code = (await host.getByTestId("room-code").textContent()) ?? "";
+  const hostTab = await ext.context.newPage();
+  await hostTab.goto(`${MOCK}/watch/untitled`);
+  await expect(host.getByText("Test player")).toBeVisible();
+
+  const friend = await launchWithExtension();
+  try {
+    const fpop = await popup(friend, "Asha");
+    await fpop.getByRole("textbox", { name: "Or join a friend's room" }).fill(code);
+    await fpop.getByRole("button", { name: "Join room", exact: true }).click();
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/film`);
+    await expect(tab.getByText("Suhaas is watching a title. Open it?")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // The player's controls appear and with them the title.
+    await hostTab.evaluate(() => {
+      const h1 = document.querySelector("[data-title]");
+      if (h1) h1.textContent = "Late Film";
+    });
+    await expect(tab.getByText("Suhaas is watching Late Film. Open it?")).toBeVisible({
+      timeout: 5000,
+    });
+  } finally {
+    await friend.context.close();
+  }
+});
 
 test("a friend on another title is asked, and Open takes them there", async ({ ext }) => {
   const { friend, fpop } = await room(ext);
