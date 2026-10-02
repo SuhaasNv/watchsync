@@ -1,0 +1,93 @@
+"""Rooms held in memory (DEC-003). One process owns every room."""
+
+import secrets
+from dataclasses import dataclass, field
+from typing import Any
+
+from . import config
+from .protocol import now_ms
+
+# 32 symbols, no 0/O/1/I, matches the protocol's RoomCode pattern.
+ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+class RoomError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+@dataclass
+class Participant:
+    id: str
+    name: str
+    token: str
+    service: str = "none"
+    title_id: str | None = None
+    following: bool = True
+    connected: bool = False
+
+    def public(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "service": self.service,
+            "titleId": self.title_id,
+            "following": self.following,
+            "connected": self.connected,
+        }
+
+
+@dataclass
+class Room:
+    code: str
+    participants: dict[str, Participant] = field(default_factory=dict)
+    media: dict[str, Any] | None = None
+    playback: dict[str, Any] | None = None
+    empty_since: float | None = None
+
+    def snapshot(self, you: str) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "you": you,
+            "participants": [p.public() for p in self.participants.values()],
+            "media": self.media,
+            "playback": self.playback,
+            "serverTime": now_ms(),
+        }
+
+
+class Rooms:
+    def __init__(self) -> None:
+        self.rooms: dict[str, Room] = {}
+        self.tokens: dict[str, tuple[str, str]] = {}
+
+    def _new_code(self) -> str:
+        while True:
+            code = "".join(secrets.choice(ALPHABET) for _ in range(6))
+            if code not in self.rooms:
+                return code
+
+    def _add(self, room: Room, name: str) -> dict[str, str]:
+        if len(room.participants) >= config.MAX_PARTICIPANTS:
+            raise RoomError("room_full", "This room is full.")
+        p = Participant(id=secrets.token_hex(8), name=name, token=secrets.token_urlsafe(32))
+        room.participants[p.id] = p
+        self.tokens[p.token] = (room.code, p.id)
+        return {"code": room.code, "token": p.token, "participantId": p.id}
+
+    def create(self, name: str) -> dict[str, str]:
+        room = Room(code=self._new_code(), empty_since=now_ms())
+        self.rooms[room.code] = room
+        return self._add(room, name)
+
+    def authenticate(self, code: str, token: str) -> tuple[Room, Participant] | None:
+        found = self.tokens.get(token)
+        if found is None or found[0] != code or code not in self.rooms:
+            return None
+        room = self.rooms[code]
+        return room, room.participants[found[1]]
+
+
+rooms = Rooms()

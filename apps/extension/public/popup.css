@@ -1,12 +1,246 @@
+/* Tokens from the design canvas (Evening theme). */
 :root {
   color-scheme: dark;
+  --bg: #0c1215;
+  --surface: #121a1e;
+  --raised: #19242a;
+  --line: rgba(214, 236, 240, 0.09);
+  --line2: rgba(214, 236, 240, 0.18);
+  --text: #ecf2f1;
+  --text2: #a9b8b9;
+  --text3: #7f9092;
+  --acc: #ffd25a;
+  --on-acc: #1b1503;
+  --pres: #5ed8c3;
+  --warn: #ff9f4a;
+  --bad: #ff6b6b;
+  --focus: #ffd25a;
+}
+* {
+  box-sizing: border-box;
 }
 body {
   margin: 0;
   width: 360px;
-  background: #0c1215;
-  color: #ecf2f1;
+  min-height: 420px;
+  background: var(--bg);
+  color: var(--text);
   font:
-    14px / 20px system-ui,
+    14px / 20px "Hanken Grotesk",
+    -apple-system,
+    system-ui,
     sans-serif;
+}
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+h1,
+p {
+  margin: 0;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 16px;
+  flex: 1;
+}
+.grow {
+  flex: 1;
+}
+.row {
+  display: flex;
+  gap: 8px;
+}
+.logo {
+  position: relative;
+  width: 22px;
+  height: 14px;
+  display: inline-block;
+}
+.logo::before,
+.logo::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+.logo::before {
+  left: 0;
+  background: var(--acc);
+}
+.logo::after {
+  right: 0;
+  box-shadow: inset 0 0 0 2px var(--text);
+}
+.word {
+  font-weight: 700;
+  font-size: 15px;
+}
+.title {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+.dim {
+  color: var(--text2);
+}
+.hint {
+  color: var(--text3);
+  font-size: 12.5px;
+  line-height: 17px;
+}
+.center {
+  text-align: center;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text2);
+}
+.input {
+  height: 44px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--text);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 15px;
+}
+.input.code-input {
+  font-family: "DM Mono", ui-monospace, Menlo, monospace;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.btn {
+  height: 40px;
+  border-radius: 10px;
+  border: 0;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  transition:
+    transform 0.12s,
+    background 0.12s;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btn.primary {
+  background: var(--acc);
+  color: var(--on-acc);
+  box-shadow: none;
+}
+.btn.danger {
+  background: rgba(255, 107, 107, 0.14);
+  color: var(--bad);
+  box-shadow: none;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.error {
+  color: var(--bad);
+  font-size: 12.5px;
+}
+.code {
+  font:
+    500 30px / 1.2 "DM Mono",
+    ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.2em;
+  margin-top: 6px;
+}
+.badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--line);
+  color: var(--text2);
+}
+.badge.connected {
+  background: rgba(94, 216, 195, 0.15);
+  color: var(--pres);
+}
+.badge.reconnecting,
+.badge.connecting {
+  background: rgba(255, 159, 74, 0.14);
+  color: var(--warn);
+}
+.people {
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.people li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+.people li + li {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #8fd0c4;
+  color: #0c1215;
+  font-weight: 600;
+  font-size: 12px;
+}
+.sync {
+  color: var(--pres);
+  font-size: 12.5px;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
+  .btn:active {
+    transform: none;
+  }
 }
