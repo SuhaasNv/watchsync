@@ -116,6 +116,8 @@ export interface PillModel {
   following: boolean;
   onSync: () => void;
   onOwn: () => void;
+  /** Start together; null hides the button (not on the room's title, or alone). */
+  onStart: (() => void) | null;
 }
 
 const pill = document.createElement("div");
@@ -169,6 +171,7 @@ export function renderPill(model: PillModel | null) {
     void chrome.storage.local.set({ pillCorner: corner });
     renderPill(model);
   });
-  pill.replaceChildren(...faces, toggle, move);
+  const start = model.onStart ? [button("Start together", model.onStart)] : [];
+  pill.replaceChildren(...faces, toggle, ...start, move);
   wake();
 }
