@@ -739,3 +739,60 @@ def test_autoplay_into_another_film_asks_instead_of_moving_everyone() -> None:
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)
+
+
+def until_pong(ws: Any) -> list[dict[str, Any]]:
+    """Everything this socket gets up to the answer to a ping sent now."""
+    ws.send_json(msg("SYS.PING", {"t1": 0}))
+    got: list[dict[str, Any]] = []
+    while (m := ws.receive_json())["type"] != "SYS.PONG":
+        got.append(m)
+    return got
+
+
+def update(ws: Any, action: str, status_: str, position: float) -> None:
+    payload = {"action": action, "status": status_, "position": position, "rate": 1}
+    ws.send_json(msg("PLAYBACK.UPDATE", payload | {"titleId": "1"}))
+
+
+def test_two_changes_at_once_end_everyone_on_the_last_one() -> None:
+    """Crossing changes: the second sender also gets the room's result, or they stay apart."""
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        update(hws, "pause", "paused", 30)
+        hws.send_json(msg("SYS.PING", {"t1": 1}))
+        next_of(hws, "SYS.PONG")
+        update(gws, "seek", "playing", 60)  # sent before the guest saw the pause
+        got = [m["payload"] for m in until_pong(gws) if m["type"] == "PLAYBACK.STATE"]
+        assert [x["byName"] for x in got] == ["Suhaas", "Asha"]
+        assert got[1]["playback"]["position"] == 60
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["playback"]["status"] == "playing"
+        # One person's own run of changes is never echoed back to them.
+        update(gws, "seek", "playing", 70)
+        assert until_pong(gws) == []
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_moving_to_another_title_cancels_a_start_together() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        hws.send_json(msg("START.REQUEST", {"position": 1200, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        presence(hws, "2")  # the host moves on to the next episode while the guest gets ready
+        phases = [m["payload"]["phase"] for m in until_pong(hws) if m["type"] == "START.STATE"]
+        assert phases == ["cancelled"]
+        gws.send_json(msg("START.READY", {}))  # late: must not start episode 2 at 20:00
+        until_pong(gws)
+        room = main.rooms.rooms[host["code"]]
+        assert room.start is None
+        assert room.playback is not None and room.playback["titleId"] == "2"
+        assert room.playback["position"] == 0
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)

@@ -60,6 +60,8 @@ class Room:
     skip_hold: set[str] = field(default_factory=set)
     # Start together in progress: who asked, where, and who is ready.
     start: dict[str, Any] | None = None
+    # Who last sent a playback change, and when (ms), to spot two changes crossing.
+    last_change: tuple[str, float] | None = None
 
     def holding(self) -> list[Participant]:
         return [
