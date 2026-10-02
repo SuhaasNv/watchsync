@@ -81,7 +81,6 @@ const common = {
     __CHANNEL__: JSON.stringify(channel),
     __BUILD__: JSON.stringify(build),
     __SITE_URL__: JSON.stringify(site),
-    __TITLE_PAGES__: JSON.stringify(serviceMatches),
   },
   logLevel: "warning",
   minify: !watch,

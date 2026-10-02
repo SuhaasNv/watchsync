@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from . import config, join_page
 from .protocol import is_client_message, is_create_request, message, now_ms
 from .ratelimit import Limiter
-from .rooms import Participant, Room, RoomError, rooms
+from .rooms import Participant, Room, RoomError, rooms, safe_media
 
 
 @contextlib.asynccontextmanager
@@ -185,7 +185,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
     if msg["type"] == "SYS.PING":
         await send(p, "SYS.PONG", {"t1": payload["t1"], "serverTime": now_ms()})
     elif msg["type"] == "PRESENCE.UPDATE":
-        media = payload["media"]
+        media = safe_media(payload["media"])
         room_title = room.media["titleId"] if room.media else None
         # Straight from the room's title to another one of the same show: the next episode.
         # A different show (say, a film the service autoplays after the credits) is a new
@@ -215,7 +215,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         # The room takes the first title anyone opens, then moves with whoever was watching
         # with it and opened another title. People watching on their own never move it.
         moves = media is not None and p.following and media["titleId"] != room_title
-        if moves and (room_title is None or was_with_room):
+        if media is not None and moves and (room_title is None or was_with_room):
             room.media = media
             # The next episode starts from the top for everyone; arriving followers catch up
             # to this clock (US-020). A newly picked title keeps no clock: its opener may be

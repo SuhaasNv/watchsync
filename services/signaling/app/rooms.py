@@ -1,5 +1,6 @@
 """Rooms held in memory (DEC-003). One process owns every room."""
 
+import re
 import secrets
 from dataclasses import dataclass, field
 from typing import Any
@@ -9,6 +10,32 @@ from .protocol import now_ms
 
 # 32 symbols, no 0/O/1/I, matches the protocol's RoomCode pattern.
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+# The title page each service's provider reports (apps/extension/src/content/providers.ts),
+# whole URL: friends' browsers open it, so nothing else on the service site (BUG-039). The
+# extension checks the same shapes (shared/messages.ts safeTitleUrl).
+TITLE_PAGES = {
+    "netflix": re.compile(r"https://www\.netflix\.com/watch/[0-9]{1,20}"),
+    "prime": re.compile(
+        r"https://www\.(?:primevideo\.com|amazon\.(?:com|in|co\.uk|de))(?:/gp/video)?"
+        r"/detail/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}"
+    ),
+    "jiohotstar": re.compile(
+        r"https://www\.(?:jio)?hotstar\.com(?:/[A-Za-z0-9_-]{1,200}){0,10}/[0-9]{6,20}/watch"
+    ),
+    "mock": re.compile(r"http://localhost:4173/watch/[A-Za-z0-9_-]{1,100}"),
+}
+
+
+def safe_media(media: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The media with its titleUrl dropped unless it is a title page of its own service. The
+    title itself still counts (sync works); only the link others would open is refused."""
+    if media is None or media["titleUrl"] is None:
+        return media
+    page = TITLE_PAGES.get(media["service"])
+    if page is not None and page.fullmatch(media["titleUrl"]):
+        return media
+    return {**media, "titleUrl": None}
 
 
 class RoomError(Exception):

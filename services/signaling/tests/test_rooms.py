@@ -135,6 +135,47 @@ def test_presence_update_reaches_everyone_and_sets_room_media() -> None:
         assert room_media["type"] == "ROOM.MEDIA" and room_media["payload"]["media"] == media
 
 
+def test_title_links_off_a_title_page_never_reach_the_room() -> None:
+    """BUG-039: friends' browsers open the room's titleUrl, so only a title page counts."""
+    host = create()
+    bad = [
+        ("netflix", "https://www.netflix.com/YourAccount"),
+        ("netflix", "https://www.netflix.com/watch/1/../../signout"),
+        ("netflix", "https://user@www.netflix.com/watch/1"),
+        ("netflix", "https://www.netflix.com/watch/1?x=1"),
+        ("netflix", "https://www.primevideo.com/detail/B0X"),  # another service's page
+        ("prime", "https://www.amazon.in/gp/video/settings"),
+        ("prime", "https://www.amazon.in/gp/video/detail/.."),
+        ("prime", "https://www.amazon.fr/gp/video/detail/B0X"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/subscribe"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/%2e%2e/1260123456/watch"),
+        ("mock", "http://localhost:4173/settings"),
+    ]
+    good = [
+        ("netflix", "https://www.netflix.com/watch/80057281"),
+        ("prime", "https://www.primevideo.com/detail/0TQV0X9RJF64O24RIRD1BHH37H"),
+        ("prime", "https://www.amazon.in/gp/video/detail/B0ABC12345"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/shows/panchayat/1260123456/watch"),
+        ("mock", "http://localhost:4173/watch/demo"),
+    ]
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        for i, (service, title_url) in enumerate(bad + good):
+            media = {
+                "service": service,
+                "titleId": f"t{i}",
+                "titleName": "X",
+                "titleUrl": title_url,
+            }
+            payload = {"service": service, "following": True, "media": media}
+            ws.send_json(msg("PRESENCE.UPDATE", payload))
+            moved = next_of(ws, "ROOM.MEDIA")["payload"]["media"]
+            expected = title_url if (service, title_url) in good else None
+            assert moved["titleUrl"] == expected, title_url
+            assert moved["titleId"] == f"t{i}"  # the title still counts; only the link goes
+            assert main.rooms.rooms[host["code"]].media == moved
+
+
 def test_a_title_name_that_arrives_late_reaches_the_room() -> None:
     """BUG-025: Netflix shows its title text only with the controls, so the first report
     can come without a name. A later report of the same title fills it in."""

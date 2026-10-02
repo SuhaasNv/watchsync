@@ -83,10 +83,44 @@ export const SERVICE_LABEL: Record<Service, string> = {
   none: "",
 };
 
-/** A room's titleUrl comes from another person; only follow it to a supported service page. */
-export function safeTitleUrl(url: string | null | undefined): string | null {
+/** The test player's pages, in mock builds only. */
+const MOCK_PAGE: [Service, RegExp] = [
+  "mock",
+  /^http:\/\/localhost:4173\/watch\/[A-Za-z0-9_-]{1,100}$/,
+];
+
+/**
+ * The title pages each service's provider reports (content/providers.ts), whole URL: exact
+ * origin and path, no credentials, port, query, fragment or "..". The room service checks the
+ * same shapes (app/rooms.py TITLE_PAGES).
+ */
+const TITLE_PAGES: [Service, RegExp][] = [
+  ["netflix", /^https:\/\/www\.netflix\.com\/watch\/[0-9]{1,20}$/],
+  [
+    "prime",
+    /^https:\/\/www\.(primevideo\.com|amazon\.(com|in|co\.uk|de))(\/gp\/video)?\/detail\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}$/,
+  ],
+  [
+    "jiohotstar",
+    /^https:\/\/www\.(jio)?hotstar\.com(\/[A-Za-z0-9_-]{1,200}){0,10}\/[0-9]{6,20}\/watch$/,
+  ],
+  ...(__MOCK__ ? [MOCK_PAGE] : []),
+];
+
+/**
+ * A room's titleUrl comes from another person: only follow it to a title page of a supported
+ * service (of `service`, when given), in the exact form our providers produce (BUG-039).
+ */
+export function safeTitleUrl(url: string | null | undefined, service?: Service): string | null {
   if (!url) return null;
-  return __TITLE_PAGES__.some((pattern) => url.startsWith(pattern.replace(/\*$/, ""))) ? url : null;
+  const ok = TITLE_PAGES.some(([s, page]) => (service ?? s) === s && page.test(url));
+  if (!ok) return null;
+  try {
+    // The parser must read it back unchanged: no encoded tricks that resolve elsewhere.
+    return new URL(url).href === url ? url : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Control and invisible format characters (bidi marks, ZWJ): the Name schema refuses them. */
