@@ -72,9 +72,6 @@ test("invite link joins the room and opens the room's title", async ({ ext }) =>
 
   const friend = await launchWithExtension();
   try {
-    await friend.context.route("http://localhost:4173/**", (route) =>
-      route.fulfill({ contentType: "text/html", body: "<h1>Mock player</h1>" }),
-    );
     const page = await friend.context.newPage();
     await page.goto(`${API}/j/${code}`);
     await expect(page.getByText("To join, install")).toHaveCount(0);

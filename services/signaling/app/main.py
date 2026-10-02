@@ -81,13 +81,18 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await send(p, "SYS.PONG", {"t1": payload["t1"], "serverTime": now_ms()})
     elif msg["type"] == "PRESENCE.UPDATE":
         media = payload["media"]
+        was_with_room = room.media is not None and p.title_id == room.media["titleId"]
         p.service = payload["service"]
         p.following = payload["following"]
         p.title_id = media["titleId"] if media else None
         p.title_name = media["titleName"] if media else None
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
-        # ponytail: first title wins; UC-005 adds the next-episode rule.
-        if room.media is None and media is not None:
+        # The room takes the first title anyone opens, then moves with whoever was on the
+        # room's title and opened another one (next episode). Others are asked, not moved.
+        moved_on = was_with_room and room.media is not None and media is not None
+        if media is not None and (
+            room.media is None or (moved_on and media["titleId"] != room.media["titleId"])
+        ):
             room.media = media
             await broadcast(room, "ROOM.MEDIA", {"media": media, "byId": p.id, "byName": p.name})
 

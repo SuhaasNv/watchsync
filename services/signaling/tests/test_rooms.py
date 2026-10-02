@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 import httpx
 import pytest
@@ -137,3 +138,60 @@ def test_invite_page_shows_the_code_without_scripts() -> None:
     assert "ABC234" in r.text and "<script" not in r.text
     assert "default-src 'none'" in r.headers["content-security-policy"]
     assert client.get("/j/<b>hi").status_code == 404
+
+
+def presence(ws: Any, title_id: str | None) -> None:
+    media = (
+        {
+            "service": "netflix",
+            "titleId": title_id,
+            "titleName": f"Dark {title_id}",
+            "titleUrl": f"https://www.netflix.com/watch/{title_id}",
+        }
+        if title_id
+        else None
+    )
+    ws.send_json(
+        {
+            "id": "p",
+            "type": "PRESENCE.UPDATE",
+            "timestamp": 1,
+            "payload": {"service": "netflix", "following": True, "media": media},
+        }
+    )
+
+
+def next_of(ws: Any, type_: str) -> dict[str, Any]:
+    while True:
+        m: dict[str, Any] = ws.receive_json()
+        if m["type"] == type_:
+            return m
+
+
+def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with (
+        client.websocket_connect(url + host["token"]) as hws,
+        client.websocket_connect(url + guest["token"]) as gws,
+    ):
+        hws.receive_json()
+        gws.receive_json()
+        # TestClient runs a socket's handler only while the test reads that socket,
+        # so each sender's own echo is read before checking the other side.
+        presence(hws, "1")  # first title sets the room
+        next_of(hws, "ROOM.MEDIA")
+        assert next_of(gws, "ROOM.MEDIA")["payload"]["media"]["titleId"] == "1"
+        presence(gws, "9")  # guest opens something else: the room stays
+        next_of(gws, "ROOM.PARTICIPANT")
+        presence(gws, "1")  # guest joins the room's title
+        next_of(gws, "ROOM.PARTICIPANT")
+        assert main.rooms.rooms[host["code"]].media["titleId"] == "1"  # type: ignore[index]
+        presence(hws, "2")  # host was on the room's title and moves on: next episode
+        next_of(hws, "ROOM.MEDIA")
+        moved = next_of(gws, "ROOM.MEDIA")
+        assert moved["payload"]["media"]["titleId"] == "2"
+        assert moved["payload"]["byName"] == "Suhaas"
+        snapshot = main.rooms.rooms[host["code"]].snapshot("x")
+        assert snapshot["media"]["titleId"] == "2"
