@@ -62,9 +62,15 @@ rmSync("dist", { recursive: true, force: true });
 mkdirSync("dist");
 cpSync("public", "dist", { recursive: true });
 writeFileSync("dist/manifest.json", JSON.stringify(manifest, null, 2));
-// The welcome page links to this build's privacy notice.
+// The website for this channel; the dev site's address comes from CI (repository variable
+// DEV_SITE_URL), not the source.
+const site =
+  channel === "dev" && process.env.WATCHSYNC_SITE
+    ? process.env.WATCHSYNC_SITE
+    : "https://watchsync.space";
+// The welcome page links to the website's privacy notice.
 const welcome = readFileSync("dist/welcome.html", "utf8");
-writeFileSync("dist/welcome.html", welcome.replaceAll("__API_URL__", api));
+writeFileSync("dist/welcome.html", welcome.replaceAll("__SITE_URL__", site));
 
 const common = {
   bundle: true,
@@ -74,12 +80,7 @@ const common = {
     __MOCK__: String(mock),
     __CHANNEL__: JSON.stringify(channel),
     __BUILD__: JSON.stringify(build),
-    __SITE_URL__: JSON.stringify(
-      // The dev site's address comes from CI (repository variable DEV_SITE_URL), not the source.
-      channel === "dev" && process.env.WATCHSYNC_SITE
-        ? process.env.WATCHSYNC_SITE
-        : "https://watchsync.space",
-    ),
+    __SITE_URL__: JSON.stringify(site),
     __TITLE_PAGES__: JSON.stringify(serviceMatches),
   },
   logLevel: "warning",

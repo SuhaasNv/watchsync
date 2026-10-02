@@ -42,7 +42,7 @@ test("opens on install; the mark animates, and holds still under reduced motion"
     await expect(page.locator(".s1 .pinned")).toHaveCSS("animation-name", "none");
     await expect(page.getByRole("link", { name: "Read the privacy notice" })).toHaveAttribute(
       "href",
-      "http://localhost:8000/privacy",
+      "https://watchsync.space/privacy/",
     );
   } finally {
     await context.close();
