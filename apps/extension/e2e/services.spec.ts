@@ -34,3 +34,17 @@ test("an episode change inside the player (Prime style) asks instead of reloadin
     await friend.context.close();
   }
 });
+
+test("live streams say they can't be synced yet", async ({ ext }) => {
+  const { friend } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await tab.evaluate(() => {
+      document.body.dataset.live = "1";
+    });
+    await expect(tab.getByText("Live streams can't be synced yet")).toBeVisible({ timeout: 5000 });
+  } finally {
+    await friend.context.close();
+  }
+});

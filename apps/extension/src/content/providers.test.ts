@@ -2,7 +2,7 @@ import type { Media } from "@watchsync/protocol";
 import { expect, test } from "vitest";
 import { align } from "./align";
 import { clock } from "./playback";
-import { mainVideo, netflixMedia, primeAd, primeMedia } from "./providers";
+import { hotstarMedia, mainVideo, netflixMedia, primeAd, primeMedia } from "./providers";
 
 // Shape of Netflix's title overlay from the UC-002 desk research, not yet captured from a
 // live account. Replace with a real capture during the DEC-019 confirm checks.
@@ -96,4 +96,20 @@ test("prime ad timer gives the time left", () => {
     left: 25,
   });
   expect(primeAd(doc(""))).toBeNull();
+});
+
+test("jiohotstar reads the content ID and a clean title", () => {
+  const d = doc("");
+  d.title = "Panchayat S3 E2 - Watch on JioHotstar";
+  const m = hotstarMedia(
+    new URL("https://www.jiohotstar.com/in/shows/panchayat/1260123456/watch?x=1"),
+    d,
+  );
+  expect(m).toEqual({
+    service: "jiohotstar",
+    titleId: "1260123456",
+    titleName: "Panchayat S3 E2",
+    titleUrl: "https://www.jiohotstar.com/in/shows/panchayat/1260123456/watch",
+  });
+  expect(hotstarMedia(new URL("https://www.jiohotstar.com/in/home"), d)).toBeNull();
 });
