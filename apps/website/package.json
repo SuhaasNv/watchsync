@@ -9,7 +9,7 @@
     "preview": "astro preview",
     "typecheck": "astro check",
     "test": "vitest run",
-    "e2e": "astro build && PLAYWRIGHT_BROWSERS_PATH=\"$PWD/../extension/.browsers\" playwright test"
+    "e2e": "astro build && PLAYWRIGHT_BROWSERS_PATH=\"${PLAYWRIGHT_BROWSERS_PATH:-$PWD/../extension/.browsers}\" playwright test"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
