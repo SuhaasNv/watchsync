@@ -1,0 +1,18 @@
+{
+  "name": "@watchsync/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "gen": "node scripts/generate.mjs",
+    "check": "node scripts/generate.mjs && git diff --exit-code -- src/generated",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "json-schema-to-typescript": "^16.0.0",
+    "vitest": "^5.0.3"
+  }
+}

@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://watchsync.app/protocol/v1",
+  "title": "WatchSync protocol v1",
+  "description": "Single source of truth for every message between the extension and the room service (DEC-006). Edit this file, then run `pnpm gen:protocol`.",
+  "$defs": {
+    "Service": {
+      "description": "Streaming service a participant has open. 'mock' is the local test player; 'none' means no supported page.",
+      "type": "string",
+      "enum": ["netflix", "prime", "jiohotstar", "mock", "none"]
+    },
+    "Name": { "type": "string", "minLength": 1, "maxLength": 30 },
+    "RoomCode": { "type": "string", "pattern": "^[A-HJ-NP-Z2-9]{6}$" },
+    "Seconds": { "type": "number", "minimum": 0, "maximum": 86400 },
+    "Rate": { "type": "number", "minimum": 0.25, "maximum": 4 },
+    "TitleId": { "type": ["string", "null"], "maxLength": 200 },
+
+    "Media": {
+      "description": "What the room is watching.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "titleId", "titleName", "titleUrl"],
+      "properties": {
+        "service": { "$ref": "#/$defs/Service" },
+        "titleId": { "$ref": "#/$defs/TitleId" },
+        "titleName": { "type": ["string", "null"], "maxLength": 200 },
+        "titleUrl": { "type": ["string", "null"], "maxLength": 2000 }
+      }
+    },
+    "Playback": {
+      "description": "Room playback state held by the server. updatedAt is server time in ms.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "position", "rate", "updatedAt", "titleId"],
+      "properties": {
+        "status": { "type": "string", "enum": ["playing", "paused"] },
+        "position": { "$ref": "#/$defs/Seconds" },
+        "rate": { "$ref": "#/$defs/Rate" },
+        "updatedAt": { "type": "number" },
+        "titleId": { "$ref": "#/$defs/TitleId" }
+      }
+    },
+    "Participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "service", "titleId", "following", "connected"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "$ref": "#/$defs/Name" },
+        "service": { "$ref": "#/$defs/Service" },
+        "titleId": { "$ref": "#/$defs/TitleId" },
+        "following": { "type": "boolean" },
+        "connected": { "type": "boolean" }
+      }
+    },
+
+    "CreateRoomRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": { "name": { "$ref": "#/$defs/Name" } }
+    },
+    "JoinRoomRequest": { "$ref": "#/$defs/CreateRoomRequest" },
+    "RoomTicket": {
+      "description": "Returned by create and join. The token authorises the WebSocket and is revoked on leave.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "token", "participantId"],
+      "properties": {
+        "code": { "$ref": "#/$defs/RoomCode" },
+        "token": { "type": "string" },
+        "participantId": { "type": "string" }
+      }
+    },
+
+    "Envelope": {
+      "type": "object",
+      "required": ["id", "type", "timestamp", "payload"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "payload": { "type": "object" }
+      }
+    },
+
+    "PresenceUpdate": {
+      "description": "Client tells the room what it has open and whether it follows the room.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "PRESENCE.UPDATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["service", "following", "media"],
+          "properties": {
+            "service": { "$ref": "#/$defs/Service" },
+            "following": { "type": "boolean" },
+            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] }
+          }
+        }
+      }
+    },
+    "PlaybackUpdate": {
+      "description": "A play, pause or jump the user made in their own player.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "PLAYBACK.UPDATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "position", "rate", "titleId"],
+          "properties": {
+            "action": { "type": "string", "enum": ["play", "pause", "seek"] },
+            "position": { "$ref": "#/$defs/Seconds" },
+            "rate": { "$ref": "#/$defs/Rate" },
+            "titleId": { "$ref": "#/$defs/TitleId" }
+          }
+        }
+      }
+    },
+    "Ping": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "SYS.PING" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t1"],
+          "properties": { "t1": { "type": "number" } }
+        }
+      }
+    },
+    "Leave": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.LEAVE" },
+        "payload": { "type": "object", "additionalProperties": false }
+      }
+    },
+    "ClientMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/PresenceUpdate" },
+        { "$ref": "#/$defs/PlaybackUpdate" },
+        { "$ref": "#/$defs/Ping" },
+        { "$ref": "#/$defs/Leave" }
+      ]
+    },
+
+    "RoomState": {
+      "description": "Full snapshot sent on connect and reconnect.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.STATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "you", "participants", "media", "playback", "serverTime"],
+          "properties": {
+            "code": { "$ref": "#/$defs/RoomCode" },
+            "you": { "type": "string" },
+            "participants": { "type": "array", "items": { "$ref": "#/$defs/Participant" } },
+            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] },
+            "playback": { "anyOf": [{ "$ref": "#/$defs/Playback" }, { "type": "null" }] },
+            "serverTime": { "type": "number" }
+          }
+        }
+      }
+    },
+    "ParticipantChanged": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.PARTICIPANT" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["participant", "event"],
+          "properties": {
+            "participant": { "$ref": "#/$defs/Participant" },
+            "event": { "type": "string", "enum": ["joined", "updated", "left"] }
+          }
+        }
+      }
+    },
+    "MediaChanged": {
+      "description": "The room moved to another title, for example the next episode.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.MEDIA" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["media", "byId", "byName"],
+          "properties": {
+            "media": { "$ref": "#/$defs/Media" },
+            "byId": { "type": "string" },
+            "byName": { "$ref": "#/$defs/Name" }
+          }
+        }
+      }
+    },
+    "PlaybackState": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "PLAYBACK.STATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["playback", "action", "byId", "byName", "serverTime"],
+          "properties": {
+            "playback": { "$ref": "#/$defs/Playback" },
+            "action": { "type": "string", "enum": ["play", "pause", "seek"] },
+            "byId": { "type": "string" },
+            "byName": { "$ref": "#/$defs/Name" },
+            "serverTime": { "type": "number" }
+          }
+        }
+      }
+    },
+    "Pong": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "SYS.PONG" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t1", "serverTime"],
+          "properties": { "t1": { "type": "number" }, "serverTime": { "type": "number" } }
+        }
+      }
+    },
+    "ErrorMessage": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "SYS.ERROR" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "enum": ["invalid_message", "rate_limited", "room_closed", "server_error"] },
+            "message": { "type": "string" }
+          }
+        }
+      }
+    },
+    "ServerMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/RoomState" },
+        { "$ref": "#/$defs/ParticipantChanged" },
+        { "$ref": "#/$defs/MediaChanged" },
+        { "$ref": "#/$defs/PlaybackState" },
+        { "$ref": "#/$defs/Pong" },
+        { "$ref": "#/$defs/ErrorMessage" }
+      ]
+    }
+  }
+}
