@@ -515,6 +515,19 @@ def test_a_client_sent_real_ip_is_ignored_unless_behind_the_proxy(
     assert client.post("/api/v1/rooms", json={"name": "a"}, headers=spoofed).status_code == 429
 
 
+def test_invite_page_sends_newcomers_to_get_watchsync_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # BUG-060: the page told newcomers to ask their friend for a zip, with no way to get it.
+    page = client.get("/j/ABC234").text
+    assert 'href="https://watchsync.space/install/"' in page and "Get WatchSync for Chrome" in page
+    assert "zip" not in page.lower()
+    monkeypatch.setattr(main.config, "STORE_URL", "https://chromewebstore.google.com/detail/x")
+    page = client.get("/j/ABC234").text
+    assert 'href="https://chromewebstore.google.com/detail/x"' in page
+    assert "Add WatchSync to Chrome" in page
+
+
 def test_security_headers() -> None:
     r = client.get("/j/ABC234")
     assert r.headers["x-content-type-options"] == "nosniff"
