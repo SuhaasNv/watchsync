@@ -267,8 +267,14 @@ function drawPill() {
       room.following && mine.titleId === roomTitle && room.participants.length > 1
         ? startTogether
         : null,
+    playing: provider?.getState()?.playing === true,
+    // A pause in this tab's player is a person's pause: the room follows it (US-021).
+    onPause: () => void provider?.pause().catch(() => {}),
   });
 }
+// Media events don't bubble; catch them on the way down so the pill flips Start/Pause.
+document.addEventListener("play", () => drawPill(), true);
+document.addEventListener("pause", () => drawPill(), true);
 
 function showBehind(text: string | null) {
   if (text === null) stayed = null;
