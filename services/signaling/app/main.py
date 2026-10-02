@@ -234,6 +234,9 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             how = "next" if straight else "new"
             change = {"media": media, "byId": p.id, "byName": p.name, "how": how}
             await broadcast(room, "ROOM.MEDIA", change)
+            # A Start together for the old title must not start the new one at its position.
+            if room.start is not None:
+                await cancel_start(room)
     elif msg["type"] == "PLAYBACK.UPDATE":
         action = payload["action"]
         if room.held and action == "play":
@@ -247,6 +250,12 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             room.paused_by = (p.id, now)
         elif payload["status"] == "playing":
             room.paused_by = None
+        # Two people acting at once cross on the wire: each applies the other's change after
+        # their own, and they end up apart. When someone else changed the room just now, the
+        # sender gets the result too, so everyone ends on the room's last word.
+        last = room.last_change
+        crossed = last is not None and last[0] != p.id and now - last[1] < 1500
+        room.last_change = (p.id, now)
         room.playback = {
             "status": payload["status"],  # the sender's real state (BUG-005)
             "position": payload["position"],
@@ -261,7 +270,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             "byName": p.name,
             "serverTime": now,
         }
-        await broadcast(room, "PLAYBACK.STATE", state, skip=p.id)
+        await broadcast(room, "PLAYBACK.STATE", state, skip=None if crossed else p.id)
     elif msg["type"] == "HOLD.UPDATE":
         await hold_update(room, p, payload["reason"], payload["position"], payload["adLeft"])
     elif msg["type"] == "START.REQUEST":

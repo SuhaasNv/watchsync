@@ -92,11 +92,14 @@ function reconcile(roomBefore: Media | null) {
     );
   }
   if (step.kind === "follow") {
-    toast(`Moving to ${title} with ${whoIsOn(media)}`, 4000, {
-      who: friendOn(media),
-      icon: "title",
-    });
-    location.assign(step.url);
+    const who = whoIsOn(media);
+    toast(`Moving to ${title} with ${who}`, 4000, { who: friendOn(media), icon: "title" });
+    // The page load wipes that notice before anyone can read it: the next page says it.
+    const arrival: Arrival = { titleId: media.titleId, title, who, at: Date.now() };
+    chrome.storage.local
+      .set({ arrival })
+      .catch(() => {})
+      .finally(() => location.assign(step.url));
     return;
   }
   if (dismissed === media.titleId) return;
@@ -109,6 +112,42 @@ function reconcile(roomBefore: Media | null) {
     "align",
     { who: friendOn(media), icon: "title" },
   );
+}
+
+/** Where a followed move went, kept across the page load it causes. */
+interface Arrival {
+  titleId: string | null;
+  title: string;
+  who: string;
+  at: number;
+}
+
+function isArrival(v: unknown): v is Arrival {
+  if (typeof v !== "object" || v === null) return false;
+  const { titleId, title, who, at } = v as Record<string, unknown>;
+  return (
+    (typeof titleId === "string" || titleId === null) &&
+    typeof title === "string" &&
+    typeof who === "string" &&
+    typeof at === "number"
+  );
+}
+
+/** "Moved to Dark, E2 with Maya" once the followed page has its title (read once). */
+function sayArrival() {
+  chrome.storage.local
+    .get("arrival")
+    .then(({ arrival }) => {
+      if (arrival === undefined) return;
+      void chrome.storage.local.remove("arrival");
+      if (!isArrival(arrival) || arrival.titleId !== mine?.titleId) return;
+      if (Date.now() - arrival.at > 15_000) return; // a load that never finished: stale
+      toast(`Moved to ${arrival.title} with ${arrival.who}`, 5000, {
+        who: arrival.who,
+        icon: "title",
+      });
+    })
+    .catch(() => {});
 }
 
 const NOTICE = { play: "pressed play", pause: "paused", sync: "synced everyone" } as const;
@@ -151,7 +190,17 @@ function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "ROOM.MEDIA") {
     // I picked a new title: the room has no clock for it yet, so share where I am once
     // the service has finished its own resume seek, and friends who continue land here.
-    if (m.message.payload.byId === room?.session?.participantId) setTimeout(publishMine, 3500);
+    const { byId, byName, how, media } = m.message.payload;
+    if (byId === room?.session?.participantId) setTimeout(publishMine, 3500);
+    else if (room?.session && !room.following && mine) {
+      // Watching on my own: the room's move doesn't take me along, but I should know.
+      const title = nameOf(media) ?? "a title";
+      toast(how === "next" ? `${byName} moved on to ${title}` : `${byName} opened ${title}`, 6000, {
+        who: byName,
+        icon: "title",
+        detail: "You're watching on your own, so you stay here.",
+      });
+    }
     return;
   }
   if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
@@ -211,6 +260,8 @@ let drift = 0;
 /** "Stay here": the drift and room clock the person chose to keep, so we don't nag. */
 let stayed: { drift: number; updatedAt: number } | null = null;
 let nextCorrection = 0;
+/** Since when this player has been playing while the room is paused, or the reverse. */
+let playStateSince = 0;
 
 let lost = false;
 
@@ -383,7 +434,17 @@ function checkDrift() {
   const v = provider.video();
   if (!local || !v || v.seeking || isEcho() || Date.now() < nextCorrection) return;
   if (holdReason || startPhase || isLive()) return; // not drift: waits, countdowns, live
-  if (local.playing !== (playback.status === "playing")) return;
+  if (local.playing !== (playback.status === "playing")) {
+    // A press right after the room moved this player is taken as our own echo and never
+    // reaches the room (two people pressing at once): don't stay apart, take the room's.
+    playStateSince ||= Date.now();
+    if (Date.now() - playStateSince >= 3000) {
+      playStateSince = 0;
+      catchUp(0);
+    }
+    return;
+  }
+  playStateSince = 0;
   const expected = expectedPosition(playback, Date.now() + room.clockOffset);
   const action = decide(local.position, expected, DEFAULT_SYNC);
   if (action === "none") return showBehind(null);
@@ -551,12 +612,15 @@ function onStart(s: {
   notReady: string[];
   startAt: number | null;
 }) {
-  if (!provider || !mine || s.titleId !== mine.titleId || !room?.following) return;
-  clearInterval(countdown);
   if (s.phase === "cancelled") {
+    // Also when I've already moved to another title (the room moved on mid-start):
+    // a start left "preparing" would switch off drift checks for good.
+    clearInterval(countdown);
     startPhase = null;
     return clearPrompt("start");
   }
+  if (!provider || !mine || s.titleId !== mine.titleId || !room?.following) return;
+  clearInterval(countdown);
   if (s.phase === "preparing") {
     if (startPhase !== "preparing") {
       startPhase = "preparing";
@@ -645,16 +709,34 @@ function connect() {
     port = null;
     setTimeout(connect, 1000);
   });
-  reportPresence();
+  // Only a title is news. A page still reading its title (or a browse page in another
+  // tab) would otherwise say "nothing open" over the tab that is watching: a reload
+  // looked like closing the show. A tab that closes is reported by the background.
+  if (mine) reportPresence();
 }
+
+/** When this tab's title went missing; 0 while it has one. */
+let goneSince = 0;
 
 function poll() {
   const now = provider?.media() ?? null;
-  if (sameTitle(now, mine)) return;
+  if (sameTitle(now, mine)) {
+    goneSince = 0; // back after a blip: the next gap gets its full 3 s
+    return;
+  }
+  if (!now && mine) {
+    // Between episodes the player reloads and its title can't be read for a moment.
+    // Reporting "nothing open" then would tell friends I closed the show and make the
+    // next episode look like a new pick, so wait 3 s and ignore the player meanwhile.
+    goneSince ||= Date.now();
+    if (Date.now() - goneSince < 3000) return hold(1500);
+  }
+  goneSince = 0;
   const titleChanged = now?.titleId !== mine?.titleId;
   mine = now;
   reportPresence();
   if (!titleChanged) return;
+  if (mine) sayArrival();
   // A page load autoplays from the start; that isn't the person pressing play, and it
   // mustn't pull the room back (BUG-004). Catch-up takes the room's position instead.
   hold(3000);

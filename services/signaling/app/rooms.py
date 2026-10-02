@@ -66,6 +66,8 @@ class Room:
     start: dict[str, Any] | None = None
     # Names of people who left, so the same name joining again counts as a rejoin.
     gone: set[str] = field(default_factory=set)
+    # Who last sent a playback change, and when (ms), to spot two changes crossing.
+    last_change: tuple[str, float] | None = None
 
     def holding(self) -> list[Participant]:
         return [

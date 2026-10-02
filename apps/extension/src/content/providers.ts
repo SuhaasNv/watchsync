@@ -354,6 +354,9 @@ function serviceProvider(host: string): StreamingProvider | null {
     const base = videoProvider("mock", () => mockMedia(new URL(location.href), document));
     return {
       ...base,
+      // data-loading on <body> stands in for a player whose title can't be read yet
+      // (Netflix before its controls show, Prime between episodes).
+      media: () => (document.body.dataset.loading ? null : base.media()),
       stalled: () => document.body.dataset.buffering === "1" || base.stalled(),
       // data-live on <body> stands in for a live stream (no end to its timeline).
       getState: () => {

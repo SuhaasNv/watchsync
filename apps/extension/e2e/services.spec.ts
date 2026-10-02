@@ -30,6 +30,15 @@ test("an episode change inside the player (Prime style) asks instead of reloadin
       },
     );
     expect(tab.url()).toBe(`${MOCK}/watch/show`); // no reload
+
+    // The friend picks it in the player: the question goes and both play the episode together.
+    await setEpisode(tab, "Ep. 2");
+    await expect(tab.getByText(/Pick it in the player/)).toHaveCount(0, { timeout: 4000 });
+    const at = (p: typeof tab) =>
+      p.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
+    await expect
+      .poll(async () => Math.abs((await at(tab)) - (await at(hostTab))), { timeout: 8000 })
+      .toBeLessThan(1);
   } finally {
     await friend.context.close();
   }
