@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://watchsync.space"><img src="apps/website/public/og.png" alt="WatchSync: press play here, it plays there." width="720" /></a>
+  <a href="https://watchsync.space"><img src="docs/images/thumbnail.png" alt="WatchSync: one Play split across two screens, with a tag saying your friend is 3 seconds behind." width="720" /></a>
 </p>
 
 <p align="center">
@@ -78,7 +78,20 @@ WatchSync shares only what keeps you in sync: your name, the room, and whether y
 
 ## For developers
 
-A pnpm monorepo: the extension (`apps/extension`, Manifest V3, TypeScript, React popup), the room service (`services/signaling`, FastAPI and WebSockets), the website (`apps/website`, Astro) and the shared protocol (`packages/protocol`, JSON Schema).
+<p align="center">
+  <img src="docs/images/architecture.svg" alt="Architecture: in each browser a content script reads and controls the streaming player and a background worker keeps a WebSocket to the room service on Railway, which relays play, pause and position to everyone in the room. The website, GitHub Releases and the shared protocol sit underneath." width="900" />
+</p>
+
+| Part | Folder | Built with |
+|---|---|---|
+| Extension | `apps/extension` | Chrome Manifest V3, TypeScript (strict), React popup, esbuild, closed shadow DOM overlay |
+| Room service | `services/signaling` | Python 3.12, FastAPI, WebSockets, Pydantic, Uvicorn, uv; rooms in memory |
+| Protocol | `packages/protocol` | One JSON Schema, generated TypeScript types, Ajv and Python jsonschema validation |
+| Website | `apps/website` | Astro, static, served by Caddy |
+| Hosting | | Railway (room service and website, production and a dev environment that sleeps when idle) |
+| CI and releases | `.github/workflows` | GitHub Actions: lint, types, unit and end-to-end tests (Vitest, Playwright, pytest), Docker builds, release zip with SHA-256 and build attestation |
+
+Each person streams from their own account. The extension reads and commands playback only (playing or paused, position, speed, title); it never touches the video, its decryption or your account.
 
 ```bash
 pnpm install
