@@ -375,6 +375,20 @@ const CONNECTION = {
   idle: "Offline",
 } as const;
 
+/**
+ * The room's title name, or the name someone on that title reported later: Netflix shows
+ * its title only with the player controls, so the room can start without one (BUG-025).
+ */
+function roomTitleName(state: AppState): string | null {
+  const media = state.media;
+  if (!media) return null;
+  return (
+    media.titleName ??
+    state.participants.find((p) => p.titleId === media.titleId && p.titleName)?.titleName ??
+    null
+  );
+}
+
 /** "Open Dark" when the room is on a title this person doesn't have open. */
 function OpenTitle({ state, me }: { state: AppState; me: string }) {
   const media = state.media;
@@ -384,7 +398,7 @@ function OpenTitle({ state, me }: { state: AppState; me: string }) {
   return (
     <button className="btn primary" type="button" onClick={() => void chrome.tabs.create({ url })}>
       <Icon name="title" />
-      <span className="ellipsis">Open {media.titleName ?? "the room's title"}</span>
+      <span className="ellipsis">Open {roomTitleName(state) ?? "the room's title"}</span>
     </button>
   );
 }
@@ -450,7 +464,7 @@ function RoomScreen({ state }: { state: AppState }) {
               Now watching
             </span>
             <p className="now-name">
-              {media ? (media.titleName ?? SERVICE_LABEL[media.service]) : "Nothing yet"}
+              {media ? (roomTitleName(state) ?? SERVICE_LABEL[media.service]) : "Nothing yet"}
             </p>
             <p className="hint">{summary(state, s.participantId)}</p>
           </section>
