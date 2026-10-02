@@ -140,11 +140,13 @@ const isCurrent = (href: string) => (href === "/" ? path === "/" : path.startsWi
     .bar {
       gap: 8px;
     }
+    /* Menu in the left corner, then the logo, Download on the right. */
     nav {
-      order: 3;
-      margin-left: 0;
+      order: -1;
+      margin-left: -12px;
     }
-    .head-cta {
+    /* The Download button lives in its own component, so reach it through the bar. */
+    .bar > :global(:last-child) {
       margin-left: auto;
     }
     .menu-btn {

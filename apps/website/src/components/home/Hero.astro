@@ -198,11 +198,14 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
     pointer-events: none;
   }
   .hero-top {
+    container-type: inline-size;
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+    /* The headline gets the full width; the intro and buttons sit in a row beneath it. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "eyebrow eyebrow"
-      "title side";
+      "eyebrow"
+      "title"
+      "side";
     align-items: end;
     gap: 28px clamp(24px, 4vw, 64px);
   }
@@ -211,11 +214,15 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
   }
   .hero-title {
     grid-area: title;
-    /* The longer line is about 5.6em wide; these sizes keep it inside its column. */
-    font-size: clamp(3.4rem, 9.2vw, 8rem);
+    /* The longer line is about 5.6em wide. Sized from the hero's own width (cqi), so it
+       grows with its column on big screens and never spills or wraps. */
+    font-size: clamp(3.4rem, 16.8cqi, 14rem);
     font-weight: 600;
     line-height: 0.88;
     letter-spacing: -0.045em;
+    /* The tight line height lets descenders (p, y) hang below the box; this keeps them
+       clear of the intro text, scaled with the headline. */
+    padding-bottom: 0.26em;
     font-variation-settings:
       "opsz" 144,
       "SOFT" 40;
@@ -252,8 +259,12 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
   .hero-side {
     grid-area: side;
     display: grid;
-    gap: 28px;
-    padding-bottom: 0.6em;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 28px clamp(24px, 5vw, 80px);
+  }
+  .hero-side .lede {
+    max-width: 46ch;
   }
   .ctas {
     display: flex;
@@ -658,14 +669,14 @@ const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
 
   @media (max-width: 960px) {
     .hero-title {
-      font-size: clamp(2.4rem, 15.5vw, 8rem);
+      font-size: clamp(2.4rem, 16.8cqi, 13rem);
     }
     .hero-top {
       grid-template-columns: 1fr;
       grid-template-areas: "eyebrow" "title" "side";
     }
     .hero-side {
-      padding-bottom: 0;
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   @media (max-width: 720px) {

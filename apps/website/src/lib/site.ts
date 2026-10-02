@@ -20,6 +20,7 @@ export interface NavLink {
 
 export const NAV: NavLink[] = [
   { href: "/", label: "Home" },
+  { href: "/features/", label: "Features" },
   { href: "/install/", label: "Install" },
   { href: "/releases/", label: "Release notes" },
   { href: "/faq/", label: "FAQ" },

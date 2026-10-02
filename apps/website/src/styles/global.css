@@ -296,7 +296,7 @@ kbd,
 
 /* Long-form pages: install, FAQ, privacy, terms, release notes. */
 .page-head {
-  padding-block: clamp(56px, 10vw, 120px) clamp(32px, 5vw, 56px);
+  padding-block: clamp(32px, 10vw, 120px) clamp(32px, 5vw, 56px);
 }
 
 .page-head h1 {

@@ -15,7 +15,8 @@ async function settle(page: Page) {
     }
     window.scrollTo(0, 0);
   });
-  await page.waitForTimeout(400);
+  // The slowest reveal (Flagship's last line) takes 1.3 s; axe reads mid-fade colours.
+  await page.waitForTimeout(1600);
 }
 
 async function audit(page: Page) {
