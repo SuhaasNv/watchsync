@@ -20,6 +20,8 @@
 # Website, plus the extension's manifest so pnpm sees the whole workspace the lockfile lists
 !apps/website/
 !apps/extension/package.json
+# The release notes page renders CHANGELOG.md at build time
+!CHANGELOG.md
 
 # Never: installs, builds and caches from a local checkout
 **/node_modules
