@@ -2,7 +2,7 @@
 
 Engineering operating manual for Claude Code. It says how to work in this repository. It does not restate the product or the architecture; those live in the documents listed in §2. Read the relevant sections of those documents instead of guessing, and do not read them end to end unless the task needs it.
 
-**Current release: v0.1.0 — Streaming Sync (Netflix, Prime Video, JioHotstar). In progress, no code yet. Current sprint: S01. Next use case: UC-001 Scaffold the project.**
+**Current release: v0.1.0, Streaming Sync (Netflix, Prime Video, JioHotstar). Release candidate on `dev`, room service live on Railway. Current sprint: S04. Next: UC-012 release acceptance test with two people on real accounts, then `dev` → `main` and tag (owner approves each push).**
 Update this line when a release is tagged or a sprint changes. Work on the current release only.
 
 **Notion plan:** [WatchSync — Product Plan](https://app.notion.com/p/3ed339c78c3381bf9668f9a82c565d61) (Plan v2, extension-first; databases: Releases, Epics, Use Cases, Stories, Decisions, Bugs). The older desktop-first plan is kept as "Product Plan v1 (superseded)" for the v1.1 desktop app.
