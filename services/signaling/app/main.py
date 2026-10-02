@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from . import config, join_page
-from .protocol import is_client_message, is_create_request, message, now_ms
+from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
 from .ratelimit import Limiter
 from .rooms import Participant, Room, RoomError, rooms, safe_media
 
@@ -101,8 +101,8 @@ async def security_headers(
     return response
 
 
-async def read_name(request: Request) -> str:
-    """The display name from a create or join body; 413, 415 or 422 on anything else."""
+async def read_body(request: Request, valid: Callable[[Any], bool]) -> dict[str, Any]:
+    """A create or join body; 413, 415 or 422 on anything else."""
     if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
         # Also forces a CORS preflight, so other sites can't post here (no CORS allowed).
         raise HTTPException(415, "Send JSON.")
@@ -118,9 +118,14 @@ async def read_name(request: Request) -> str:
         data = json.loads(body, parse_constant=reject_constant)
     except ValueError:
         data = None
-    if not is_create_request(data):
+    if not valid(data):
         raise HTTPException(422, "A name of 1 to 30 characters is required.")
-    name: str = data["name"].strip()
+    body_: dict[str, Any] = data
+    return body_
+
+
+def name_in(body: dict[str, Any]) -> str:
+    name: str = body["name"].strip()
     return name or "Guest"
 
 
@@ -139,7 +144,9 @@ async def create_room(request: Request) -> dict[str, str]:
     if not create_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many rooms created. Try again in a minute.", TRY_LATER)
     try:
-        return rooms.create(await read_name(request), client_ip(request))
+        return rooms.create(
+            name_in(await read_body(request, is_create_request)), client_ip(request)
+        )
     except RoomError as e:
         raise HTTPException(ERROR_STATUS[e.code], e.message, TRY_LATER) from e
 
@@ -173,9 +180,9 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
     # Every attempt counts, including wrong codes, so codes cannot be guessed.
     if not join_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
-    name = await read_name(request)
+    body = await read_body(request, is_join_request)
     try:
-        return rooms.join(code.upper(), name)
+        return rooms.join(code.upper(), name_in(body), body.get("token"))
     except RoomError as e:
         raise HTTPException(ERROR_STATUS[e.code], e.message) from e
 

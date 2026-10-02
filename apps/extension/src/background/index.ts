@@ -1,6 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { Media, Service } from "@watchsync/protocol";
+import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -350,13 +350,18 @@ chrome.windows.onRemoved.addListener(() => {
     .catch(() => {});
 });
 
-/** Back into the last room under our name; the room tells everyone we rejoined. */
+/**
+ * Back into the last room under our name; the room tells everyone we rejoined. Our last
+ * token proves it's us, so the room gives back our place if it still holds it (BUG-041).
+ */
 async function rejoin() {
   if (!lastTicket) throw new Error("expired");
   if (!state.name) throw new Error("invalid");
+  const { code, token } = lastTicket;
+  const body: JoinRoomRequest = { name: state.name, ...(token ? { token } : {}) };
   let ticket: Session;
   try {
-    ticket = await api(`/api/v1/rooms/${lastTicket.code}/join`, { name: state.name });
+    ticket = await api(`/api/v1/rooms/${code}/join`, body);
   } catch (e) {
     const gone = e instanceof Error && (e.message === "expired" || e.message === "not_found");
     if (!gone) throw e;

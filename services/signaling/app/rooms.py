@@ -155,12 +155,16 @@ class Rooms:
             if code not in self.rooms and code not in self.ended:
                 return code
 
-    def _add(self, room: Room, name: str) -> dict[str, str]:
-        # Someone of this name whose browser closed is coming back: take their place (and
-        # their id, so everyone's list swaps the row instead of showing them twice).
-        stale = next(
-            (x for x in room.participants.values() if x.name == name and not x.connected), None
-        )
+    def _add(self, room: Room, name: str, token: str | None = None) -> dict[str, str]:
+        # Someone whose browser closed is coming back with the token of their last ticket:
+        # take their place (and their id, so everyone's list swaps the row instead of showing
+        # them twice). A name alone proves nothing: anyone with the code could take over a
+        # dropped friend's place, so without the token it's someone new (BUG-041); the away
+        # row goes when its grace period ends.
+        found = self.tokens.get(token) if token else None
+        stale = room.participants.get(found[1]) if found and found[0] == room.code else None
+        if stale is not None and stale.connected:
+            stale = None
         if len(room.participants) - (stale is not None) >= config.MAX_PARTICIPANTS:
             raise RoomError("room_full", "This room is full.")
         if stale is not None:
@@ -189,14 +193,14 @@ class Rooms:
         self.rooms[room.code] = room
         return self._add(room, name)
 
-    def join(self, code: str, name: str) -> dict[str, str]:
+    def join(self, code: str, name: str, token: str | None = None) -> dict[str, str]:
         self.sweep()
         room = self.rooms.get(code)
         if room is None:
             if code in self.ended:
                 raise RoomError("room_ended", "This room has ended.")
             raise RoomError("not_found", "No room has that code.")
-        ticket = self._add(room, name)
+        ticket = self._add(room, name, token)
         room.joined = True
         return ticket
 

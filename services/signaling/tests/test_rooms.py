@@ -78,6 +78,11 @@ def join(code: str, name: str = "Asha") -> httpx.Response:
     return client.post(f"/api/v1/rooms/{code}/join", json={"name": name})
 
 
+def rejoin(code: str, name: str, token: str | None) -> httpx.Response:
+    body = {"name": name} | ({"token": token} if token else {})
+    return client.post(f"/api/v1/rooms/{code}/join", json=body)
+
+
 def test_join_returns_a_ticket_and_host_sees_arrival() -> None:
     host = create()
     with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as hws:
@@ -1037,7 +1042,7 @@ def test_the_last_one_out_by_closing_keeps_the_room_until_it_expires(live: TestC
     assert join(host["code"]).status_code == 410
 
 
-def test_rejoining_under_the_same_name_replaces_the_away_row(
+def test_rejoining_with_the_last_token_replaces_the_away_row(
     live: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     host = create()
@@ -1050,7 +1055,7 @@ def test_rejoining_under_the_same_name_replaces_the_away_row(
             gws.receive_json()
         next_of(hws, "ROOM.PARTICIPANT")  # joined
         next_of(hws, "ROOM.PARTICIPANT")  # away
-        back = join(host["code"], "Asha").json()
+        back = rejoin(host["code"], "Asha", guest["token"]).json()
         assert back["participantId"] == guest["participantId"]  # same row, new token
         assert refused(live, url + guest["token"])
         with live.websocket_connect(url + back["token"]) as gws:
@@ -1059,10 +1064,46 @@ def test_rejoining_under_the_same_name_replaces_the_away_row(
             assert came["event"] == "rejoined" and came["participant"]["connected"]
             names = [p.name for p in main.rooms.rooms[host["code"]].participants.values()]
             assert sorted(names) == ["Asha", "Suhaas"]
-        # Someone connected is never replaced, and another name is someone new.
-        other = join(host["code"], "Suhaas").json()
+        # Someone connected is never replaced, even with their token: it's someone new.
+        other = rejoin(host["code"], "Suhaas", host["token"]).json()
         assert other["participantId"] != host["participantId"]
         assert not main.rooms.rooms[host["code"]].participants[other["participantId"]].rejoined
+
+
+def test_a_name_alone_cannot_take_over_someone_away(
+    live: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BUG-041: anyone with the code could kick a dropped friend by joining under their name."""
+    host = create()
+    guest = join(host["code"]).json()
+    elsewhere = create("Asha")
+    url = f"/ws/rooms/{host['code']}?token="
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 0.5)
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+        next_of(hws, "ROOM.PARTICIPANT")  # joined
+        next_of(hws, "ROOM.PARTICIPANT")  # away
+        # Same name, no token (or a token from another room): a separate participant.
+        for token in (None, elsewhere["token"], "x" * 43):
+            r = rejoin(host["code"], "Asha", token).json()
+            assert r["participantId"] != guest["participantId"]
+            assert not main.rooms.rooms[host["code"]].participants[r["participantId"]].rejoined
+        assert main.rooms.rooms[host["code"]].participants[guest["participantId"]].name == "Asha"
+        with live.websocket_connect(url + r["token"]) as nws:
+            nws.receive_json()
+            came = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert came["event"] == "joined" and came["participant"]["id"] == r["participantId"]
+            # The real Asha's row stays until her own grace period ends.
+            left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert left["event"] == "left" and left["participant"]["id"] == guest["participantId"]
+    assert (
+        client.post(
+            f"/api/v1/rooms/{host['code']}/join", json={"name": "Asha", "token": "bad token!"}
+        ).status_code
+        == 422
+    )
 
 
 def test_leaving_then_joining_again_is_a_rejoin_and_keep_room_keeps_it(live: TestClient) -> None:
