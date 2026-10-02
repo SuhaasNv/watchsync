@@ -141,6 +141,12 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             await broadcast(room, "ROOM.MEDIA", {"media": media, "byId": p.id, "byName": p.name})
     elif msg["type"] == "PLAYBACK.UPDATE":
         action = payload["action"]
+        if room.held and action == "play":
+            # Someone chose to go on: watch without whoever the room was waiting for.
+            room.held = False
+            room.skip_hold |= {x.id for x in room.holding()}
+        if room.start is not None:
+            await cancel_start(room)
         now = now_ms()
         room.playback = {
             "status": payload["status"],  # the sender's real state (BUG-005)
@@ -157,6 +163,122 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             "serverTime": now,
         }
         await broadcast(room, "PLAYBACK.STATE", state, skip=p.id)
+    elif msg["type"] == "HOLD.UPDATE":
+        await hold_update(room, p, payload["reason"], payload["position"], payload["adLeft"])
+    elif msg["type"] == "START.REQUEST":
+        await start_request(room, p, payload["position"], payload["titleId"])
+    elif msg["type"] == "START.READY" and room.start is not None:
+        room.start["ready"].add(p.id)
+        await start_progress(room)
+    elif msg["type"] == "START.FORCE" and room.start is not None:
+        await start_go(room)
+
+
+def set_playback(room: Room, status_: str, position: float, at: float) -> dict[str, Any]:
+    title = room.playback["titleId"] if room.playback else None
+    room.playback = {
+        "status": status_,
+        "position": position,
+        "rate": 1,
+        "updatedAt": at,
+        "titleId": title,
+    }
+    return room.playback
+
+
+async def room_says(room: Room, action: str, by: Participant, skip: str | None = None) -> None:
+    now = now_ms()
+    state = {
+        "playback": room.playback,
+        "action": action,
+        "byId": by.id,
+        "byName": by.name,
+        "serverTime": now,
+    }
+    await broadcast(room, "PLAYBACK.STATE", state, skip=skip)
+
+
+async def hold_update(
+    room: Room, p: Participant, reason: str | None, position: float, ad_left: float | None
+) -> None:
+    """Nobody gets left behind (UC-042): wait while someone buffers or watches an ad."""
+    p.hold = reason
+    p.ad_left = ad_left if reason == "ad" else None
+    if reason is None:
+        room.skip_hold.discard(p.id)
+    await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
+    playing = room.playback is not None and room.playback["status"] == "playing"
+    on_title = room.playback is not None and room.playback["titleId"] == p.title_id
+    if reason and not room.held and playing and on_title and p in room.holding():
+        room.held = True
+        set_playback(room, "paused", position, now_ms())
+        await room_says(room, "pause", p, skip=p.id)
+    else:
+        await release_if_clear(room, p)
+
+
+async def release_if_clear(room: Room, by: Participant) -> None:
+    """Resume everyone together once nobody is being waited for."""
+    if room.held and not room.holding() and room.playback is not None:
+        room.held = False
+        set_playback(room, "playing", room.playback["position"], now_ms())
+        await room_says(room, "play", by)
+
+
+async def start_request(room: Room, p: Participant, position: float, title_id: str | None) -> None:
+    room.start = {"by": p.name, "position": position, "titleId": title_id, "ready": set()}
+    set_playback(room, "paused", position, now_ms())
+    if room.playback is not None:
+        room.playback["titleId"] = title_id
+    await start_progress(room)
+
+
+async def start_progress(room: Room) -> None:
+    start = room.start
+    if start is None:
+        return
+    waiting = [x for x in room.eligible(start["titleId"]) if x.id not in start["ready"]]
+    if not waiting:
+        await start_go(room)
+        return
+    await broadcast(room, "START.STATE", start_state(room, "preparing", [x.name for x in waiting]))
+
+
+async def start_go(room: Room) -> None:
+    """Everyone plays at one server moment, 3 s from now, after a 3-2-1."""
+    start = room.start
+    if start is None:
+        return
+    room.start = None
+    start_at = now_ms() + 3000
+    set_playback(room, "playing", start["position"], start_at)
+    state = {
+        "phase": "go",
+        "byName": start["by"],
+        "position": start["position"],
+        "titleId": start["titleId"],
+        "notReady": [],
+        "startAt": start_at,
+    }
+    await broadcast(room, "START.STATE", state)
+
+
+async def cancel_start(room: Room) -> None:
+    state = start_state(room, "cancelled", [])
+    room.start = None
+    await broadcast(room, "START.STATE", state)
+
+
+def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
+    start = room.start or {}
+    return {
+        "phase": phase,
+        "byName": start.get("by", "Someone"),
+        "position": start.get("position", 0),
+        "titleId": start.get("titleId"),
+        "notReady": not_ready,
+        "startAt": None,
+    }
 
 
 @app.websocket("/ws/rooms/{code}")
@@ -196,6 +318,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
                 rooms.leave(room, p)
                 event = {"participant": p.public() | {"connected": False}, "event": "left"}
                 await broadcast(room, "ROOM.PARTICIPANT", event, skip=p.id)
+                await release_if_clear(room, p)
                 await ws.close(code=status.WS_1000_NORMAL_CLOSURE)
                 break
             await handle(room, p, msg)
@@ -205,8 +328,10 @@ async def room_socket(ws: WebSocket, code: str) -> None:
         if sockets.get(p.id) is ws:  # not replaced by a newer connection
             del sockets[p.id]
             p.connected = False
+            p.hold = None  # don't keep the room waiting for someone who's gone
             if not left:
                 away = {"participant": p.public(), "event": "updated"}
                 await broadcast(room, "ROOM.PARTICIPANT", away)
+                await release_if_clear(room, p)
             if not any(x.connected for x in room.participants.values()):
                 room.empty_since = now_ms()

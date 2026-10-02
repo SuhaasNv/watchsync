@@ -43,7 +43,7 @@
     "Participant": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "service", "titleId", "titleName", "following", "connected"],
+      "required": ["id", "name", "service", "titleId", "titleName", "following", "connected", "hold", "adLeft"],
       "properties": {
         "id": { "type": "string" },
         "name": { "$ref": "#/$defs/Name" },
@@ -51,7 +51,9 @@
         "titleId": { "$ref": "#/$defs/TitleId" },
         "titleName": { "type": ["string", "null"], "maxLength": 200 },
         "following": { "type": "boolean" },
-        "connected": { "type": "boolean" }
+        "connected": { "type": "boolean" },
+        "hold": { "description": "Why the room is waiting for this person, if it is.", "enum": ["buffering", "ad", null] },
+        "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 }
       }
     },
 
@@ -144,12 +146,69 @@
         "payload": { "type": "object", "additionalProperties": false }
       }
     },
+    "HoldUpdate": {
+      "description": "This player is buffering or showing an ad (or no longer is); the room waits for it.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "HOLD.UPDATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "position", "adLeft"],
+          "properties": {
+            "reason": { "enum": ["buffering", "ad", null] },
+            "position": { "$ref": "#/$defs/Seconds" },
+            "adLeft": { "type": ["number", "null"], "minimum": 0, "maximum": 3600 }
+          }
+        }
+      }
+    },
+    "StartRequest": {
+      "description": "Start together from this position: ready check, then 3-2-1.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.REQUEST" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["position", "titleId"],
+          "properties": {
+            "position": { "$ref": "#/$defs/Seconds" },
+            "titleId": { "$ref": "#/$defs/TitleId" }
+          }
+        }
+      }
+    },
+    "StartReady": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.READY" },
+        "payload": { "type": "object", "additionalProperties": false }
+      }
+    },
+    "StartForce": {
+      "description": "Start anyway, without the people who aren't ready.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.FORCE" },
+        "payload": { "type": "object", "additionalProperties": false }
+      }
+    },
+
     "ClientMessage": {
       "oneOf": [
         { "$ref": "#/$defs/PresenceUpdate" },
         { "$ref": "#/$defs/PlaybackUpdate" },
         { "$ref": "#/$defs/Ping" },
-        { "$ref": "#/$defs/Leave" }
+        { "$ref": "#/$defs/Leave" },
+        { "$ref": "#/$defs/HoldUpdate" },
+        { "$ref": "#/$defs/StartRequest" },
+        { "$ref": "#/$defs/StartReady" },
+        { "$ref": "#/$defs/StartForce" }
       ]
     },
 
@@ -256,6 +315,28 @@
         }
       }
     },
+    "StartState": {
+      "description": "Start together: preparing (pause and get ready), go (play at startAt, server ms), or cancelled.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.STATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["phase", "byName", "position", "titleId", "notReady", "startAt"],
+          "properties": {
+            "phase": { "enum": ["preparing", "go", "cancelled"] },
+            "byName": { "$ref": "#/$defs/Name" },
+            "position": { "$ref": "#/$defs/Seconds" },
+            "titleId": { "$ref": "#/$defs/TitleId" },
+            "notReady": { "type": "array", "items": { "$ref": "#/$defs/Name" }, "maxItems": 8 },
+            "startAt": { "type": ["number", "null"] }
+          }
+        }
+      }
+    },
+
     "ServerMessage": {
       "oneOf": [
         { "$ref": "#/$defs/RoomState" },
@@ -263,7 +344,8 @@
         { "$ref": "#/$defs/MediaChanged" },
         { "$ref": "#/$defs/PlaybackState" },
         { "$ref": "#/$defs/Pong" },
-        { "$ref": "#/$defs/ErrorMessage" }
+        { "$ref": "#/$defs/ErrorMessage" },
+        { "$ref": "#/$defs/StartState" }
       ]
     }
   }
