@@ -181,3 +181,22 @@ test("a friend on the service's browse page shows as on it, without hiding a pla
     await friend.context.close();
   }
 });
+
+test("closing one of two title tabs shows the other one, not nothing (BUG-051)", async ({
+  ext,
+}) => {
+  const { host, friend } = await room(ext);
+  try {
+    const asha = host.locator("li", { hasText: "Asha" });
+    const show = await friend.context.newPage();
+    await show.goto(`${MOCK}/watch/ep1`);
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible({ timeout: 5000 });
+    const film = await friend.context.newPage();
+    await film.goto(`${MOCK}/watch/film`);
+    await expect(asha.getByText("Test player · Demo Film")).toBeVisible({ timeout: 5000 });
+    await film.close();
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible({ timeout: 5000 });
+  } finally {
+    await friend.context.close();
+  }
+});

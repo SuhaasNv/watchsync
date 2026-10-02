@@ -46,7 +46,9 @@ export type Reply = { ok: true; state: AppState } | { ok: false; error: string; 
 /** Background → popup and content scripts, over a long-lived port. */
 export type Push =
   | { kind: "state"; state: AppState }
-  | { kind: "server"; message: AnyServerMessage };
+  | { kind: "server"; message: AnyServerMessage }
+  /** The tab that reported our title is gone: any other tab with a title, say so. */
+  | { kind: "report" };
 
 /** Content script → background, over its port. */
 export type TabEvent =

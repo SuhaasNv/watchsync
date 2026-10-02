@@ -211,6 +211,10 @@ function onPush(m: Push) {
       toast(`${participant.name} rejoined`, 4000, { who: participant.name, icon: "rejoin" });
     return;
   }
+  if (m.kind === "report") {
+    if (mine) reportPresence();
+    return;
+  }
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
