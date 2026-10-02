@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { type BrowserContext, test as base, chromium, expect } from "@playwright/test";
+import { type BrowserContext, test as base, chromium, expect, type Route } from "@playwright/test";
 
 const dist = path.resolve(import.meta.dirname, "../dist");
-const clip = path.resolve(import.meta.dirname, "mock/clip.webm");
+const clipBytes = readFileSync(path.resolve(import.meta.dirname, "mock/clip.webm"));
 
 export const MOCK = "http://localhost:4173";
 const TITLES: Record<string, string> = {
@@ -11,11 +12,25 @@ const TITLES: Record<string, string> = {
   film: "Demo Film",
 };
 
+/** Byte ranges make the clip seekable; without them Chrome snaps every seek back to 0. */
+function serveClip(route: Route) {
+  const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range ?? "");
+  const headers = { "accept-ranges": "bytes", "content-type": "video/webm" };
+  if (!range) return route.fulfill({ status: 200, headers, body: clipBytes });
+  const start = Number(range[1]);
+  const end = range[2] ? Number(range[2]) : clipBytes.length - 1;
+  return route.fulfill({
+    status: 206,
+    headers: { ...headers, "content-range": `bytes ${start}-${end}/${clipBytes.length}` },
+    body: clipBytes.subarray(start, end + 1),
+  });
+}
+
 /** The mock player (a stand-in for a streaming service) at localhost:4173/watch/<id>. */
 async function serveMockPlayer(context: BrowserContext) {
   await context.route(`${MOCK}/**`, (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === "/clip.webm") return route.fulfill({ path: clip });
+    if (url.pathname === "/clip.webm") return serveClip(route);
     const id = url.pathname.match(/^\/watch\/([\w-]+)$/)?.[1];
     if (!id) return route.fulfill({ status: 404, body: "not found" });
     const next = id === "ep1" ? `<a href="/watch/ep2">Next episode</a>` : "";

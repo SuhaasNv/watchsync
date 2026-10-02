@@ -52,3 +52,35 @@ test("play and pause reach the other person within 500 ms, without echo", async 
     await friend.context.close();
   }
 });
+
+const position = (p: Page) => p.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
+const jump = (p: Page, to: number) =>
+  p.evaluate((t) => {
+    const v = document.querySelector("video");
+    if (v) v.currentTime = t;
+  }, to);
+
+test("jumps take everyone along, with a notice of where to", async ({ ext }) => {
+  const { hostTab, friend } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await expect.poll(() => playing(tab)).toBe(true);
+    await tab.waitForTimeout(1500);
+
+    await jump(hostTab, 60);
+    await expect(tab.getByText("Suhaas skipped ahead to 1:00")).toBeVisible();
+    await expect
+      .poll(async () => Math.abs((await position(tab)) - (await position(hostTab))))
+      .toBeLessThan(1);
+
+    await hostTab.waitForTimeout(1600); // past the friend's echo window
+    await jump(tab, 20);
+    await expect(hostTab.getByText("Asha went back to 0:20")).toBeVisible();
+    await expect
+      .poll(async () => Math.abs((await position(tab)) - (await position(hostTab))))
+      .toBeLessThan(1);
+  } finally {
+    await friend.context.close();
+  }
+});
