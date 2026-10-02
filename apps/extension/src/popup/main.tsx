@@ -89,6 +89,7 @@ function Header({ right }: { right?: ReactNode }) {
     <header className="head">
       <span className="logo" aria-hidden="true" />
       <span className="word">WatchSync</span>
+      {__CHANNEL__ === "dev" && <span className="dev-chip">Dev</span>}
       <span className="grow" />
       {right}
     </header>
@@ -491,7 +492,10 @@ function Footer({ update }: { update: AppState["update"] }) {
     <footer className="foot">
       {update && (
         <p className="update">
-          WatchSync {update.version} is out ·{" "}
+          {__CHANNEL__ === "dev"
+            ? "A newer dev build is out"
+            : `WatchSync ${update.version} is out`}{" "}
+          ·{" "}
           <a href={update.url} target="_blank" rel="noreferrer">
             Download
           </a>

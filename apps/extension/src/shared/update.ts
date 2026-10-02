@@ -2,11 +2,17 @@
 // Installs from the zip don't update themselves, so the popup says when there is a new one.
 
 export const RELEASES_API = "https://api.github.com/repos/SuhaasNv/watchsync/releases/latest";
+/** The WatchSync Dev build checks the rolling pre-release testers download (DEC-026). */
+export const DEV_RELEASE_API =
+  "https://api.github.com/repos/SuhaasNv/watchsync/releases/tags/dev-latest";
+const DEV_TAG = "dev-latest";
+/** A dev release's version is the short commit it was built from. */
+const COMMIT = /^[0-9a-f]{7}$/;
 const RELEASE_PAGES = "https://github.com/SuhaasNv/watchsync/releases/";
 export const CHECK_EVERY = 24 * 3600 * 1000;
 
 export interface Update {
-  /** As tagged, without the leading v: "0.1.1" or "0.2.0-rc.1". */
+  /** As tagged, without the leading v: "0.1.1" or "0.2.0-rc.1"; a dev build's short commit. */
   version: string;
   /** The release's page on GitHub. */
   url: string;
@@ -63,14 +69,23 @@ export function isUpdate(latest: string, installed: string): boolean {
 
 const isOurs = (version: unknown, url: unknown): boolean =>
   typeof version === "string" &&
-  parseVersion(version) !== null &&
+  (parseVersion(version) !== null || COMMIT.test(version)) &&
   typeof url === "string" &&
   url.startsWith(RELEASE_PAGES);
 
 /** The GitHub release body crosses a boundary: keep only a well-formed tag and our own page. */
 export function parseRelease(data: unknown): Update | null {
   if (typeof data !== "object" || data === null) return null;
-  const { tag_name, html_url } = data as { tag_name?: unknown; html_url?: unknown };
+  const { tag_name, html_url, target_commitish } = data as {
+    tag_name?: unknown;
+    html_url?: unknown;
+    target_commitish?: unknown;
+  };
+  if (tag_name === DEV_TAG) {
+    // The dev workflow points the release at the commit it built.
+    const sha = typeof target_commitish === "string" ? target_commitish.slice(0, 7) : null;
+    return sha && isOurs(sha, html_url) ? { version: sha, url: String(html_url) } : null;
+  }
   if (!isOurs(tag_name, html_url)) return null;
   return { version: String(tag_name).replace(/^v/, ""), url: String(html_url) };
 }

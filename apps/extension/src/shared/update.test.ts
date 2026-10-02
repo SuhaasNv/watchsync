@@ -129,3 +129,25 @@ describe("checking at most once a day", () => {
     }
   });
 });
+
+describe("dev channel (DEC-026)", () => {
+  const DEV_PAGE = "https://github.com/SuhaasNv/watchsync/releases/tag/dev-latest";
+
+  test("reads the rolling dev release as its short commit", () => {
+    const release = { tag_name: "dev-latest", html_url: DEV_PAGE, target_commitish: "3dc4308aa1" };
+    expect(parseRelease(release)).toEqual({ version: "3dc4308", url: DEV_PAGE });
+  });
+
+  test("refuses a dev release without a commit or off our pages", () => {
+    expect(
+      parseRelease({ tag_name: "dev-latest", html_url: DEV_PAGE, target_commitish: "dev" }),
+    ).toBeNull();
+    expect(
+      parseRelease({
+        tag_name: "dev-latest",
+        html_url: "https://evil.example/",
+        target_commitish: "3dc4308",
+      }),
+    ).toBeNull();
+  });
+});

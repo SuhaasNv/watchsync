@@ -59,6 +59,15 @@ test("the popup says when a newer release is out (UC-012)", async () => {
       const link = page.getByRole("link", { name: "Download" });
       await expect(link).toHaveAttribute("href", url);
       await expect(link).toHaveAttribute("target", "_blank");
+      // Let the screen's fade-in finish: axe reads mid-fade colours as low contrast.
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((a) => a.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY)
+            .map((a) => a.finished),
+        ),
+      );
       const { violations } = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
         .analyze();

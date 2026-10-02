@@ -2,6 +2,28 @@
 
 **Production:** https://room-service-production-e5dd.up.railway.app (Railway project `watchsync`, service `room-service`, region us-west2, environment `production`).
 
+## Environments (DEC-026)
+
+Dev is for experimenting and testing with friends; it may break. Production is `main`: tagged, tested releases only.
+
+| | dev | production |
+|---|---|---|
+| Git | branch `dev`, every merged use case | branch `main`, only at a release tag |
+| Railway environment | `dev` (forked from production) | `production` |
+| Room service | `join-dev.watchsync.space`, `PUBLIC_URL` to match, **sleep on** | `join.watchsync.space`, sleep off (sleeping ends rooms) |
+| Website | `dev.watchsync.space`, `PUBLIC_CHANNEL=dev` (testing strip, noindex, dev download), **sleep on** | `watchsync.space` and `www`, `PUBLIC_SITE_URL=https://watchsync.space` |
+| Deploys | Railway auto-deploys `dev` after CI passes | Railway deploys `main`; `main` only moves in a Ship use case |
+| Extension | "WatchSync Dev": `pnpm --filter @watchsync/extension zip:dev` with `WATCHSYNC_API` set; DEV badge; checks `dev-latest` for updates | "WatchSync": `pnpm --filter @watchsync/extension zip` |
+| Download | rolling pre-release `dev-latest` (`.github/workflows/dev.yml` after CI on `dev`) | GitHub Release `vX.Y.Z` (`release.yml`, tag must be on `main`) |
+
+Invite links use the room service's domain (`__API_URL__/j/CODE`), so a production build against `https://join.watchsync.space` copies links like `https://join.watchsync.space/j/ABC234`.
+
+Repository variables: `DEV_API_URL` (dev room service URL, required by `dev.yml`) and `PROD_API_URL` (production room service URL for release builds; while unset, `zip` falls back to the Railway URL above).
+
+Cost: the dev services sleep when idle, so they cost almost nothing when nobody is testing. The first request after a sleep takes a few seconds. Never turn sleep off in dev, and never turn it on in production.
+
+Scaling: environments differ only in variables. If one room-service instance is no longer enough, add Redis to the environment and share room state through it (DEC-003 stays until then).
+
 ## How it runs
 
 - Image: `Dockerfile.signaling`, built from the repo root because the service reads the shared schema in `packages/protocol/schema`.

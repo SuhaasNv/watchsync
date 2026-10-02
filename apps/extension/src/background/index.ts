@@ -10,7 +10,13 @@ import {
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
 import type { AppState, Push, Reply, Request, Session, TabEvent } from "../shared/messages";
-import { isUpdate, latestRelease, RELEASES_API, type UpdateCheck } from "../shared/update";
+import {
+  DEV_RELEASE_API,
+  isUpdate,
+  latestRelease,
+  RELEASES_API,
+  type UpdateCheck,
+} from "../shared/update";
 
 const API = __API_URL__;
 
@@ -93,7 +99,7 @@ async function checkForUpdate() {
     fetchLatest: async () => {
       // Test builds stay off the network; they read only what a test put in the cache.
       if (__MOCK__) throw new Error("offline in tests");
-      const res = await fetch(RELEASES_API, {
+      const res = await fetch(__CHANNEL__ === "dev" ? DEV_RELEASE_API : RELEASES_API, {
         headers: { accept: "application/vnd.github+json" },
         credentials: "omit",
         signal: AbortSignal.timeout(10_000),
@@ -104,10 +110,21 @@ async function checkForUpdate() {
   });
   const installed = chrome.runtime.getManifest().version;
   await ready; // never push a half-restored state to an open popup
-  state.update = latest && isUpdate(latest.version, installed) ? latest : null;
+  // Dev builds compare commits: any other dev build is the newer one (only dev-latest is read).
+  const fresh =
+    __CHANNEL__ === "dev"
+      ? latest?.version !== __BUILD__
+      : isUpdate(latest?.version ?? "", installed);
+  state.update = latest && fresh ? latest : null;
   changed();
 }
 checkForUpdate().catch(() => {});
+
+// Testers run "WatchSync Dev" next to the real one; the badge tells them apart at a glance.
+if (__CHANNEL__ === "dev") {
+  chrome.action.setBadgeText({ text: "DEV" }).catch(() => {});
+  chrome.action.setBadgeBackgroundColor({ color: "#ffd25a" }).catch(() => {});
+}
 
 async function api(path: string, body: unknown) {
   let res: Response;
