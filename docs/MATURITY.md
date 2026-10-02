@@ -10,22 +10,22 @@ How far each part of WatchSync really is, with the evidence. Update it at every 
 | 3 | Verified for real | Two people, real accounts, real service, following the acceptance test |
 | 4 | Watched in production | A check or signal tells us when it breaks, without a user reporting it |
 
-Last assessed: 2 October 2026, for v0.1.0.
+Last assessed: 3 October 2026, for v0.1.0.
 
 ## Streaming services
 
 | Capability | Netflix | Prime Video | JioHotstar |
 |---|---|---|---|
-| Detect the title and its name | 3: name read from Netflix's player data, checked live ("Solo Leveling, S1:E1") | 3: from the page title, checked live on one machine (BUG-015) | 2: code and tests; the site redirects outside India |
-| Play and pause in sync | 3: two people, real accounts | 2: works on one machine; two-person test still owed | 2 |
-| Jumps (seek) in sync | 3 | 2 | 2 |
-| Next episode together | 2: end-to-end on the mock player | 2: in-player episode change, friends pick it in the player | 2 |
+| Detect the title and its name | 3: name read from Netflix's player data, checked live ("Solo Leveling, S1:E1") | 3: from the page title, checked live on one machine (BUG-015) | 3: two people, real accounts in India, 3 Oct |
+| Play and pause in sync | 3: two people, real accounts | 2: works on one machine; two-person test still owed | 3 |
+| Jumps (seek) in sync | 3 | 2 | 3 |
+| Next episode together | 2: end-to-end on the mock player | 2: in-player episode change, friends pick it in the player | 3 |
 | Waits while someone buffers | 2 | 2 | 2 |
-| Waits through ads, with time left | 0: Netflix ads (on its plan with ads) aren't detected yet; the buffering wait still applies | 2: ad countdown read from the player; not seen live | 2: separate ad-video heuristic (BUG-020); not seen live |
+| Waits through ads, with time left | 0: Netflix ads (on its plan with ads) aren't detected yet; the buffering wait still applies | 2: ad countdown read from the player; not seen live | 3: seen live with two people, 3 Oct: wait with countdown, then together |
 | Start together (3-2-1) | 2 | 2 | 2 |
 | Sync everyone | 2: needs the production room service on the new version | 2 | 2 |
 
-Real-service verification for Prime Video (two people) and JioHotstar (from India) are the open items of the v0.1.0 acceptance test.
+Real-service verification for Prime Video (two people) is the open item of the v0.1.0 acceptance test. JioHotstar passed with two people on real accounts in India on 3 October 2026 (dev build 4e1ab4b).
 
 ## Engineering
 
