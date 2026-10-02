@@ -5,6 +5,7 @@ describe("protocol validators", () => {
   it("accepts a valid playback update", () => {
     const m = envelope<ClientMessageOf<"PLAYBACK.UPDATE">>("PLAYBACK.UPDATE", {
       action: "seek",
+      status: "playing",
       position: 2530.4,
       rate: 1,
       titleId: "80057281",

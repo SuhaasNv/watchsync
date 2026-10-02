@@ -51,10 +51,11 @@ test("on-page prompt and notices", async ({ ext }) => {
 
     await tab.getByRole("button", { name: "Open" }).click();
     await tab.waitForURL(`${MOCK}/watch/ep1`);
-    await tab.waitForTimeout(1500);
+    await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
     await hostTab.evaluate(() => document.querySelector("video")?.pause());
     await expect(tab.getByText("Suhaas paused")).toBeVisible();
-    await audit(tab, "watchsync-overlay");
+    await expect(tab.getByRole("region", { name: "WatchSync room" })).toBeVisible();
+    await audit(tab, "watchsync-overlay"); // notices and the presence pill
   } finally {
     await friend.context.close();
   }

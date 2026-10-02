@@ -17,7 +17,7 @@ async function onTitle(ext: Ext) {
   const tab = await ext.context.newPage();
   await tab.goto(`${MOCK}/watch/ep1`);
   await expect.poll(() => playing(tab)).toBe(true);
-  await tab.waitForTimeout(1500);
+  await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
   return tab;
 }
 

@@ -112,9 +112,10 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["action", "position", "rate", "titleId"],
+          "required": ["action", "status", "position", "rate", "titleId"],
           "properties": {
             "action": { "type": "string", "enum": ["play", "pause", "seek"] },
+            "status": { "type": "string", "enum": ["playing", "paused"] },
             "position": { "$ref": "#/$defs/Seconds" },
             "rate": { "$ref": "#/$defs/Rate" },
             "titleId": { "$ref": "#/$defs/TitleId" }

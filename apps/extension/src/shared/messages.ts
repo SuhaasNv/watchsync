@@ -49,6 +49,7 @@ export type TabEvent =
   | {
       kind: "playback";
       action: "play" | "pause" | "seek";
+      status: "playing" | "paused";
       position: number;
       rate: number;
       titleId: string | null;
