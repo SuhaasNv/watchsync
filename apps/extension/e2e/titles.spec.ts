@@ -26,6 +26,12 @@ test("the room moves to the next episode together", async ({ ext }) => {
 
     await hostTab.getByRole("link", { name: "Next episode" }).click();
     await tab.waitForURL(`${MOCK}/watch/ep2`, { timeout: 5000 });
+    // Both start the new episode at the same position (US-020).
+    const at = (p: typeof tab) =>
+      p.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
+    await expect
+      .poll(async () => Math.abs((await at(tab)) - (await at(hostTab))), { timeout: 8000 })
+      .toBeLessThan(1);
   } finally {
     await friend.context.close();
   }

@@ -183,6 +183,7 @@ def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
         presence(hws, "1")  # first title sets the room
         next_of(hws, "ROOM.MEDIA")
         assert next_of(gws, "ROOM.MEDIA")["payload"]["media"]["titleId"] == "1"
+        assert main.rooms.rooms[host["code"]].playback is None  # opener may be resuming
         presence(gws, "9")  # guest opens something else: the room stays
         next_of(gws, "ROOM.PARTICIPANT")
         presence(gws, "1")  # guest joins the room's title
@@ -195,6 +196,9 @@ def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
         assert moved["payload"]["byName"] == "Suhaas"
         snapshot = main.rooms.rooms[host["code"]].snapshot("x")
         assert snapshot["media"]["titleId"] == "2"
+        # The new episode gets a fresh clock from 0:00 for followers to catch up to.
+        assert snapshot["playback"]["titleId"] == "2"
+        assert snapshot["playback"]["position"] == 0
 
 
 def test_playback_update_is_stamped_kept_and_sent_to_others_only() -> None:
