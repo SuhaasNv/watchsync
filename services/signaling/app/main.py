@@ -313,7 +313,9 @@ async def hold_update(
     if reason and not room.held and playing and on_title and p in room.holding():
         room.held = True
         set_playback(room, "paused", position, now_ms())
-        await room_says(room, "pause", p, skip=p.id)
+        # Everyone hears it, the holder too: their copy of the room's clock must say paused,
+        # or they play on alone if the room is still waiting for someone else when they're back.
+        await room_says(room, "pause", p)
     else:
         await release_if_clear(room, p)
 

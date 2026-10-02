@@ -443,6 +443,8 @@ def test_room_waits_for_someone_buffering_then_resumes_together() -> None:
         paused = next_of(hws, "PLAYBACK.STATE")["payload"]
         assert paused["action"] == "pause" and paused["byName"] == "Asha"
         assert paused["playback"]["position"] == 42
+        # Asha hears it too, so her copy of the room's clock says paused.
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
         room = main.rooms.rooms[host["code"]]
         assert room.held and room.participants[guest["participantId"]].hold == "buffering"
 
@@ -450,6 +452,42 @@ def test_room_waits_for_someone_buffering_then_resumes_together() -> None:
         resumed = next_of(gws, "PLAYBACK.STATE")["payload"]
         assert resumed["action"] == "play" and resumed["playback"]["status"] == "playing"
         assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def sync_point(ws: Any, n: int) -> None:
+    """Waits until the server has handled everything this socket sent before."""
+    ws.send_json(msg("SYS.PING", {"t1": n}))
+    while next_of(ws, "SYS.PONG")["payload"]["t1"] != n:
+        pass
+
+
+def test_room_waits_for_two_people_on_ads_and_tells_both() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 42)
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        hold(hws, "ad", 42)
+        sync_point(hws, 1)
+        room = main.rooms.rooms[host["code"]]
+        assert room.held
+
+        hold(gws, None)  # Asha's ad ends first: the room keeps waiting for Suhaas's
+        sync_point(gws, 2)
+        assert room.held
+        assert room.playback is not None and room.playback["status"] == "paused"
+
+        hold(hws, None)
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "play"
         assert not room.held
     finally:
         gcm.__exit__(None, None, None)
