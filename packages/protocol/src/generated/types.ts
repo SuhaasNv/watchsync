@@ -154,6 +154,7 @@ export interface Participant {
   name: Name;
   service: Service;
   titleId: TitleId;
+  titleName: string | null;
   following: boolean;
   connected: boolean;
 }
