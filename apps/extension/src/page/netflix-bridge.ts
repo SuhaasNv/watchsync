@@ -40,11 +40,11 @@ document.addEventListener("watchsync:netflix-command", (e) => {
   }
   if (typeof cmd.id !== "string") return;
   const p = player();
-  let ok = false;
-  if (p && cmd.action === "play") ok = (p.play(), true);
-  else if (p && cmd.action === "pause") ok = (p.pause(), true);
-  else if (p && cmd.action === "seek" && typeof cmd.ms === "number" && cmd.ms >= 0)
-    ok = (p.seek(cmd.ms), true);
+  let ok = true;
+  if (p && cmd.action === "play") p.play();
+  else if (p && cmd.action === "pause") p.pause();
+  else if (p && cmd.action === "seek" && typeof cmd.ms === "number" && cmd.ms >= 0) p.seek(cmd.ms);
+  else ok = false;
   document.dispatchEvent(
     new CustomEvent("watchsync:netflix-result", { detail: JSON.stringify({ id: cmd.id, ok }) }),
   );
