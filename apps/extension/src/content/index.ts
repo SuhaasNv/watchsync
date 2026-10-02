@@ -716,6 +716,12 @@ function connect() {
   // tab) would otherwise say "nothing open" over the tab that is watching: a reload
   // looked like closing the show. A tab that closes is reported by the background.
   if (mine) reportPresence();
+  // A browse page never gets a title: past the page-load allowance, say we're on the
+  // service so friends see it (BUG-049). The background keeps a tab that has a title.
+  else
+    setTimeout(() => {
+      if (!mine) reportPresence();
+    }, 5000);
 }
 
 /** When this tab's title went missing; 0 while it has one. */
