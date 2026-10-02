@@ -337,8 +337,9 @@ export function providerFor(host: string): StreamingProvider | null {
     };
   }
   if (__MOCK__ && host === "localhost:4173") {
-    // The mock player stands in for a service in tests: [data-ad] is its ad marker, and
-    // data-buffering on <body> stands in for a starved player.
+    // The mock player stands in for a service in tests: [data-ad] is its ad marker (or an
+    // ad in its own short video, as JioHotstar's may be), and data-buffering on <body>
+    // stands in for a starved player.
     const base = videoProvider("mock", () => mockMedia(new URL(location.href), document));
     return {
       ...base,
@@ -350,7 +351,7 @@ export function providerFor(host: string): StreamingProvider | null {
       },
       ad: () => {
         const el = document.querySelector("[data-ad]");
-        return el ? { left: adSeconds(el.textContent) } : null;
+        return el ? { left: adSeconds(el.textContent) } : separateAd();
       },
     };
   }
