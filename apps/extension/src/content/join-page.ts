@@ -1,5 +1,6 @@
 // Runs on the invite page (${API}/j/CODE): swaps the install steps for a Join form,
 // then opens the room's title once we're in.
+import { svgIcon } from "../shared/icons";
 import { type AppState, ERRORS, type Push, safeTitleUrl, send } from "../shared/messages";
 
 const code = location.pathname.split("/").pop()?.toUpperCase() ?? "";
@@ -41,21 +42,61 @@ function show(...children: (Node | string)[]) {
   slot?.replaceChildren(...children);
 }
 
-async function enter() {
-  show(el("p", { textContent: "Joining…" }));
-  const state = await connected();
+/** A one-line progress state with a spinner. */
+function busy(text: string): HTMLParagraphElement {
+  const spinner = el("span", { className: "spinner" });
+  spinner.setAttribute("aria-hidden", "true");
+  return el("p", { className: "busy" }, spinner, text);
+}
+
+function inRoom(text: string): HTMLDivElement {
+  const mark = el("span", { className: "state-mark" }, svgIcon("check", 20));
+  mark.setAttribute("aria-hidden", "true");
+  return el(
+    "div",
+    { className: "state" },
+    mark,
+    el("div", {}, el("h2", { textContent: "You're in the room" }), el("p", { textContent: text })),
+  );
+}
+
+/** Opens the room's title if it has one we may follow; true if it did. */
+function openTitle(state: AppState | null): boolean {
   const url = safeTitleUrl(state?.media?.titleUrl);
-  if (state?.media && url) {
-    show(el("p", { textContent: `Opening ${state.media.titleName ?? "the title"}…` }));
-    location.assign(url);
+  if (!state?.media || !url) return false;
+  show(busy(`Opening ${state.media.titleName ?? "the title"}…`));
+  location.assign(url);
+  return true;
+}
+
+/** Stays on the page until someone in the room picks a title, then opens it. */
+function waitForTitle() {
+  const port = chrome.runtime.connect({ name: "join-page" });
+  port.onMessage.addListener((m: Push) => {
+    if (m.kind === "state" && m.state.session?.code === code && openTitle(m.state))
+      port.disconnect();
+  });
+}
+
+async function enter() {
+  show(busy("Joining…"));
+  const state = await connected();
+  if (openTitle(state)) return;
+  if (state && !state.media) {
+    const me = state.session?.participantId;
+    const friend = state.participants.find((p) => p.id !== me)?.name ?? "Your friend";
+    show(
+      inRoom(
+        `${friend} hasn't picked a title yet. Open Netflix, Prime Video or JioHotstar, or wait here.`,
+      ),
+    );
+    waitForTitle();
     return;
   }
   show(
-    el("h2", { textContent: "You're in the room" }),
-    el("p", {
-      textContent:
-        "Open Netflix, Prime Video or JioHotstar and play the same title as your friend. WatchSync keeps you in step from there.",
-    }),
+    inRoom(
+      "Open Netflix, Prime Video or JioHotstar and play the same title as your friend. WatchSync keeps you in step from there.",
+    ),
   );
 }
 
@@ -73,25 +114,33 @@ async function main() {
     maxLength: 30,
     autocomplete: "off",
   });
+  input.setAttribute("aria-describedby", "ws-name-hint");
   const button = el("button", { type: "submit", textContent: "Join room" });
   const error = el("p", { role: "alert" });
   const form = el(
     "form",
-    {},
+    { className: "join-form" },
     el("label", { htmlFor: "ws-name", textContent: "Your name" }),
     input,
+    el("p", {
+      id: "ws-name-hint",
+      className: "hint",
+      textContent: "Friends see this in the room.",
+    }),
     button,
     error,
   );
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     button.disabled = true;
+    button.textContent = "Joining…";
     error.textContent = "";
     const named = await send({ kind: "setName", name: input.value });
     const joined = named.ok ? await send({ kind: "join", code }) : named;
     if (joined.ok) return enter();
     error.textContent = ERRORS[joined.error] ?? ERRORS.unreachable ?? "";
     button.disabled = false;
+    button.textContent = "Join room";
   });
   show(form);
   input.focus();
