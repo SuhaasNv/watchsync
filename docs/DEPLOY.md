@@ -30,7 +30,22 @@ Scaling: environments differ only in variables. If one room-service instance is 
 - One uvicorn worker, because rooms live in memory (DEC-003). A redeploy ends every room.
 - Logs: no access log and `--log-level warning`, because WebSocket URLs carry room tokens (BUG-003).
 - The process runs as a non-root user. WebSocket frames are capped at 16 KB and request bodies at 2 KB.
-- `TRUST_PROXY=1`: rate limits key on `X-Real-IP`, which Railway's edge sets.
+- `TRUST_PROXY=1` (set in `Dockerfile.signaling`): per-client limits key on `X-Real-IP` instead of the TCP peer, which on Railway is always the edge. See "Client addresses" below.
+- Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
+
+### Client addresses
+
+The service reads `X-Real-IP` only when `TRUST_PROXY=1`; without it, a client-sent `X-Real-IP` is ignored (tested in `services/signaling/tests/test_rooms.py`). Railway's edge sets `X-Real-IP` to the client's remote address on every request it forwards (Railway docs, Networking > Specs & Limits > Technical specifications). The docs do not say in so many words that a value the client sent is replaced rather than passed through, so check it once on the dev service before relying on it, never on production:
+
+```bash
+# 31 wrong-code joins from one machine, each claiming a different address.
+for i in $(seq 1 31); do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST "$DEV_API_URL/api/v1/rooms/ZZZZZZ/join" \
+    -H "content-type: application/json" -H "X-Real-IP: 203.0.113.$i" -d '{"name":"probe"}'
+done
+```
+
+The last answer must be `429` (the edge replaced the header, so all 31 counted against your real address). If every answer is `404`, the header is client-controlled: stop and fix how the service finds client addresses before release. Checked: not yet (owner to run on dev).
 
 Service settings, set on Railway rather than in a file:
 
@@ -62,7 +77,7 @@ Then check the deploy logs for anything that shouldn't be there.
 A release is a version tag. Pushing it runs `.github/workflows/release.yml`. Each tag push needs the owner's approval, like any push.
 
 1. Bump the version where it appears, keeping them equal: `apps/extension/package.json` (it becomes the manifest version and must match the tag), `services/signaling/pyproject.toml`, and `VERSION` in `services/signaling/app/config.py` (shown by `/health`).
-2. Add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` with `### Added`, `### Fixed` and `### Known issues`. The release notes are that section, as printed by `node scripts/release-notes.mjs X.Y.Z`; the workflow fails if it is missing.
+2. Add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` with `### Added`, `### Fixed` and `### Known issues`. The release notes are that section, as printed by `node scripts/release-notes.mjs X.Y.Z`, followed by a "Check this download" section the workflow adds (commit, build link, SHA-256 of each file); the workflow fails if the section is missing.
 3. Commit on `dev` (or merge `dev` into `main` in the Ship use case), then tag that commit: `vX.Y.Z` for a release, `vX.Y.Z-rc.N` for a release candidate.
 4. With the owner's go-ahead: `git push origin vX.Y.Z`.
 
@@ -71,7 +86,10 @@ The workflow then:
 - runs the full CI (`ci.yml`: lint, protocol drift, typecheck, unit tests, extension end-to-end, room service checks, secret scan);
 - checks that the tag, without `v` and any `-rc.N`, equals the version in `apps/extension/package.json`, and stops with a clear error if not;
 - runs `pnpm --filter @watchsync/extension zip` (production room service, never a mock build) and checks the manifest has no localhost permission;
-- publishes the GitHub Release `WatchSync vX.Y.Z` (with "(release candidate)" for an rc), notes from `CHANGELOG.md`, and two copies of the zip: `watchsync-extension-vX.Y.Z.zip` and `watchsync-extension.zip`.
+- writes `SHA256SUMS.txt` and signs a build provenance attestation for both zips (`actions/attest-build-provenance`, pinned to a commit), so anyone can run `gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync`;
+- publishes the GitHub Release `WatchSync vX.Y.Z` (with "(release candidate)" for an rc), notes from `CHANGELOG.md` plus the commit, a link to the run and the checksums, and three files: `watchsync-extension-vX.Y.Z.zip`, `watchsync-extension.zip` and `SHA256SUMS.txt`.
+
+The website shows the zip's SHA-256 from the notes next to each download on `/releases/`, and the newest one in the install guide's "Is it safe?" section. Both read the ``- `file`: `hash` `` lines the script writes, so keep that format if the script changes.
 
 Release candidates are published as normal releases, not prereleases, so `/releases/latest` serves them while friends test v0.1.
 
@@ -80,7 +98,7 @@ Release candidates are published as normal releases, not prereleases, so `/relea
 
 Installed extensions ask `https://api.github.com/repos/SuhaasNv/watchsync/releases/latest` at most once a day, and the popup offers the download when that release's version (without `-rc.N`) is higher than the installed one. A candidate and its final release carry the same manifest version, so going from `v0.1.0-rc.2` to `v0.1.0` is not announced; tell testers directly.
 
-If the workflow fails after it created the release, re-run it: it uploads the files again to the existing release. To redo a release completely, delete the GitHub Release and the tag (owner approval), fix, and tag again.
+If the workflow fails after it created the release, re-run it: it uploads the files again to the existing release and rewrites the notes, because a rebuilt zip has new checksums. To redo a release completely, delete the GitHub Release and the tag (owner approval), fix, and tag again.
 
 ## Website
 

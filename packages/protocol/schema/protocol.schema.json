@@ -69,7 +69,19 @@
       "required": ["name"],
       "properties": { "name": { "$ref": "#/$defs/Name" } }
     },
-    "JoinRoomRequest": { "$ref": "#/$defs/CreateRoomRequest" },
+    "JoinRoomRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/Name" },
+        "token": {
+          "description": "Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041).",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        }
+      }
+    },
     "RoomTicket": {
       "description": "Returned by create and join. The token authorises the WebSocket and is revoked on leave.",
       "type": "object",
@@ -122,7 +134,7 @@
           "additionalProperties": false,
           "required": ["action", "status", "position", "rate", "titleId"],
           "properties": {
-            "action": { "type": "string", "enum": ["play", "pause", "seek"] },
+            "action": { "type": "string", "enum": ["play", "pause", "seek", "sync"] },
             "status": { "type": "string", "enum": ["playing", "paused"] },
             "position": { "$ref": "#/$defs/Seconds" },
             "rate": { "$ref": "#/$defs/Rate" },
@@ -145,11 +157,16 @@
       }
     },
     "Leave": {
+      "description": "Leave the room; the token stops working. The last one out ends the room, unless keepRoom (the browser closed: the room waits for a rejoin until it expires).",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "type": "object",
       "properties": {
         "type": { "const": "ROOM.LEAVE" },
-        "payload": { "type": "object", "additionalProperties": false }
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "keepRoom": { "type": "boolean" } }
+        }
       }
     },
     "HoldUpdate": {
@@ -250,7 +267,11 @@
           "required": ["participant", "event"],
           "properties": {
             "participant": { "$ref": "#/$defs/Participant" },
-            "event": { "type": "string", "enum": ["joined", "updated", "left"] }
+            "event": {
+              "description": "rejoined: someone who left (or whose browser closed) came back under the same name.",
+              "type": "string",
+              "enum": ["joined", "rejoined", "updated", "left"]
+            }
           }
         }
       }
@@ -288,7 +309,7 @@
           "required": ["playback", "action", "byId", "byName", "serverTime"],
           "properties": {
             "playback": { "$ref": "#/$defs/Playback" },
-            "action": { "type": "string", "enum": ["play", "pause", "seek"] },
+            "action": { "type": "string", "enum": ["play", "pause", "seek", "sync"] },
             "byId": { "type": "string" },
             "byName": { "$ref": "#/$defs/Name" },
             "serverTime": { "type": "number" }

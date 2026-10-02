@@ -71,6 +71,19 @@ export function parseReleases(json: unknown): Release[] {
   return json.map(parseRelease).filter((r): r is Release => r !== null);
 }
 
+/**
+ * The SHA-256 the release notes give for one file, from a line that names the file and a
+ * 64-digit hex hash (scripts/release-notes.mjs writes "- `file`: `hash`"). Null when absent.
+ */
+export function checksumFor(body: string, file: string): string | null {
+  const name = new RegExp(`(^|[^\\w.-])${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\w.-])`);
+  for (const line of body.split(/\r?\n/)) {
+    const hash = /(?:^|[^0-9a-f])([0-9a-f]{64})(?:$|[^0-9a-f])/i.exec(line);
+    if (hash?.[1] && name.test(line)) return hash[1].toLowerCase();
+  }
+  return null;
+}
+
 export function isCandidate(tag: string): boolean {
   return /-rc/i.test(tag);
 }

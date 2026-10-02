@@ -28,7 +28,7 @@ export type PresenceUpdate = Envelope & {
 export type PlaybackUpdate = Envelope & {
   type?: "PLAYBACK.UPDATE";
   payload?: {
-    action: "play" | "pause" | "seek";
+    action: "play" | "pause" | "seek" | "sync";
     status: "playing" | "paused";
     position: Seconds;
     rate: Rate;
@@ -41,9 +41,14 @@ export type Ping = Envelope & {
     t1: number;
   };
 };
+/**
+ * Leave the room; the token stops working. The last one out ends the room, unless keepRoom (the browser closed: the room waits for a rejoin until it expires).
+ */
 export type Leave = Envelope & {
   type?: "ROOM.LEAVE";
-  payload?: {};
+  payload?: {
+    keepRoom?: boolean;
+  };
 };
 /**
  * This player is buffering or showing an ad (or no longer is); the room waits for it.
@@ -97,7 +102,10 @@ export type ParticipantChanged = Envelope & {
   type?: "ROOM.PARTICIPANT";
   payload?: {
     participant: Participant;
-    event: "joined" | "updated" | "left";
+    /**
+     * rejoined: someone who left (or whose browser closed) came back under the same name.
+     */
+    event: "joined" | "rejoined" | "updated" | "left";
   };
 };
 /**
@@ -119,7 +127,7 @@ export type PlaybackState = Envelope & {
   type?: "PLAYBACK.STATE";
   payload?: {
     playback: Playback;
-    action: "play" | "pause" | "seek";
+    action: "play" | "pause" | "seek" | "sync";
     byId: string;
     byName: Name;
     serverTime: number;
@@ -181,7 +189,7 @@ export interface ProtocolRoot {
   Media?: Media;
   Playback?: Playback;
   Participant?: Participant;
-  CreateRoomRequest?: JoinRoomRequest;
+  CreateRoomRequest?: CreateRoomRequest;
   JoinRoomRequest?: JoinRoomRequest;
   RoomTicket?: RoomTicket;
   Envelope?: Envelope;
@@ -239,8 +247,15 @@ export interface Participant {
    */
   adLeft: number | null;
 }
+export interface CreateRoomRequest {
+  name: Name;
+}
 export interface JoinRoomRequest {
   name: Name;
+  /**
+   * Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041).
+   */
+  token?: string;
 }
 /**
  * Returned by create and join. The token authorises the WebSocket and is revoked on leave.

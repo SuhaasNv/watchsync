@@ -1,7 +1,14 @@
 // Runs on the invite page (${API}/j/CODE): swaps the install steps for a Join form,
 // then opens the room's title once we're in.
 import { svgIcon } from "../shared/icons";
-import { type AppState, ERRORS, type Push, safeTitleUrl, send } from "../shared/messages";
+import {
+  type AppState,
+  ERRORS,
+  nameProblem,
+  type Push,
+  safeTitleUrl,
+  send,
+} from "../shared/messages";
 
 const code = location.pathname.split("/").pop()?.toUpperCase() ?? "";
 const slot = document.getElementById("watchsync-join");
@@ -132,6 +139,13 @@ async function main() {
   );
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const problem = nameProblem(input.value);
+    if (problem) {
+      error.textContent = problem;
+      input.setAttribute("aria-invalid", "true");
+      return input.focus();
+    }
+    input.removeAttribute("aria-invalid");
     button.disabled = true;
     button.textContent = "Joining…";
     error.textContent = "";

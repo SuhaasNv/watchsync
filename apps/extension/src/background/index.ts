@@ -1,15 +1,26 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { Media, Service } from "@watchsync/protocol";
+import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
+  type ClientMessageOf,
   envelope,
+  isClientMessage,
   isRoomTicket,
   isServerMessage,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
-import type { AppState, Push, Reply, Request, Session, TabEvent } from "../shared/messages";
+import {
+  type AppState,
+  cleanName,
+  nameProblem,
+  type Push,
+  type Reply,
+  type Request,
+  type Session,
+  type TabEvent,
+} from "../shared/messages";
 import {
   DEV_RELEASE_API,
   isUpdate,
@@ -17,6 +28,7 @@ import {
   RELEASES_API,
   type UpdateCheck,
 } from "../shared/update";
+import { injectOpenTabs } from "./inject";
 
 const API = __API_URL__;
 
@@ -46,6 +58,8 @@ const ports = new Set<chrome.runtime.Port>();
 // ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
 let presence: { service: Service; media: Media | null } = { service: "none", media: null };
 let presencePort: chrome.runtime.Port | null = null;
+/** The tab our presence comes from, kept after its port drops so a close can be told apart. */
+let presenceTabId: number | undefined;
 let tabGone: ReturnType<typeof setTimeout> | undefined;
 
 function sendPresence() {
@@ -55,38 +69,45 @@ function sendPresence() {
 function push(msg: Push) {
   for (const p of ports) p.postMessage(msg);
 }
-/** Only the popup may see the room token; pages' content scripts never need it. */
-function stateFor(port: chrome.runtime.Port): AppState {
-  if (port.name === "popup") return state;
+/**
+ * The state other contexts see: never the room token. Only this worker uses it, and a port's
+ * name or a reply can reach a content script on a service page (BUG-044).
+ */
+function shared(): AppState {
   return { ...state, session: state.session && { ...state.session, token: "" } };
 }
 function changed() {
-  for (const p of ports) p.postMessage({ kind: "state", state: stateFor(p) } satisfies Push);
+  for (const p of ports) p.postMessage({ kind: "state", state: shared() } satisfies Push);
 }
 
 async function restore() {
   const { name } = await chrome.storage.local.get("name");
-  const { session } = await chrome.storage.session.get("session");
-  state.name = typeof name === "string" ? name : null;
+  const { session, lastTicket: kept } = await chrome.storage.session.get(["session", "lastTicket"]);
+  // A name saved by an older version may hold marks the service now refuses.
+  state.name = typeof name === "string" ? cleanName(name) || null : null;
   if (isRoomTicket(session)) {
     state.session = session;
     connect();
     return;
   }
-  // The browser restarted (session storage is gone): offer the last room back for a day.
+  // Offer the last room back for a day. Local storage keeps only its code, since content
+  // scripts can read it (BUG-044); the token survives in session storage while the browser
+  // runs, and without it a Rejoin is a plain join.
   const { lastRoom } = await chrome.storage.local.get("lastRoom");
   if (isSaved(lastRoom) && Date.now() - lastRoom.at < DAY) {
-    lastTicket = lastRoom.ticket;
-    state.lastRoom = lastRoom.ticket.code;
+    const ticket = isRoomTicket(kept) && kept.code === lastRoom.code ? kept : null;
+    lastTicket = ticket ?? { code: lastRoom.code, token: "", participantId: "" };
+    state.lastRoom = lastRoom.code;
   } else if (lastRoom !== undefined) {
-    await chrome.storage.local.remove("lastRoom"); // stale or malformed: forget it
+    // Stale or malformed, or saved by an older version with its token: forget it.
+    await chrome.storage.local.remove("lastRoom");
   }
 }
 
-function isSaved(v: unknown): v is { ticket: Session; at: number } {
+function isSaved(v: unknown): v is { code: string; at: number } {
   if (typeof v !== "object" || v === null) return false;
-  const { ticket, at } = v as { ticket?: unknown; at?: unknown };
-  return typeof at === "number" && isRoomTicket(ticket);
+  const { code, at } = v as { code?: unknown; at?: unknown };
+  return typeof at === "number" && typeof code === "string" && /^[A-HJ-NP-Z2-9]{6}$/.test(code);
 }
 const ready = restore();
 
@@ -286,7 +307,7 @@ async function startSession(ticket: Session) {
   state.lastRoom = null;
   lastTicket = ticket;
   await chrome.storage.session.set({ session: ticket });
-  await chrome.storage.local.set({ lastRoom: { ticket, at: Date.now() } });
+  await chrome.storage.local.set({ lastRoom: { code: ticket.code, at: Date.now() } });
   connect();
 }
 
@@ -296,7 +317,7 @@ async function endSession(notice: string | null) {
   state.notice = notice;
   state.lastRoom = null;
   lastTicket = null;
-  await chrome.storage.session.remove("session");
+  await chrome.storage.session.remove(["session", "lastTicket"]);
   await chrome.storage.local.remove("lastRoom");
   changed();
 }
@@ -304,10 +325,58 @@ async function endSession(notice: string | null) {
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).
 let queue: Promise<unknown> = Promise.resolve();
-function handle(req: Request): Promise<Reply> {
-  const run = queue.then(() => handleNow(req));
+function serial<T>(work: () => Promise<T>): Promise<T> {
+  const run = queue.then(work);
   queue = run.catch(() => {});
   return run;
+}
+const handle = (req: Request) => serial(() => handleNow(req));
+
+/**
+ * The last browser window closed: leave the room, so friends hear we've gone, but keep the
+ * code so the popup and the next title page offer Rejoin. The room waits for us until it
+ * expires. If the browser quits too fast for this, the room service notices instead.
+ */
+async function leaveForNow() {
+  const s = state.session;
+  if (!s) return;
+  sendServer(envelope("ROOM.LEAVE", { keepRoom: true }));
+  reset();
+  state.session = null;
+  state.notice = null;
+  state.lastRoom = s.code;
+  lastTicket = s;
+  await chrome.storage.session.remove("session");
+  await chrome.storage.session.set({ lastTicket: s });
+  await chrome.storage.local.set({ lastRoom: { code: s.code, at: Date.now() } });
+  changed();
+}
+
+chrome.windows.onRemoved.addListener(() => {
+  chrome.windows
+    .getAll({ windowTypes: ["normal"] })
+    .then((open) => (open.length === 0 ? serial(leaveForNow) : undefined))
+    .catch(() => {});
+});
+
+/**
+ * Back into the last room under our name; the room tells everyone we rejoined. Our last
+ * token proves it's us, so the room gives back our place if it still holds it (BUG-041).
+ */
+async function rejoin() {
+  if (!lastTicket) throw new Error("expired");
+  if (!state.name) throw new Error("invalid");
+  const { code, token } = lastTicket;
+  const body: JoinRoomRequest = { name: state.name, ...(token ? { token } : {}) };
+  let ticket: Session;
+  try {
+    ticket = await api(`/api/v1/rooms/${code}/join`, body);
+  } catch (e) {
+    const gone = e instanceof Error && (e.message === "expired" || e.message === "not_found");
+    if (!gone) throw e;
+    return endSession(ENDED); // ended, or the service restarted and forgot it
+  }
+  await startSession(ticket);
 }
 
 async function handleNow(req: Request): Promise<Reply> {
@@ -317,8 +386,8 @@ async function handleNow(req: Request): Promise<Reply> {
       case "getState":
         break;
       case "setName": {
-        const name = req.name.trim().slice(0, 30);
-        if (!name) throw new Error("invalid");
+        const name = cleanName(req.name);
+        if (nameProblem(req.name)) throw new Error("invalid"); // same rule as every name field
         state.name = name;
         await chrome.storage.local.set({ name });
         break;
@@ -332,7 +401,10 @@ async function handleNow(req: Request): Promise<Reply> {
         if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) throw new Error("not_found");
         if (!state.name) throw new Error("invalid");
         if (state.session?.code === code) break;
-        await startSession(await api(`/api/v1/rooms/${code}/join`, { name: state.name }));
+        const ticket = await api(`/api/v1/rooms/${code}/join`, { name: state.name });
+        // Switching rooms from an invite page: leave the old one for good, not as "Away".
+        if (state.session) sendServer(envelope("ROOM.LEAVE", {}));
+        await startSession(ticket);
         break;
       }
       case "leave":
@@ -340,8 +412,7 @@ async function handleNow(req: Request): Promise<Reply> {
         await endSession(null);
         break;
       case "rejoin":
-        if (!lastTicket) throw new Error("expired");
-        await startSession(lastTicket);
+        await rejoin();
         break;
       case "forgetRoom":
         await endSession(null);
@@ -352,15 +423,19 @@ async function handleNow(req: Request): Promise<Reply> {
         break;
     }
     changed();
-    return { ok: true, state };
+    return { ok: true, state: shared() };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "unreachable", state };
+    return { ok: false, error: e instanceof Error ? e.message : "unreachable", state: shared() };
   }
 }
 
 // First install only (not updates or reloads): show what WatchSync does and how to start.
+// On removal Chrome opens a thank-you page with answers to common reasons. Nothing is sent.
+chrome.runtime.setUninstallURL(`${__SITE_URL__}/goodbye/`).catch(() => {});
+
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === "install") void chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
+  void injectOpenTabs(chrome);
 });
 
 // Test builds only: lets end-to-end tests cut the connection like a network drop.
@@ -372,6 +447,39 @@ chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
   return true;
 });
 
+/** The tab we were watching in is gone: say "nothing open" now (BUG-026). */
+function presenceTabClosed() {
+  clearTimeout(tabGone);
+  presencePort = null;
+  presenceTabId = undefined;
+  if (presence.media === null) return;
+  titleTabGone();
+}
+
+/**
+ * The tab with our title is gone. Another tab still playing a title takes over; only if none
+ * answers is nothing open (BUG-051): it reported once, on its own title change, long ago.
+ */
+function titleTabGone() {
+  presenceTabId = undefined;
+  presence = { service: "none", media: null };
+  push({ kind: "report" });
+  setTimeout(() => {
+    if (presenceTabId === undefined) sendPresence();
+  }, 500);
+}
+
+// Closing the tab: no need to wait out the 3 s page-load allowance below.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === presenceTabId) presenceTabClosed();
+});
+// The retry: every 15 s make sure that tab still exists, so a missed close event can't
+// leave a title showing for someone who closed it (BUG-026).
+setInterval(() => {
+  if (presenceTabId === undefined || presence.media === null) return;
+  chrome.tabs.get(presenceTabId).catch(presenceTabClosed);
+}, 15_000);
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   ports.add(port);
@@ -382,16 +490,18 @@ chrome.runtime.onConnect.addListener((port) => {
     presencePort = null;
     // A page load (next episode, Open) drops the port for a moment; only report the
     // title as closed if no tab reports again soon, so the room keeps following us.
-    tabGone = setTimeout(() => {
-      presence = { service: "none", media: null };
-      sendPresence();
-    }, 3000);
+    tabGone = setTimeout(titleTabGone, 3000);
   });
   if (port.name === "tab")
     port.onMessage.addListener((e: TabEvent) => {
       if (e.kind === "playback") {
         const { kind: _, ...update } = e;
-        sendServer(envelope("PLAYBACK.UPDATE", update));
+        // A speed tool can run the player past the protocol's 0.25-4x, and the room would
+        // refuse the whole play, pause or jump; share it at the nearest allowed rate.
+        update.rate = Math.min(4, Math.max(0.25, update.rate));
+        const msg = envelope<ClientMessageOf<"PLAYBACK.UPDATE">>("PLAYBACK.UPDATE", update);
+        if (!isClientMessage(msg)) return; // a NaN or out-of-range position: never our clock
+        sendServer(msg);
         // The room tells everyone but the sender; keep our own copy of its clock current
         // too, or our drift check and wait card judge against the old one (BUG-006).
         const { status, position, rate, titleId } = update;
@@ -413,10 +523,16 @@ chrome.runtime.onConnect.addListener((port) => {
         return sendServer(envelope("START.REQUEST", { position: e.position, titleId: e.titleId }));
       if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
+      const tabId = port.sender?.tab?.id;
+      // A browse page in another tab mustn't hide the tab still playing a title; that
+      // tab's close is reported by tabs.onRemoved (BUG-049).
+      if (!e.media && presence.media && presenceTabId !== undefined && tabId !== presenceTabId)
+        return;
       clearTimeout(tabGone);
       presencePort = port;
+      presenceTabId = tabId;
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
-  ready.then(() => port.postMessage({ kind: "state", state: stateFor(port) } satisfies Push));
+  ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
 });

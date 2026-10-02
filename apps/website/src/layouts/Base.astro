@@ -10,9 +10,14 @@ interface Props {
   description: string;
   /** Leave out of search results (the 404 page). */
   noindex?: boolean;
+  /** schema.org data for search results (JSON-LD). */
+  jsonLd?: Record<string, unknown>;
 }
 
-const { title, description, noindex = false } = Astro.props;
+const { title, description, noindex = false, jsonLd } = Astro.props;
+const hidden = noindex || CHANNEL === "dev";
+// "</" inside JSON would end the script element early; \u003c keeps it data.
+const ld = jsonLd ? JSON.stringify({ "@context": "https://schema.org", ...jsonLd }).replaceAll("<", "\\u003c") : null;
 const site = Astro.site ?? new URL("http://localhost:4321");
 const pageUrl = new URL(Astro.url.pathname, site).href;
 const ogImage = new URL("/og.png", site).href;
@@ -25,7 +30,8 @@ const ogImage = new URL("/og.png", site).href;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    {(noindex || CHANNEL === "dev") && <meta name="robots" content="noindex" />}
+    {hidden ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={pageUrl} />}
+    {ld && <script is:inline type="application/ld+json" set:html={ld} />}
     <meta name="theme-color" content="#0c1215" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
@@ -80,6 +86,10 @@ const ogImage = new URL("/og.png", site).href;
     outline: none;
   }
   .dev-strip {
+    /* Above the header's status-bar cover (Header.astro ::before), which reaches up over
+       everything above the bar (BUG-053). */
+    position: relative;
+    z-index: 51;
     margin: 0;
     padding: 8px 16px;
     background: var(--acc);

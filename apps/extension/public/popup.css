@@ -207,6 +207,9 @@ p {
   font-size: 13px;
   line-height: 18px;
 }
+.hint.bad {
+  color: var(--bad);
+}
 /* Small labels: mono, uppercase and spaced, as on the website. */
 .label,
 .eyebrow {

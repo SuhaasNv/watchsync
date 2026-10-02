@@ -6,5 +6,3 @@ declare const __CHANNEL__: "dev" | "prod";
 declare const __BUILD__: string;
 /** The WatchSync website for this channel (DEC-026). */
 declare const __SITE_URL__: string;
-/** Match patterns of the supported service pages; the only places an invite may redirect to. */
-declare const __TITLE_PAGES__: string[];

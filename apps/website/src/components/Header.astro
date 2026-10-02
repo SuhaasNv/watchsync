@@ -88,10 +88,21 @@ const isCurrent = (href: string) => (href === "/" ? path === "/" : path.startsWi
     position: sticky;
     top: 0;
     z-index: 50;
-    background: rgba(12, 18, 21, 0.78);
-    backdrop-filter: blur(14px) saturate(1.3);
-    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    /* Solid: a see-through bar let the page show through it while scrolling on phones. */
+    background: #0c1215;
     box-shadow: inset 0 -1px 0 var(--line);
+  }
+  /* Safari on iPhone draws the page under the status bar, above where a sticky bar sits, so
+     text scrolled past the bar showed there. The bar's colour now reaches up behind it. */
+  .site-header::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 100vh;
+    background: #0c1215;
+    pointer-events: none;
   }
   .bar {
     display: flex;

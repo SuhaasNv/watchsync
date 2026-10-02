@@ -18,7 +18,7 @@ export function align(
   following: boolean,
 ): Alignment {
   if (!room || mine?.titleId === room.titleId) return { kind: "none" };
-  const url = safeTitleUrl(room.titleUrl);
+  const url = safeTitleUrl(room.titleUrl, room.service);
   if (!url) return { kind: "none" };
   const wasWithRoom = mine !== null && roomBefore !== null && mine.titleId === roomBefore.titleId;
   if (following && wasWithRoom && mine.service === room.service) return { kind: "follow", url };

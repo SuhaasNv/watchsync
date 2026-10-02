@@ -1,4 +1,41 @@
-import { expect, MOCK, room, test } from "./fixtures";
+import { expect, launchWithExtension, MOCK, popup, room, test } from "./fixtures";
+
+test("a title name that shows up late still reaches the friend's prompt (BUG-025)", async ({
+  ext,
+}) => {
+  const host = await popup(ext, "Suhaas");
+  await host.getByRole("button", { name: "Create a room" }).click();
+  const code = (await host.getByTestId("room-code").textContent()) ?? "";
+  const hostTab = await ext.context.newPage();
+  await hostTab.goto(`${MOCK}/watch/untitled`);
+  await expect(host.getByText("Test player")).toBeVisible();
+
+  const friend = await launchWithExtension();
+  try {
+    const fpop = await popup(friend, "Asha");
+    await fpop.getByRole("textbox", { name: "Or join a friend's room" }).fill(code);
+    await fpop.getByRole("button", { name: "Join room", exact: true }).click();
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/film`);
+    await expect(tab.getByText("Suhaas is watching a title. Open it?")).toBeVisible({
+      timeout: 5000,
+    });
+
+    // The player's controls appear and with them the title.
+    await hostTab.evaluate(() => {
+      const h1 = document.querySelector("[data-title]");
+      if (h1) h1.textContent = "Late Film";
+    });
+    await expect(tab.getByText("Suhaas is watching Late Film. Open it?")).toBeVisible({
+      timeout: 5000,
+    });
+    // The popup's "Now watching" says it too, not just the service.
+    await fpop.reload();
+    await expect(fpop.locator(".now-name")).toHaveText("Late Film");
+  } finally {
+    await friend.context.close();
+  }
+});
 
 test("a friend on another title is asked, and Open takes them there", async ({ ext }) => {
   const { friend, fpop } = await room(ext);
@@ -104,6 +141,61 @@ test("watch on my own from the new-movie prompt keeps the friend where they are"
     await expect(card).toHaveCount(0);
     expect(tab.url()).toBe(`${MOCK}/watch/ep1`);
     await expect(host.getByText(/On their own/)).toBeVisible();
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("closing the room's title clears Now watching quickly (BUG-026)", async ({ ext }) => {
+  const { friend, fpop, hostTab } = await room(ext);
+  try {
+    await fpop.reload();
+    await expect(fpop.locator(".now-name")).toHaveText("Demo Show, E1");
+    await hostTab.close(); // the only one watching closes it
+    await fpop.reload();
+    await expect(fpop.locator(".now-name")).toHaveText("Nothing playing", { timeout: 2000 });
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("a friend on the service's browse page shows as on it, without hiding a playing tab (BUG-049)", async ({
+  ext,
+}) => {
+  const { host, friend } = await room(ext);
+  try {
+    const asha = host.locator("li", { hasText: "Asha" });
+    const browse = await friend.context.newPage();
+    await browse.goto(`${MOCK}/browse`);
+    await expect(asha.getByText("Test player", { exact: true })).toBeVisible({ timeout: 8000 });
+
+    const watch = await friend.context.newPage();
+    await watch.goto(`${MOCK}/watch/ep1`);
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible({ timeout: 5000 });
+    // Another browse tab says "no title" after 5 s; the playing tab still counts.
+    const other = await friend.context.newPage();
+    await other.goto(`${MOCK}/browse`);
+    await other.waitForTimeout(6500);
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible();
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("closing one of two title tabs shows the other one, not nothing (BUG-051)", async ({
+  ext,
+}) => {
+  const { host, friend } = await room(ext);
+  try {
+    const asha = host.locator("li", { hasText: "Asha" });
+    const show = await friend.context.newPage();
+    await show.goto(`${MOCK}/watch/ep1`);
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible({ timeout: 5000 });
+    const film = await friend.context.newPage();
+    await film.goto(`${MOCK}/watch/film`);
+    await expect(asha.getByText("Test player · Demo Film")).toBeVisible({ timeout: 5000 });
+    await film.close();
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible({ timeout: 5000 });
   } finally {
     await friend.context.close();
   }

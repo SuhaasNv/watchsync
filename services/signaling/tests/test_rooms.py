@@ -1,4 +1,7 @@
+import json
 import re
+import time
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -75,6 +78,11 @@ def join(code: str, name: str = "Asha") -> httpx.Response:
     return client.post(f"/api/v1/rooms/{code}/join", json={"name": name})
 
 
+def rejoin(code: str, name: str, token: str | None) -> httpx.Response:
+    body = {"name": name} | ({"token": token} if token else {})
+    return client.post(f"/api/v1/rooms/{code}/join", json=body)
+
+
 def test_join_returns_a_ticket_and_host_sees_arrival() -> None:
     host = create()
     with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as hws:
@@ -108,6 +116,25 @@ def test_join_is_rate_limited_even_for_wrong_codes(monkeypatch: pytest.MonkeyPat
     assert join("ZZZZZZ").status_code == 429
 
 
+def test_wrong_codes_from_everyone_together_are_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-042: guessing codes from many addresses, each under its own limit, stays slow."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main, "failed_join_limiter", main.Limiter(3, 60))
+    room = create()
+
+    def attempt(code: str, ip: str) -> int:
+        r = client.post(f"/api/v1/rooms/{code}/join", json={"name": "a"}, headers={"x-real-ip": ip})
+        return r.status_code
+
+    assert attempt(room["code"], "192.0.2.1") == 201  # right codes never count
+    for i in range(3):
+        assert attempt("ZZZZZZ", f"192.0.2.{10 + i}") == 404
+    # Past the shared budget every join waits, right code or not: a 201 would tell a
+    # guesser which code is real.
+    assert attempt("ZZZZZZ", "192.0.2.50") == 429
+    assert attempt(room["code"], "192.0.2.51") == 429
+
+
 def test_presence_update_reaches_everyone_and_sets_room_media() -> None:
     host = create()
     with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
@@ -130,6 +157,86 @@ def test_presence_update_reaches_everyone_and_sets_room_media() -> None:
         assert update["payload"]["participant"]["titleName"] == "Stranger Things"
         room_media = ws.receive_json()
         assert room_media["type"] == "ROOM.MEDIA" and room_media["payload"]["media"] == media
+
+
+def test_title_links_off_a_title_page_never_reach_the_room() -> None:
+    """BUG-039: friends' browsers open the room's titleUrl, so only a title page counts."""
+    host = create()
+    bad = [
+        ("netflix", "https://www.netflix.com/YourAccount"),
+        ("netflix", "https://www.netflix.com/watch/1/../../signout"),
+        ("netflix", "https://user@www.netflix.com/watch/1"),
+        ("netflix", "https://www.netflix.com/watch/1?x=1"),
+        ("netflix", "https://www.primevideo.com/detail/B0X"),  # another service's page
+        ("prime", "https://www.amazon.in/gp/video/settings"),
+        ("prime", "https://www.amazon.in/gp/video/detail/.."),
+        ("prime", "https://www.amazon.fr/gp/video/detail/B0X"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/subscribe"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/%2e%2e/1260123456/watch"),
+        ("mock", "http://localhost:4173/settings"),
+    ]
+    good = [
+        ("netflix", "https://www.netflix.com/watch/80057281"),
+        ("prime", "https://www.primevideo.com/detail/0TQV0X9RJF64O24RIRD1BHH37H"),
+        ("prime", "https://www.amazon.in/gp/video/detail/B0ABC12345"),
+        ("jiohotstar", "https://www.jiohotstar.com/in/shows/panchayat/1260123456/watch"),
+        ("mock", "http://localhost:4173/watch/demo"),
+    ]
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        for i, (service, title_url) in enumerate(bad + good):
+            media = {
+                "service": service,
+                "titleId": f"t{i}",
+                "titleName": "X",
+                "titleUrl": title_url,
+            }
+            payload = {"service": service, "following": True, "media": media}
+            ws.send_json(msg("PRESENCE.UPDATE", payload))
+            moved = next_of(ws, "ROOM.MEDIA")["payload"]["media"]
+            expected = title_url if (service, title_url) in good else None
+            assert moved["titleUrl"] == expected, title_url
+            assert moved["titleId"] == f"t{i}"  # the title still counts; only the link goes
+            assert main.rooms.rooms[host["code"]].media == moved
+
+
+def test_a_title_name_that_arrives_late_reaches_the_room() -> None:
+    """BUG-025: Netflix shows its title text only with the controls, so the first report
+    can come without a name. A later report of the same title fills it in."""
+    host = create()
+    media = {
+        "service": "netflix",
+        "titleId": "80057281",
+        "titleName": None,
+        "titleUrl": "https://www.netflix.com/watch/80057281",
+    }
+
+    def report(ws: Any, name: str | None) -> None:
+        ws.send_json(
+            {
+                "id": "n",
+                "type": "PRESENCE.UPDATE",
+                "timestamp": 1,
+                "payload": {
+                    "service": "netflix",
+                    "following": True,
+                    "media": {**media, "titleName": name},
+                },
+            }
+        )
+
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        report(ws, None)
+        ws.receive_json()  # participant update
+        assert ws.receive_json()["payload"]["media"]["titleName"] is None  # ROOM.MEDIA
+        report(ws, "Stranger Things")
+        ws.receive_json()  # participant update, no second ROOM.MEDIA: the room didn't move
+        friend = join(host["code"]).json()
+        with client.websocket_connect(f"/ws/rooms/{host['code']}?token={friend['token']}") as fws:
+            state = fws.receive_json()
+            assert state["type"] == "ROOM.STATE"
+            assert state["payload"]["media"]["titleName"] == "Stranger Things"
 
 
 def test_invite_page_shows_the_code_without_scripts() -> None:
@@ -168,7 +275,7 @@ def next_of(ws: Any, type_: str) -> dict[str, Any]:
             return m
 
 
-def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
+def test_room_moves_to_the_last_title_anyone_opens() -> None:
     host = create()
     guest = join(host["code"]).json()
     url = f"/ws/rooms/{host['code']}?token="
@@ -184,8 +291,19 @@ def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
         next_of(hws, "ROOM.MEDIA")
         assert next_of(gws, "ROOM.MEDIA")["payload"]["media"]["titleId"] == "1"
         assert main.rooms.rooms[host["code"]].playback is None  # opener may be resuming
-        presence(gws, "9")  # guest opens something else: the room stays
+        presence(gws, "8")  # the guest arrives on another title: offered the room's instead
         next_of(gws, "ROOM.PARTICIPANT")
+        assert main.rooms.rooms[host["code"]].media["titleId"] == "1"  # type: ignore[index]
+        presence(gws, "9")  # then picks another: the room follows them (DEC-030)
+        next_of(gws, "ROOM.MEDIA")
+        moved = next_of(hws, "ROOM.MEDIA")["payload"]
+        assert moved["media"]["titleId"] == "9" and moved["byName"] == "Asha"
+        assert moved["how"] == "new"  # not straight on from the room's title
+        presence(hws, "9")  # host opens the guest's title: no move
+        next_of(hws, "ROOM.PARTICIPANT")
+        presence(hws, "1")  # and back to 1, which is now a new title again
+        next_of(hws, "ROOM.MEDIA")
+        next_of(gws, "ROOM.MEDIA")
         presence(gws, "1")  # guest joins the room's title
         next_of(gws, "ROOM.PARTICIPANT")
         assert main.rooms.rooms[host["code"]].media["titleId"] == "1"  # type: ignore[index]
@@ -322,6 +440,81 @@ def test_rate_limits_use_the_edge_client_ip_when_behind_a_proxy(
     assert client.post("/api/v1/rooms", json={"name": "b"}, headers=b).status_code == 201
 
 
+def test_one_address_holds_few_rooms_nobody_joined(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-040: one client can't fill every room slot with rooms nobody uses."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main.config, "ROOMS_PER_IP", 2)
+    a = {"x-real-ip": "198.51.100.7"}
+
+    def make(headers: dict[str, str]) -> httpx.Response:
+        return client.post("/api/v1/rooms", json={"name": "a"}, headers=headers)
+
+    first = make(a).json()
+    assert make(a).status_code == 201
+    third = make(a)
+    assert third.status_code == 429 and third.headers["retry-after"] == "60"
+    assert make({"x-real-ip": "198.51.100.8"}).status_code == 201  # someone else
+    assert join(first["code"]).status_code == 201  # a friend joined: it's a real room now
+    assert make(a).status_code == 201
+    # IPv6: one line gets a whole /64, so the /64 is the client.
+    six = {"x-real-ip": "2001:db8:aa:bb::1"}
+    assert make(six).status_code == 201
+    assert make({"x-real-ip": "2001:db8:aa:bb:ffff::2"}).status_code == 201
+    assert make({"x-real-ip": "2001:db8:aa:bb:1234::3"}).status_code == 429
+    assert make({"x-real-ip": "2001:db8:aa:cc::1"}).status_code == 201
+
+
+def test_limits_key_ipv6_on_its_64_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-040: per-address limits would be no limit for a client with a /64 to rotate in."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main, "join_limiter", main.Limiter(2, 60))
+    for i in range(2):
+        r = client.post(
+            "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": f"2001:db8::{i}"}
+        )
+        assert r.status_code == 404
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "2001:db8::99"}
+    )
+    assert r.status_code == 429
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "2001:db9::1"}
+    )
+    assert r.status_code == 404
+    # An IPv4 client seen over IPv6 counts as its IPv4 address.
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "::ffff:192.0.2.1"}
+    )
+    assert r.status_code == 404
+    assert "192.0.2.1" in main.join_limiter.hits
+
+
+def test_a_room_nobody_ever_connected_to_ends_after_two_minutes() -> None:
+    """BUG-040: unused codes free their slot soon; rooms people used keep the idle expiry."""
+    unused = create()
+    used = create()
+    with client.websocket_connect(f"/ws/rooms/{used['code']}?token={used['token']}") as ws:
+        ws.receive_json()
+        ws.send_json(msg("ROOM.LEAVE", {"keepRoom": True}))  # the browser closed
+    main.rooms.sweep(now=main.now_ms() + (main.config.UNUSED_ROOM_EXPIRY_SECONDS + 1) * 1000)
+    assert join(unused["code"]).status_code == 410
+    assert join(used["code"], "Suhaas").status_code == 201  # still waiting for a rejoin
+    main.rooms.sweep(now=main.now_ms() + (main.config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000)
+    assert join(used["code"]).status_code == 410
+
+
+def test_a_client_sent_real_ip_is_ignored_unless_behind_the_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only Railway's edge may name the client's address (TRUST_PROXY=1, docs/DEPLOY.md);
+    run directly, a spoofed X-Real-IP must not buy a fresh rate-limit budget."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", False)
+    monkeypatch.setattr(main, "create_limiter", main.Limiter(1, 60))
+    assert client.post("/api/v1/rooms", json={"name": "a"}).status_code == 201
+    spoofed = {"x-real-ip": "203.0.113.77"}
+    assert client.post("/api/v1/rooms", json={"name": "a"}, headers=spoofed).status_code == 429
+
+
 def test_security_headers() -> None:
     r = client.get("/j/ABC234")
     assert r.headers["x-content-type-options"] == "nosniff"
@@ -404,6 +597,8 @@ def test_room_waits_for_someone_buffering_then_resumes_together() -> None:
         paused = next_of(hws, "PLAYBACK.STATE")["payload"]
         assert paused["action"] == "pause" and paused["byName"] == "Asha"
         assert paused["playback"]["position"] == 42
+        # Asha hears it too, so her copy of the room's clock says paused.
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
         room = main.rooms.rooms[host["code"]]
         assert room.held and room.participants[guest["participantId"]].hold == "buffering"
 
@@ -411,6 +606,114 @@ def test_room_waits_for_someone_buffering_then_resumes_together() -> None:
         resumed = next_of(gws, "PLAYBACK.STATE")["payload"]
         assert resumed["action"] == "play" and resumed["playback"]["status"] == "playing"
         assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def pause(ws: Any, position: float = 30) -> None:
+    ws.send_json(
+        msg(
+            "PLAYBACK.UPDATE",
+            {
+                "action": "pause",
+                "status": "paused",
+                "position": position,
+                "rate": 1,
+                "titleId": "1",
+            },
+        )
+    )
+
+
+def sync_point(ws: Any, n: int) -> None:
+    """Waits until the server has handled everything this socket sent before."""
+    ws.send_json(msg("SYS.PING", {"t1": n}))
+    while next_of(ws, "SYS.PONG")["payload"]["t1"] != n:
+        pass
+
+
+def test_room_waits_for_two_people_on_ads_and_tells_both() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 42)
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        hold(hws, "ad", 42)
+        sync_point(hws, 1)
+        room = main.rooms.rooms[host["code"]]
+        assert room.held
+
+        hold(gws, None)  # Asha's ad ends first: the room keeps waiting for Suhaas's
+        sync_point(gws, 2)
+        assert room.held
+        assert room.playback is not None and room.playback["status"] == "paused"
+
+        hold(hws, None)
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert next_of(gws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_an_ad_that_pauses_the_player_first_still_holds_the_room() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        # A separate ad video: Asha's film pauses, then the ad is seen.
+        pause(gws, 30)
+        hold(gws, "ad", 30)
+        sync_point(gws, 1)
+        room = main.rooms.rooms[host["code"]]
+        assert room.held
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+
+        hold(gws, None)  # the ad ends: everyone resumes together
+        sync_point(gws, 2)
+        resumed = next_of(hws, "PLAYBACK.STATE")["payload"]
+        assert resumed["action"] == "play" and resumed["playback"]["position"] == 30
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_an_ad_long_after_a_pause_or_after_someone_elses_pause_holds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        pause(hws, 30)  # Suhaas paused; Asha then sees an ad (a pause ad, say)
+        sync_point(hws, 1)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 30)
+        sync_point(gws, 1)
+        room = main.rooms.rooms[host["code"]]
+        assert not room.held  # it stays Suhaas's pause, not a wait for Asha
+
+        hold(gws, None)
+        play(hws)
+        sync_point(hws, 2)
+        next_of(gws, "PLAYBACK.STATE")
+        monkeypatch.setattr(main, "AD_PAUSE_MS", 0)
+        pause(gws, 30)  # Asha paused herself; an ad that shows later isn't why
+        hold(gws, "ad", 30)
+        sync_point(gws, 2)
         assert not room.held
     finally:
         gcm.__exit__(None, None, None)
@@ -492,6 +795,71 @@ def test_start_together_waits_for_ready_then_sets_one_start_moment() -> None:
         hcm.__exit__(None, None, None)
 
 
+def test_room_stops_waiting_for_someone_who_closes_the_show() -> None:
+    # BUG-050: Asha's ad held the room; she closed the show, her tab never said "ad over",
+    # and the room stayed paused for everyone else until she disconnected.
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 42)
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        room = main.rooms.rooms[host["code"]]
+        assert room.held
+        presence(gws, None)  # closes the show mid-ad
+        resumed = next_of(hws, "PLAYBACK.STATE")["payload"]
+        assert resumed["action"] == "play" and resumed["playback"]["status"] == "playing"
+        assert not room.held and room.participants[guest["participantId"]].hold is None
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_start_together_stops_waiting_for_someone_who_leaves_the_title() -> None:
+    # BUG-050: the 3-2-1 kept waiting for a friend who had left the title.
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        hws.send_json(msg("START.REQUEST", {"position": 0, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        hws.send_json(msg("START.READY", {}))
+        assert next_of(hws, "START.STATE")["payload"]["notReady"] == ["Asha"]
+        presence(gws, None)  # Asha closes the show before she's ready
+        assert next_of(hws, "START.STATE")["payload"]["phase"] == "go"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_start_together_waits_for_someone_still_loading_the_title() -> None:
+    # BUG-057: on Prime the friend's player was still loading (no title yet), the room
+    # didn't count them, and the 3-2-1 started without them.
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        gws.send_json(
+            msg("PRESENCE.UPDATE", {"service": "netflix", "following": True, "media": None})
+        )
+        next_of(gws, "ROOM.PARTICIPANT")
+        hws.send_json(msg("START.REQUEST", {"position": 0, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        hws.send_json(msg("START.READY", {}))
+        assert next_of(hws, "START.STATE")["payload"]["notReady"] == ["Asha"]
+        presence(gws, "1")  # her player shows the title
+        sync_point(gws, 1)
+        gws.send_json(msg("START.READY", {}))
+        while (state := next_of(gws, "START.STATE")["payload"])["phase"] == "preparing":
+            assert state["notReady"] == ["Asha"]
+        assert state["phase"] == "go"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
 def test_start_anyway_skips_who_isnt_ready() -> None:
     host = create()
     guest = join(host["code"]).json()
@@ -523,7 +891,7 @@ def test_nan_is_refused_and_never_reaches_the_room() -> None:
 
 def test_sending_to_a_peer_that_dropped_never_raises() -> None:
     class Dead:
-        async def send_json(self, _: Any) -> None:
+        async def send_text(self, _: Any) -> None:
             raise WebSocketDisconnect(1006)
 
     host = create()
@@ -585,6 +953,18 @@ def test_legal_pages_robots_and_html_not_found() -> None:
     assert invite.headers["x-robots-tag"] == "noindex, nofollow"
 
 
+def test_home_goes_to_the_website_and_unknown_pages_are_ours() -> None:
+    # BUG-046: the bare address and unknown pages showed {"detail": "Not Found"}.
+    home = client.get("/", follow_redirects=False)
+    assert home.status_code == 302 and home.headers["location"] == "https://watchsync.space"
+    for path in ("/nope", "/j/", "/j/ABC234/extra"):
+        r = client.get(path)
+        assert r.status_code == 404 and "That link doesn't work" in r.text, path
+        assert r.headers["content-security-policy"] == main.join_page.CSP
+    api = client.get("/api/v1/nope")
+    assert api.status_code == 404 and api.json() == {"detail": "Not Found"}
+
+
 def test_room_cap_and_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main.config, "MAX_ROOMS", 0)
     r = client.post("/api/v1/rooms", json={"name": "a"})
@@ -600,6 +980,39 @@ def test_too_many_socket_connects_are_told_to_try_later(monkeypatch: pytest.Monk
     with pytest.raises(WebSocketDisconnect) as closed, client.websocket_connect(url) as ws:
         ws.receive_json()
     assert closed.value.code == 1013
+
+
+def test_a_title_nobody_has_open_gives_way_in_either_order() -> None:
+    # BUG-047: the guest opened a title, closed it, and the host's new title never moved
+    # the room, because the host had never been on the room's title.
+    for host_first in (False, True):
+        host = create()
+        guest = join(host["code"]).json()
+        url = f"/ws/rooms/{host['code']}?token="
+        with (
+            client.websocket_connect(url + host["token"]) as hws,
+            client.websocket_connect(url + guest["token"]) as gws,
+        ):
+            hws.receive_json()
+            gws.receive_json()
+            presence(gws, "1")  # the guest's title becomes the room's
+            next_of(gws, "ROOM.MEDIA")
+            next_of(hws, "ROOM.MEDIA")
+            if host_first:
+                presence(hws, "7")  # the host arrives on 7 while the guest is on 1: it stays
+                next_of(hws, "ROOM.PARTICIPANT")
+                presence(gws, None)  # the guest closes 1: the room goes to the host's 7
+                moved = next_of(gws, "ROOM.MEDIA")["payload"]
+                assert moved["media"]["titleId"] == "7" and moved["byName"] == "Suhaas"
+            else:
+                presence(gws, None)  # the guest closes it first
+                next_of(gws, "ROOM.PARTICIPANT")
+                presence(hws, "7")  # the host's new title takes the room
+                next_of(hws, "ROOM.MEDIA")
+                moved = next_of(gws, "ROOM.MEDIA")["payload"]
+                assert moved["media"]["titleId"] == "7" and moved["byName"] == "Suhaas"
+            assert moved["how"] == "new"
+            assert main.rooms.rooms[host["code"]].playback is None
 
 
 def test_opening_another_title_via_browse_moves_the_room_as_new() -> None:
@@ -697,6 +1110,253 @@ def test_autoplay_into_another_film_asks_instead_of_moving_everyone() -> None:
             )
         )
         assert next_of(hws, "ROOM.MEDIA")["payload"]["how"] == "new"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+# ---- Closing the browser leaves the room; coming back says "rejoined" ----
+
+
+@pytest.fixture
+def live(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """One event loop for every socket, so the grace timer outlives the socket that started it."""
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 0.3)
+    with TestClient(main.app) as c:
+        yield c
+
+
+def refused(c: TestClient, url: str) -> bool:
+    try:
+        with c.websocket_connect(url) as ws:
+            ws.receive_json()
+    except WebSocketDisconnect as e:
+        return e.code == 1008
+    return False
+
+
+def closed(ws: Any) -> None:
+    """Reads until the server closes the socket, so its handler has finished."""
+    with pytest.raises(WebSocketDisconnect):
+        while True:
+            ws.receive_json()
+
+
+def test_a_closed_browser_leaves_after_the_grace_period(live: TestClient) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+            next_of(hws, "ROOM.PARTICIPANT")  # joined
+        # The browser closed without a ROOM.LEAVE: away at once, gone after the grace period.
+        away = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+        assert away["event"] == "updated" and away["participant"]["connected"] is False
+        left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+        assert left["event"] == "left" and left["participant"]["name"] == "Asha"
+        assert [p.name for p in main.rooms.rooms[host["code"]].participants.values()] == ["Suhaas"]
+    assert refused(live, url + guest["token"])
+
+
+def test_a_short_drop_within_the_grace_period_stays_silent(live: TestClient) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:  # back on Wi-Fi
+            gws.receive_json()
+            time.sleep(0.6)  # twice the grace period
+            hws.send_json(msg("SYS.PING", {"t1": 1}))
+            events = []
+            while (m := hws.receive_json())["type"] != "SYS.PONG":
+                if m["type"] == "ROOM.PARTICIPANT":
+                    events.append(m["payload"]["event"])
+            assert "left" not in events and events[-1] == "joined"
+            assert len(main.rooms.rooms[host["code"]].participants) == 2
+
+
+def test_the_last_one_out_by_closing_keeps_the_room_until_it_expires(live: TestClient) -> None:
+    host = create()
+    with live.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+    time.sleep(0.6)
+    room = main.rooms.rooms[host["code"]]
+    assert room.participants == {}  # left after the grace period, but the room waits
+    again = join(host["code"], "Suhaas")
+    assert again.status_code == 201
+    assert room.participants[again.json()["participantId"]].rejoined
+    main.rooms.sweep(now=main.now_ms() + (main.config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000)
+    assert join(host["code"]).status_code == 410
+
+
+def test_rejoining_with_the_last_token_replaces_the_away_row(
+    live: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 30)  # away, not gone, at the rejoin
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+        next_of(hws, "ROOM.PARTICIPANT")  # joined
+        next_of(hws, "ROOM.PARTICIPANT")  # away
+        back = rejoin(host["code"], "Asha", guest["token"]).json()
+        assert back["participantId"] == guest["participantId"]  # same row, new token
+        assert refused(live, url + guest["token"])
+        with live.websocket_connect(url + back["token"]) as gws:
+            gws.receive_json()
+            came = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert came["event"] == "rejoined" and came["participant"]["connected"]
+            names = [p.name for p in main.rooms.rooms[host["code"]].participants.values()]
+            assert sorted(names) == ["Asha", "Suhaas"]
+        # Someone connected is never replaced, even with their token: it's someone new.
+        other = rejoin(host["code"], "Suhaas", host["token"]).json()
+        assert other["participantId"] != host["participantId"]
+        assert not main.rooms.rooms[host["code"]].participants[other["participantId"]].rejoined
+
+
+def test_a_name_alone_cannot_take_over_someone_away(
+    live: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BUG-041: anyone with the code could take a dropped friend's place under their name."""
+    host = create()
+    guest = join(host["code"]).json()
+    elsewhere = create("Asha")
+    url = f"/ws/rooms/{host['code']}?token="
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 30)
+    room = main.rooms.rooms[host["code"]]
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+        next_of(hws, "ROOM.PARTICIPANT")  # joined
+        next_of(hws, "ROOM.PARTICIPANT")  # away
+        # Same name, no token (or a token from another room): never her place or her id.
+        r = live.post(f"/api/v1/rooms/{host['code']}/join", json={"name": "Asha"}).json()
+        assert r["participantId"] != guest["participantId"]
+        # BUG-048: that is her back after a browser restart, so her away row ends now
+        # instead of after 60 s, and the newcomer arrives as a rejoin.
+        left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+        assert left["event"] == "left" and left["participant"]["id"] == guest["participantId"]
+        assert guest["participantId"] not in room.participants
+        assert room.participants[r["participantId"]].rejoined
+        for token in (elsewhere["token"], "x" * 43):
+            other = rejoin(host["code"], "Asha", token).json()
+            # Nobody is away now: just another participant, and the first newcomer stays.
+            assert other["participantId"] not in (guest["participantId"], r["participantId"])
+            assert not room.participants[other["participantId"]].rejoined
+        assert r["participantId"] in room.participants
+        with live.websocket_connect(url + r["token"]) as nws:
+            nws.receive_json()
+            came = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert came["event"] == "rejoined" and came["participant"]["id"] == r["participantId"]
+    assert (
+        client.post(
+            f"/api/v1/rooms/{host['code']}/join", json={"name": "Asha", "token": "bad token!"}
+        ).status_code
+        == 422
+    )
+
+
+def test_leaving_then_joining_again_is_a_rejoin_and_keep_room_keeps_it(live: TestClient) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+            gws.send_json(msg("ROOM.LEAVE", {}))
+            closed(gws)
+        assert next_of(hws, "ROOM.PARTICIPANT")["payload"]["event"] == "joined"
+        assert next_of(hws, "ROOM.PARTICIPANT")["payload"]["event"] == "left"
+        back = join(host["code"], "Asha").json()
+        with live.websocket_connect(url + back["token"]) as gws:
+            gws.receive_json()
+            assert next_of(hws, "ROOM.PARTICIPANT")["payload"]["event"] == "rejoined"
+            gws.send_json(msg("ROOM.LEAVE", {}))
+            closed(gws)
+        hws.send_json(msg("ROOM.LEAVE", {"keepRoom": True}))  # the last window closed
+        closed(hws)
+    # The last one out kept the room: they can come back until it expires.
+    assert join(host["code"], "Suhaas").status_code == 201
+
+
+def test_a_lone_surrogate_in_a_name_cannot_break_the_room() -> None:
+    # JSON may carry "\ud83d" alone; a raw lone surrogate can't be sent as UTF-8, so every
+    # snapshot naming this person would fail to send and the room would hang on Connecting.
+    host = create()
+    r = client.post(
+        f"/api/v1/rooms/{host['code']}/join",
+        content=b'{"name":"Asha \\ud83d"}',
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code == 201
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        text = ws.receive_text()
+        text.encode("utf-8")  # what the server's WebSocket does before sending
+        assert json.loads(text)["type"] == "ROOM.STATE"
+
+
+def until_pong(ws: Any) -> list[dict[str, Any]]:
+    """Everything this socket gets up to the answer to a ping sent now."""
+    ws.send_json(msg("SYS.PING", {"t1": 0}))
+    got: list[dict[str, Any]] = []
+    while (m := ws.receive_json())["type"] != "SYS.PONG":
+        got.append(m)
+    return got
+
+
+def update(ws: Any, action: str, status_: str, position: float) -> None:
+    payload = {"action": action, "status": status_, "position": position, "rate": 1}
+    ws.send_json(msg("PLAYBACK.UPDATE", payload | {"titleId": "1"}))
+
+
+def test_two_changes_at_once_end_everyone_on_the_last_one() -> None:
+    """Crossing changes: the second sender also gets the room's result, or they stay apart."""
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        update(hws, "pause", "paused", 30)
+        hws.send_json(msg("SYS.PING", {"t1": 1}))
+        next_of(hws, "SYS.PONG")
+        update(gws, "seek", "playing", 60)  # sent before the guest saw the pause
+        got = [m["payload"] for m in until_pong(gws) if m["type"] == "PLAYBACK.STATE"]
+        assert [x["byName"] for x in got] == ["Suhaas", "Asha"]
+        assert got[1]["playback"]["position"] == 60
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["playback"]["status"] == "playing"
+        # One person's own run of changes is never echoed back to them.
+        update(gws, "seek", "playing", 70)
+        assert until_pong(gws) == []
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_moving_to_another_title_cancels_a_start_together() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        hws.send_json(msg("START.REQUEST", {"position": 1200, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        presence(hws, "2")  # the host moves on to the next episode while the guest gets ready
+        phases = [m["payload"]["phase"] for m in until_pong(hws) if m["type"] == "START.STATE"]
+        assert phases == ["cancelled"]
+        gws.send_json(msg("START.READY", {}))  # late: must not start episode 2 at 20:00
+        until_pong(gws)
+        room = main.rooms.rooms[host["code"]]
+        assert room.start is None
+        assert room.playback is not None and room.playback["titleId"] == "2"
+        assert room.playback["position"] == 0
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)

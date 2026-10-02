@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780" role="img" aria-labelledby="t d">
+  <title id="t">How WatchSync fits together</title>
+  <desc id="d">Each person's browser runs the extension: a content script on the streaming tab reads and controls the player, and the background worker holds a WebSocket to the room service on Railway, which relays play, pause and position to everyone in the room. The website, GitHub Releases and the shared protocol package sit underneath.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#5ed8c3"/>
+    </marker>
+    <style>
+      .sans { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .serif { font-family: Georgia, "Times New Roman", serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .h { font-size: 17px; font-weight: 700; fill: #ecf2f1; }
+      .s { font-size: 13.5px; fill: #a9b8b9; }
+      .tag { font-size: 12px; letter-spacing: 1.6px; fill: #8d9ea0; }
+      .lbl { font-size: 12px; fill: #5ed8c3; }
+      .box { fill: #19242a; stroke: rgba(214,236,240,0.18); }
+      .panel { fill: #121a1e; stroke: rgba(214,236,240,0.09); }
+      .line { stroke: #5ed8c3; stroke-width: 2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="780" rx="28" fill="#0c1215"/>
+
+  <!-- Title -->
+  <g transform="translate(40 50)">
+    <circle cx="11" cy="0" r="11" fill="#ffd25a"/>
+    <circle cx="31" cy="0" r="8.5" fill="none" stroke="#ffd25a" stroke-width="5"/>
+  </g>
+  <text x="92" y="60" class="serif" font-size="30" font-style="italic" fill="#ecf2f1">How WatchSync fits together</text>
+  <text x="1160" y="58" class="mono tag" text-anchor="end">V0.1 · CHROME AND BRAVE</text>
+
+  <!-- Your browser -->
+  <rect x="40" y="96" width="400" height="464" rx="20" class="panel"/>
+  <text x="64" y="128" class="mono tag">YOUR BROWSER · THE EXTENSION</text>
+
+  <rect x="64" y="146" width="352" height="66" rx="12" class="box"/>
+  <text x="84" y="174" class="sans h">Netflix, Prime Video or JioHotstar</text>
+  <text x="84" y="196" class="sans s">your own account and your own stream</text>
+
+  <rect x="64" y="252" width="352" height="84" rx="12" class="box"/>
+  <text x="84" y="280" class="sans h">Content script</text>
+  <text x="84" y="302" class="sans s">provider adapter reads and controls the player</text>
+  <text x="84" y="322" class="sans s">overlay and notices in a closed shadow DOM</text>
+
+  <rect x="64" y="376" width="352" height="66" rx="12" class="box"/>
+  <text x="84" y="404" class="sans h">Background service worker</text>
+  <text x="84" y="426" class="sans s">owns the room connection, reconnects on wake</text>
+
+  <rect x="64" y="478" width="352" height="58" rx="12" class="box"/>
+  <text x="84" y="503" class="sans h">Popup</text>
+  <text x="84" y="524" class="sans s">React: name, make or join a room, invite link</text>
+
+  <path d="M240 214v34" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="252" y="236" class="mono lbl">playback state only</text>
+  <path d="M240 338v34" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="252" y="360" class="mono lbl">typed messages</text>
+  <path d="M240 446v28" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+
+  <!-- Room service -->
+  <rect x="496" y="300" width="208" height="176" rx="20" fill="#ffd25a"/>
+  <text x="600" y="336" class="sans" font-size="19" font-weight="800" fill="#0c1215" text-anchor="middle">Room service</text>
+  <text x="600" y="362" class="sans" font-size="13.5" fill="#3c4846" text-anchor="middle">FastAPI · WebSockets</text>
+  <text x="600" y="384" class="sans" font-size="13.5" fill="#3c4846" text-anchor="middle">rooms in memory</text>
+  <text x="600" y="406" class="sans" font-size="13.5" fill="#3c4846" text-anchor="middle">server-time playback</text>
+  <text x="600" y="428" class="sans" font-size="13.5" fill="#3c4846" text-anchor="middle">up to 8 people a room</text>
+  <text x="600" y="458" class="mono" font-size="12" fill="#0c1215" text-anchor="middle">join.watchsync.space</text>
+  <text x="600" y="282" class="mono tag" text-anchor="middle">RAILWAY</text>
+
+  <path d="M420 409H490" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="455" y="398" class="mono lbl" text-anchor="middle">wss</text>
+
+  <!-- A friend's browser -->
+  <rect x="760" y="96" width="400" height="464" rx="20" class="panel"/>
+  <text x="784" y="128" class="mono tag">A FRIEND'S BROWSER · ANYWHERE</text>
+
+  <rect x="784" y="146" width="352" height="66" rx="12" class="box"/>
+  <text x="804" y="174" class="sans h">The same title, their account</text>
+  <text x="804" y="196" class="sans s">plays, pauses and jumps with you</text>
+
+  <rect x="784" y="252" width="352" height="84" rx="12" class="box"/>
+  <text x="804" y="280" class="sans h">Content script</text>
+  <text x="804" y="302" class="sans s">applies the room's state, corrects drift</text>
+  <text x="804" y="322" class="sans s">waits through ads and buffering</text>
+
+  <rect x="784" y="376" width="352" height="66" rx="12" class="box"/>
+  <text x="804" y="404" class="sans h">Background service worker</text>
+  <text x="804" y="426" class="sans s">same room, same code</text>
+
+  <rect x="784" y="478" width="352" height="58" rx="12" class="box"/>
+  <text x="804" y="503" class="sans h">Popup</text>
+  <text x="804" y="524" class="sans s">who's here and what they're watching</text>
+
+  <path d="M960 214v34" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <path d="M960 338v34" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <path d="M960 446v28" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+
+  <path d="M710 409H780" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="745" y="398" class="mono lbl" text-anchor="middle">wss</text>
+
+  <!-- Around it -->
+  <text x="40" y="590" class="mono tag">AROUND IT</text>
+
+  <rect x="40" y="606" width="360" height="100" rx="16" class="box"/>
+  <text x="62" y="638" class="sans h">watchsync.space</text>
+  <text x="62" y="662" class="sans s">Astro site served by Caddy on Railway</text>
+  <text x="62" y="684" class="sans s">install guide, download and invite links</text>
+
+  <rect x="420" y="606" width="360" height="100" rx="16" class="box"/>
+  <text x="442" y="638" class="sans h">GitHub Actions and Releases</text>
+  <text x="442" y="662" class="sans s">tests on every push, builds on every tag</text>
+  <text x="442" y="684" class="sans s">zip with its SHA-256 and build attestation</text>
+
+  <rect x="800" y="606" width="360" height="100" rx="16" class="box"/>
+  <text x="822" y="638" class="mono" font-size="16" font-weight="700" fill="#ecf2f1">packages/protocol</text>
+  <text x="822" y="662" class="sans s">one JSON Schema for every message</text>
+  <text x="822" y="684" class="sans s">TypeScript and Ajv, Python jsonschema</text>
+
+  <text x="40" y="746" class="sans" font-size="14.5" fill="#a9b8b9">Only play, pause, position, speed and the title's name travel. The picture, your passwords and your history stay in your tab.</text>
+</svg>

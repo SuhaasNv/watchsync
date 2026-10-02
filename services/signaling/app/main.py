@@ -2,18 +2,21 @@
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, join_page
-from .protocol import is_client_message, is_create_request, message, now_ms
+from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
 from .ratelimit import Limiter
-from .rooms import Participant, Room, RoomError, rooms
+from .rooms import Participant, Room, RoomError, rooms, safe_media
 
 
 @contextlib.asynccontextmanager
@@ -25,7 +28,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         while True:
             await asyncio.sleep(60)
             rooms.sweep()
-            for limiter in (create_limiter, join_limiter, message_limiter, connect_limiter):
+            limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
+            for limiter in (*limiters, failed_join_limiter):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
@@ -47,21 +51,45 @@ create_limiter = Limiter(config.CREATE_PER_MINUTE, 60)
 join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
 message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
 connect_limiter = Limiter(config.CONNECTS_PER_MINUTE, 60)
+failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
+EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
 # newer connection of the same person (stop), anything else = network trouble (reconnect).
 REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
 FLOOD_LIMIT = 100
-ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409, "busy": 503}
+ERROR_STATUS = {
+    "not_found": 404,
+    "room_ended": 410,
+    "room_full": 409,
+    "busy": 503,
+    "too_many_rooms": 429,
+}
+# A player that shows its ad in a separate video pauses the film first, and the ad is seen
+# up to a poll later; a pause this recent from the same person was the ad's.
+AD_PAUSE_MS = 2000
 sockets: dict[str, WebSocket] = {}
+# Per participant id: the pending "left" for someone whose connection closed.
+away: dict[str, asyncio.Task[None]] = {}
 
 
 def client_ip(request: Request | WebSocket) -> str:
+    """The key per-client limits use: the client's address, or its /64 for IPv6, since one
+    home or phone line gets a whole /64 to pick addresses from (BUG-040)."""
     real = request.headers.get("x-real-ip")
-    if config.TRUST_PROXY and real:
-        return real
-    return request.client.host if request.client else "unknown"
+    host = real if config.TRUST_PROXY and real else None
+    if host is None:
+        host = request.client.host if request.client else "unknown"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network((ip, 64), strict=False))
+    return str(ip)
 
 
 @app.middleware("http")
@@ -78,8 +106,8 @@ async def security_headers(
     return response
 
 
-async def read_name(request: Request) -> str:
-    """The display name from a create or join body; 413, 415 or 422 on anything else."""
+async def read_body(request: Request, valid: Callable[[Any], bool]) -> dict[str, Any]:
+    """A create or join body; 413, 415 or 422 on anything else."""
     if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
         # Also forces a CORS preflight, so other sites can't post here (no CORS allowed).
         raise HTTPException(415, "Send JSON.")
@@ -95,15 +123,34 @@ async def read_name(request: Request) -> str:
         data = json.loads(body, parse_constant=reject_constant)
     except ValueError:
         data = None
-    if not is_create_request(data):
+    if not valid(data):
         raise HTTPException(422, "A name of 1 to 30 characters is required.")
-    name: str = data["name"].strip()
+    body_: dict[str, Any] = data
+    return body_
+
+
+def name_in(body: dict[str, Any]) -> str:
+    name: str = body["name"].strip()
     return name or "Guest"
 
 
 def reject_constant(name: str) -> None:
     """JSON allows no NaN or Infinity, but Python's parser does; refuse them (BUG-008)."""
     raise ValueError(f"{name} is not allowed")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def page_not_found(request: Request, exc: StarletteHTTPException) -> Response:
+    """A person who opens a wrong address sees our page, not JSON; the API keeps JSON errors."""
+    if exc.status_code == 404 and not request.url.path.startswith("/api/"):
+        return HTMLResponse(join_page.not_found(), status_code=404)
+    return await http_exception_handler(request, exc)
+
+
+@app.get("/", include_in_schema=False)
+def home() -> RedirectResponse:
+    # join.watchsync.space on its own is someone looking for WatchSync (BUG-046).
+    return RedirectResponse(config.SITE_URL, status_code=302)
 
 
 @app.get("/health")
@@ -116,7 +163,9 @@ async def create_room(request: Request) -> dict[str, str]:
     if not create_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many rooms created. Try again in a minute.", TRY_LATER)
     try:
-        return rooms.create(await read_name(request))
+        return rooms.create(
+            name_in(await read_body(request, is_create_request)), client_ip(request)
+        )
     except RoomError as e:
         raise HTTPException(ERROR_STATUS[e.code], e.message, TRY_LATER) from e
 
@@ -150,20 +199,47 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
     # Every attempt counts, including wrong codes, so codes cannot be guessed.
     if not join_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
-    name = await read_name(request)
+    # Too many wrong codes from everyone at once: someone is guessing from many addresses.
+    if failed_join_limiter.full(EVERYONE):
+        raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
+    body = await read_body(request, is_join_request)
     try:
-        return rooms.join(code.upper(), name)
+        ticket = rooms.join(code.upper(), name_in(body), body.get("token"))
     except RoomError as e:
+        if e.code == "not_found":
+            failed_join_limiter.allow(EVERYONE)
         raise HTTPException(ERROR_STATUS[e.code], e.message) from e
+    await end_away_namesake(rooms.rooms[ticket["code"]], ticket["participantId"])
+    return ticket
+
+
+async def end_away_namesake(room: Room, new_id: str) -> None:
+    """A plain join under the name of someone who is away is them back after a browser
+    restart, which clears the rejoin token (BUG-044): end the away row now instead of after
+    its grace, and announce a rejoin (BUG-048). They still get a new place, never the old one
+    (BUG-041), so at worst someone with the code ends an away friend's wait early."""
+    p = room.participants[new_id]
+    for x in list(room.participants.values()):
+        task = away.get(x.id)
+        if x is p or x.name != p.name or task is None:
+            continue
+        del away[x.id]
+        task.cancel()
+        rooms.leave(room, x, end_if_empty=False)
+        room.gone.discard(x.name)
+        p.rejoined = True
+        await broadcast(room, "ROOM.PARTICIPANT", {"participant": x.public(), "event": "left"})
+        await recheck_waits(room, x)
 
 
 async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:
     ws = sockets.get(p.id)
     if ws is not None:
         # A peer that just dropped must never break the sender's handler (BUG-010); the
-        # peer's own handler cleans up after it.
+        # peer's own handler cleans up after it. ASCII-only JSON: a lone surrogate from a
+        # name or title can't be sent as UTF-8 and would silently drop the message.
         with contextlib.suppress(Exception):
-            await ws.send_json(message(type_, payload))
+            await ws.send_text(json.dumps(message(type_, payload)))
 
 
 async def broadcast(
@@ -179,7 +255,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
     if msg["type"] == "SYS.PING":
         await send(p, "SYS.PONG", {"t1": payload["t1"], "serverTime": now_ms()})
     elif msg["type"] == "PRESENCE.UPDATE":
-        media = payload["media"]
+        media = safe_media(payload["media"])
         room_title = room.media["titleId"] if room.media else None
         # Straight from the room's title to another one of the same show: the next episode.
         # A different show (say, a film the service autoplays after the credits) is a new
@@ -187,19 +263,48 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         shows = (show(media), show(room.media)) if media and room.media else (None, None)
         same_show = None in shows or shows[0] == shows[1]
         straight = room_title is not None and p.title_id == room_title and same_show
-        # Came from the room's title, maybe through the service's browse page (BUG-014).
-        was_with_room = room_title is not None and p.last_title_id == room_title
+        # Picked another title after watching here: last opened wins (DEC-030).
+        picked = p.watched and media is not None and media["titleId"] != p.title_id
         p.service = payload["service"]
         p.following = payload["following"]
         p.title_id = media["titleId"] if media else None
         p.title_name = media["titleName"] if media else None
-        if media is not None:
-            p.last_title_id = media["titleId"]
+        p.media = media
+        p.watched |= media is not None
+        # Off the room's title or watching on their own: the room can't be waiting for this
+        # person's ad or loading any more, and their tab can't say so once closed (BUG-050).
+        if p.hold and (p.title_id != room_title or not p.following):
+            p.hold = None
+            p.ad_left = None
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
-        # The room takes the first title anyone opens, then moves with whoever was watching
-        # with it and opened another title. People watching on their own never move it.
+        # Netflix shows the title text only with its controls, so the first report can come
+        # without a name; fill it in from a later report of the same title (BUG-025).
+        if (
+            media is not None
+            and room.media is not None
+            and media["titleId"] == room.media["titleId"]
+            and media["titleName"]
+            and not room.media.get("titleName")
+        ):
+            room.media = {**room.media, "titleName": media["titleName"]}
+        # The room goes to the last title anyone following it picks (DEC-030); friends are
+        # offered it. People watching on their own never move it, and a friend arriving on
+        # another title is offered the room's instead.
         moves = media is not None and p.following and media["titleId"] != room_title
-        if moves and (room_title is None or was_with_room):
+        # Once nobody here has the room's title open, it goes to whoever follows the room on
+        # another title, so the order of leaving and opening doesn't matter (BUG-047).
+        abandoned = room_title is not None and not any(
+            x.connected and x.title_id == room_title for x in room.participants.values()
+        )
+        mover = p if moves and (room_title is None or picked or abandoned) else None
+        if mover is None and abandoned:
+            mover = next(
+                (x for x in room.participants.values() if x.connected and x.following and x.media),
+                None,
+            )
+        if mover is not None and mover.media is not None:
+            media = mover.media
+            straight = straight and mover is p
             room.media = media
             # The next episode starts from the top for everyone; arriving followers catch up
             # to this clock (US-020). A newly picked title keeps no clock: its opener may be
@@ -216,8 +321,15 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
                 else None
             )
             how = "next" if straight else "new"
-            change = {"media": media, "byId": p.id, "byName": p.name, "how": how}
+            # The old title's wait doesn't carry over to the new one (BUG-050).
+            room.held = False
+            room.skip_hold.clear()
+            change = {"media": media, "byId": mover.id, "byName": mover.name, "how": how}
             await broadcast(room, "ROOM.MEDIA", change)
+            # A Start together for the old title must not start the new one at its position.
+            if room.start is not None:
+                await cancel_start(room)
+        await recheck_waits(room, p)
     elif msg["type"] == "PLAYBACK.UPDATE":
         action = payload["action"]
         if room.held and action == "play":
@@ -227,6 +339,16 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         if room.start is not None:
             await cancel_start(room)
         now = now_ms()
+        if action == "pause":
+            room.paused_by = (p.id, now)
+        elif payload["status"] == "playing":
+            room.paused_by = None
+        # Two people acting at once cross on the wire: each applies the other's change after
+        # their own, and they end up apart. When someone else changed the room just now, the
+        # sender gets the result too, so everyone ends on the room's last word.
+        last = room.last_change
+        crossed = last is not None and last[0] != p.id and now - last[1] < 1500
+        room.last_change = (p.id, now)
         room.playback = {
             "status": payload["status"],  # the sender's real state (BUG-005)
             "position": payload["position"],
@@ -241,7 +363,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             "byName": p.name,
             "serverTime": now,
         }
-        await broadcast(room, "PLAYBACK.STATE", state, skip=p.id)
+        await broadcast(room, "PLAYBACK.STATE", state, skip=None if crossed else p.id)
     elif msg["type"] == "HOLD.UPDATE":
         await hold_update(room, p, payload["reason"], payload["position"], payload["adLeft"])
     elif msg["type"] == "START.REQUEST":
@@ -300,12 +422,28 @@ async def hold_update(
     await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
     playing = room.playback is not None and room.playback["status"] == "playing"
     on_title = room.playback is not None and room.playback["titleId"] == p.title_id
-    if reason and not room.held and playing and on_title and p in room.holding():
+    paused_for_ad = (
+        reason == "ad"
+        and room.paused_by is not None
+        and room.paused_by[0] == p.id
+        and now_ms() - room.paused_by[1] < AD_PAUSE_MS
+    )
+    if reason and not room.held and (playing or paused_for_ad) and on_title and p in room.holding():
         room.held = True
+        room.paused_by = None
         set_playback(room, "paused", position, now_ms())
-        await room_says(room, "pause", p, skip=p.id)
+        # Everyone hears it, the holder too: their copy of the room's clock must say paused,
+        # or they play on alone if the room is still waiting for someone else when they're back.
+        await room_says(room, "pause", p)
     else:
         await release_if_clear(room, p)
+
+
+async def recheck_waits(room: Room, by: Participant) -> None:
+    """Someone changed title, stopped following, left or dropped: stop waiting for them, in an
+    ad or loading wait and in a Start together (BUG-050)."""
+    await release_if_clear(room, by)
+    await start_progress(room)
 
 
 async def release_if_clear(room: Room, by: Participant) -> None:
@@ -317,7 +455,14 @@ async def release_if_clear(room: Room, by: Participant) -> None:
 
 
 async def start_request(room: Room, p: Participant, position: float, title_id: str | None) -> None:
-    room.start = {"by": p.name, "position": position, "titleId": title_id, "ready": set()}
+    # "had": who was on the title during this start; one of them with no title closed it.
+    room.start = {
+        "by": p.name,
+        "position": position,
+        "titleId": title_id,
+        "ready": set(),
+        "had": set(),
+    }
     set_playback(room, "paused", position, now_ms())
     if room.playback is not None:
         room.playback["titleId"] = title_id
@@ -328,7 +473,10 @@ async def start_progress(room: Room) -> None:
     start = room.start
     if start is None:
         return
-    waiting = [x for x in room.eligible(start["titleId"]) if x.id not in start["ready"]]
+    start["had"] |= {x.id for x in room.participants.values() if x.title_id == start["titleId"]}
+    waiting = [
+        x for x in room.eligible(start["titleId"], start["had"]) if x.id not in start["ready"]
+    ]
     if not waiting:
         await start_go(room)
         return
@@ -358,6 +506,24 @@ async def cancel_start(room: Room) -> None:
     state = start_state(room, "cancelled", [])
     room.start = None
     await broadcast(room, "START.STATE", state)
+
+
+async def leave_after_grace(room: Room, p: Participant) -> None:
+    """Their browser closed (no ROOM.LEAVE arrived): after the grace period, they've left.
+    The room stays, even empty, until the idle expiry, so they can rejoin."""
+    await asyncio.sleep(config.AWAY_GRACE_SECONDS)
+    if away.get(p.id) is asyncio.current_task():
+        del away[p.id]
+    # Still away, and not replaced by a rejoin under the same name (same id, new object).
+    if (
+        p.connected
+        or rooms.rooms.get(room.code) is not room
+        or room.participants.get(p.id) is not p
+    ):
+        return
+    rooms.leave(room, p, end_if_empty=False)
+    await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "left"})
+    await recheck_waits(room, p)
 
 
 def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
@@ -391,11 +557,17 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     sockets[p.id] = ws
     if old is not None:  # the same person reconnected (network change, restart): newest wins
         await old.close(code=REPLACED)
+    pending = away.pop(p.id, None)
+    if pending is not None:  # back within the grace period: nobody hears they were gone
+        pending.cancel()
     p.connected = True
+    room.used = True
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
+    arrived = "rejoined" if p.rejoined else "joined"
+    p.rejoined = False
     await broadcast(
-        room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "joined"}, skip=p.id
+        room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": arrived}, skip=p.id
     )
     left = False
     dropped = 0
@@ -424,10 +596,10 @@ async def room_socket(ws: WebSocket, code: str) -> None:
                 continue
             if msg["type"] == "ROOM.LEAVE":
                 left = True
-                rooms.leave(room, p)
+                rooms.leave(room, p, end_if_empty=not msg["payload"].get("keepRoom", False))
                 event = {"participant": p.public() | {"connected": False}, "event": "left"}
                 await broadcast(room, "ROOM.PARTICIPANT", event, skip=p.id)
-                await release_if_clear(room, p)
+                await recheck_waits(room, p)
                 await ws.close(code=status.WS_1000_NORMAL_CLOSURE)
                 break
             await handle(room, p, msg)
@@ -440,8 +612,9 @@ async def room_socket(ws: WebSocket, code: str) -> None:
             p.connected = False
             p.hold = None  # don't keep the room waiting for someone who's gone
             if not left:
-                away = {"participant": p.public(), "event": "updated"}
-                await broadcast(room, "ROOM.PARTICIPANT", away)
-                await release_if_clear(room, p)
+                gone = {"participant": p.public(), "event": "updated"}
+                await broadcast(room, "ROOM.PARTICIPANT", gone)
+                await recheck_waits(room, p)
+                away[p.id] = asyncio.create_task(leave_after_grace(room, p))
             if not any(x.connected for x in room.participants.values()):
                 room.empty_since = now_ms()

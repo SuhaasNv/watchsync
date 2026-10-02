@@ -5,12 +5,28 @@ import Hero from "../components/home/Hero.astro";
 import HowItWorks from "../components/home/HowItWorks.astro";
 import WorksWith from "../components/home/WorksWith.astro";
 import Base from "../layouts/Base.astro";
+import { DOWNLOAD_URL } from "../lib/site";
 
+const site = Astro.site ?? new URL("http://localhost:4321");
+const app = {
+  "@type": "SoftwareApplication",
+  name: "WatchSync",
+  applicationCategory: "EntertainmentApplication",
+  applicationSubCategory: "Browser extension",
+  operatingSystem: "Chrome, Brave",
+  description:
+    "A free browser extension that keeps friends' Netflix, Prime Video and JioHotstar tabs in sync, each on their own account.",
+  url: site.href,
+  image: new URL("/og.png", site).href,
+  downloadUrl: DOWNLOAD_URL,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+};
 ---
 
 <Base
   title="WatchSync: watch Netflix, Prime Video and JioHotstar together, in sync"
   description="A free browser extension for movie nights apart. Press play and your friends' tabs play too, each on their own account. Works in Chrome and Brave."
+  jsonLd={app}
 >
   <Hero />
   <WorksWith />

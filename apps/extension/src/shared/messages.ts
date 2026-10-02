@@ -46,14 +46,17 @@ export type Reply = { ok: true; state: AppState } | { ok: false; error: string; 
 /** Background → popup and content scripts, over a long-lived port. */
 export type Push =
   | { kind: "state"; state: AppState }
-  | { kind: "server"; message: AnyServerMessage };
+  | { kind: "server"; message: AnyServerMessage }
+  /** The tab that reported our title is gone: any other tab with a title, say so. */
+  | { kind: "report" };
 
 /** Content script → background, over its port. */
 export type TabEvent =
   | { kind: "presence"; service: Service; media: Media | null }
   | {
       kind: "playback";
-      action: "play" | "pause" | "seek";
+      /** "sync": everyone jumps to the sender's exact position, without pausing. */
+      action: "play" | "pause" | "seek" | "sync";
       status: "playing" | "paused";
       position: number;
       rate: number;
@@ -82,10 +85,73 @@ export const SERVICE_LABEL: Record<Service, string> = {
   none: "",
 };
 
-/** A room's titleUrl comes from another person; only follow it to a supported service page. */
-export function safeTitleUrl(url: string | null | undefined): string | null {
+/** The test player's pages, in mock builds only. */
+const MOCK_PAGE: [Service, RegExp] = [
+  "mock",
+  /^http:\/\/localhost:4173\/watch\/[A-Za-z0-9_-]{1,200}$/,
+];
+
+/**
+ * The title pages each service's provider reports (content/providers.ts), whole URL: exact
+ * origin and path, no credentials, port, query, fragment or "..". The room service checks the
+ * same shapes (app/rooms.py TITLE_PAGES).
+ */
+const TITLE_PAGES: [Service, RegExp][] = [
+  ["netflix", /^https:\/\/www\.netflix\.com\/watch\/[0-9]{1,20}$/],
+  [
+    "prime",
+    /^https:\/\/www\.(primevideo\.com|amazon\.(com|in|co\.uk|de))(\/gp\/video)?\/detail\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}$/,
+  ],
+  [
+    "jiohotstar",
+    /^https:\/\/www\.(jio)?hotstar\.com(\/[A-Za-z0-9_-]{1,200}){0,10}\/[0-9]{6,20}\/watch$/,
+  ],
+  ...(__MOCK__ ? [MOCK_PAGE] : []),
+];
+
+/**
+ * A room's titleUrl comes from another person: only follow it to a title page of a supported
+ * service (of `service`, when given), in the exact form our providers produce (BUG-039).
+ */
+export function safeTitleUrl(url: string | null | undefined, service?: Service): string | null {
   if (!url) return null;
-  return __TITLE_PAGES__.some((pattern) => url.startsWith(pattern.replace(/\*$/, ""))) ? url : null;
+  const ok = TITLE_PAGES.some(([s, page]) => (service ?? s) === s && page.test(url));
+  if (!ok) return null;
+  try {
+    // The parser must read it back unchanged: no encoded tricks that resolve elsewhere.
+    return new URL(url).href === url ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Control and invisible format characters (bidi marks, ZWJ): the Name schema refuses them. */
+const NOT_IN_NAMES = /[\p{Cc}\p{Cf}]/gu;
+
+/** A display name the room service accepts: no invisible marks, 1 to 30 characters, or "". */
+export function cleanName(raw: string): string {
+  return Array.from(raw.replace(NOT_IN_NAMES, "").trim()).slice(0, 30).join("").trim();
+}
+
+/**
+ * Why a typed name can't be used, in words for the person, or null if it's fine. Every
+ * name field (popup, welcome page, invite page) and the background use this one check.
+ */
+export function nameProblem(raw: string): string | null {
+  const name = cleanName(raw);
+  if (!name) return "Enter your name.";
+  if (!/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name))
+    return "Use at least one letter or number.";
+  return null;
+}
+
+/** The room code in what someone typed or pasted: a code, a spaced code or an invite link. */
+export function codeFrom(text: string): string {
+  const fromLink = text.match(/\/j\/([A-Za-z0-9]{6})(?![A-Za-z0-9])/)?.[1];
+  return (fromLink ?? text)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
 }
 
 export const send = (req: Request): Promise<Reply> => chrome.runtime.sendMessage(req);

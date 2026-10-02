@@ -37,8 +37,9 @@ test("friend joins by typing the code and the host sees them arrive", async ({ e
   } finally {
     await friend.context.close();
   }
-  // Closing the friend's browser shows them as away within a second.
-  await expect(host.getByText("Away")).toBeVisible({ timeout: 1000 });
+  // Closing the friend's browser takes them out of the room.
+  await expect(host.getByText("Asha", { exact: true })).toHaveCount(0, { timeout: 5000 });
+  await expect(host.getByRole("heading", { name: "In this room (1)" })).toBeVisible();
 });
 
 test("a wrong code gets a plain message", async ({ ext }) => {

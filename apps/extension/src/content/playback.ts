@@ -3,7 +3,7 @@ import type { Playback } from "@watchsync/protocol";
 import { decide, expectedPosition } from "@watchsync/sync-engine";
 import type { StreamingProvider } from "./providers";
 
-export type Action = "play" | "pause" | "seek";
+export type Action = "play" | "pause" | "seek" | "sync";
 
 const ECHO_MS = 1500;
 let quietUntil = 0;
@@ -55,12 +55,23 @@ export async function seekQuietly(provider: StreamingProvider, seconds: number) 
 }
 
 /** Brings this player to the room's playback. `serverNow` is the server clock in ms. */
-export async function apply(provider: StreamingProvider, playback: Playback, serverNow: number) {
+/** Within this, "Sync everyone" leaves a player alone: about what anyone can notice. */
+const EXACT_SEC = 0.15;
+
+export async function apply(
+  provider: StreamingProvider,
+  playback: Playback,
+  serverNow: number,
+  exact = false,
+) {
   const local = provider.getState();
   if (!local) return;
   hold(ECHO_MS);
   const target = expectedPosition(playback, serverNow);
-  if (decide(local.position, target) !== "none") await provider.seek(target);
+  const off = exact
+    ? Math.abs(local.position - target) > EXACT_SEC
+    : decide(local.position, target) !== "none";
+  if (off) await provider.seek(target);
   if (playback.status === "playing" && !local.playing) await provider.play();
   if (playback.status === "paused" && local.playing) await provider.pause();
 }

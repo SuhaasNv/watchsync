@@ -28,10 +28,10 @@ export interface StreamingProvider {
   ad(): { left: number | null } | null;
 }
 
-/** "Ad 0:20", "Ad · 1:05 left" → seconds; null when there's no time on the page. */
+/** "Ad 0:20", "Ad · 1:05 left", "1:05:00" → seconds; null when there's no time on the page. */
 export function adSeconds(text: string | null | undefined): number | null {
-  const m = text?.match(/(\d+):(\d{2})/);
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  const m = text?.match(/(?:(\d+):)?(\d+):(\d{2})/);
+  return m ? Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
 }
 
 /** HAVE_FUTURE_DATA: below it, a playing video can't advance. */
@@ -92,20 +92,42 @@ const PRIME_HOSTS = /^www\.(primevideo\.com|amazon\.(com|in|co\.uk|de))$/;
  */
 export function primeMedia(url: URL, doc: Document, playerOpen: boolean): Media | null {
   const id = url.pathname.match(/\/detail\/([\w.-]+)/)?.[1] ?? url.searchParams.get("gti");
-  const title = doc.title
-    .replace(/^(prime video|amazon\.[\w.]+)\s*:\s*/i, "")
-    .replace(/^watch\s+/i, "")
-    .replace(/\s*\|.*$/, "")
-    .trim();
-  if (!id || !title || !playerOpen) return null; // browsing, not watching
+  if (!id || !playerOpen) return null; // browsing, not watching
+  const title = primeName(doc);
   const episode = text(doc, ".atvwebplayersdk-subtitle-text");
   const base = url.pathname.includes("/gp/video") ? "/gp/video/detail" : "/detail";
   return {
     service: "prime",
     titleId: episode ? `${id}:${episode}` : id,
-    titleName: episode ? `${title}, ${episode}` : title,
+    titleName: title && episode ? `${title}, ${episode}` : title,
     titleUrl: `${url.origin}${base}/${id}`,
   };
+}
+
+/** Prime's storefront line ("Watch movies, TV shows, sports, and live TV"), never a title. */
+const PRIME_STOREFRONT = /movies,? (and )?tv shows|^(amazon(\.[\w.]+)?|prime video)$/i;
+
+/**
+ * The show's name. Prime is a single-page app that keeps its storefront page title while a
+ * show plays (BUG-054), so the page title comes last, after the player's and the detail
+ * page's own title, and a storefront line is never taken for a name.
+ */
+function primeName(doc: Document): string | null {
+  const candidates = [
+    text(doc, ".atvwebplayersdk-title-text"),
+    text(doc, '[data-automation-id="title"]'),
+    doc.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content,
+    doc.title,
+  ];
+  for (const raw of candidates) {
+    const name = raw
+      ?.replace(/^(prime video|amazon\.[\w.]+)\s*:\s*/i, "")
+      .replace(/^watch\s+/i, "")
+      .replace(/\s*\|.*$/, "")
+      .trim();
+    if (name && !PRIME_STOREFRONT.test(name)) return name;
+  }
+  return null;
 }
 
 /**
@@ -136,11 +158,21 @@ export function separateAd(doc: Document = document): { left: number | null } | 
   return null;
 }
 
+/** A video playing with sound: a player in use, not a muted autoplaying trailer. */
+export function playingWithSound(doc: Document = document): boolean {
+  return [...doc.querySelectorAll("video")].some((v) => !v.paused && !v.muted && v.volume > 0);
+}
+
 /** Prime shows an ad countdown in the player while an ad plays. */
 export function primeAd(doc: Document): { left: number | null } | null {
   const el = doc.querySelector<HTMLElement>(".atvwebplayersdk-ad-timer");
-  if (!el || el.checkVisibility?.() === false) return null; // absent or hidden: no ad
-  return { left: adSeconds(el.textContent) };
+  if (!el) return null;
+  // The player can keep an empty or see-through timer in the page between ads: only a
+  // shown timer that says "Ad" or counts down is one (BUG-055).
+  const shown = el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true });
+  const label = el.textContent?.trim() ?? "";
+  if (shown === false || !/\bad\b|\d:\d{2}/i.test(label)) return null;
+  return { left: adSeconds(label) };
 }
 
 /**
@@ -197,10 +229,16 @@ function videoProvider(service: Service, media: () => Media | null): StreamingPr
   };
 }
 
-type NetflixAction = "play" | "pause" | "seek";
+type NetflixAction = "play" | "pause" | "seek" | "title";
 
-/** Sends a command to src/page/netflix-bridge.ts (page context) and waits for its answer. */
-function netflixCommand(action: NetflixAction, ms = 0): Promise<boolean> {
+/**
+ * Sends a command to src/page/netflix-bridge.ts (page context) and waits for its answer:
+ * whether it worked, and for "title" the name it read.
+ */
+function netflixCall(
+  action: NetflixAction,
+  extra: { ms?: number; videoId?: string } = {},
+): Promise<{ ok: boolean; name: string | null }> {
   const id = crypto.randomUUID();
   return new Promise((resolve) => {
     const onResult = (e: Event) => {
@@ -213,27 +251,59 @@ function netflixCommand(action: NetflixAction, ms = 0): Promise<boolean> {
         return; // the page can dispatch anything on document
       }
       if (typeof r !== "object" || r === null || (r as { id?: unknown }).id !== id) return;
-      done((r as { ok?: unknown }).ok === true);
+      const { ok, name } = r as { ok?: unknown; name?: unknown };
+      done({
+        ok: ok === true,
+        name: typeof name === "string" && name.length <= 200 ? name : null,
+      });
     };
-    const done = (ok: boolean) => {
+    const done = (result: { ok: boolean; name: string | null }) => {
       clearTimeout(timer);
       document.removeEventListener("watchsync:netflix-result", onResult);
-      resolve(ok);
+      resolve(result);
     };
-    const timer = setTimeout(() => done(false), 1000);
+    const timer = setTimeout(() => done({ ok: false, name: null }), 1000);
     document.addEventListener("watchsync:netflix-result", onResult);
     document.dispatchEvent(
-      new CustomEvent("watchsync:netflix-command", { detail: JSON.stringify({ id, action, ms }) }),
+      new CustomEvent("watchsync:netflix-command", {
+        detail: JSON.stringify({ id, action, ...extra }),
+      }),
     );
   });
 }
 
+const netflixCommand = async (action: NetflixAction, ms = 0) =>
+  (await netflixCall(action, { ms })).ok;
+
 function netflixProvider(): StreamingProvider {
-  let lastName: string | null = null;
+  // The last name read, for its own title only: never carried over to the next one.
+  let last: { id: string; name: string | null } | null = null;
+  // The name from Netflix's player data, per video: it doesn't need the controls (BUG-025).
+  const apiNames = new Map<string, string>();
+  const asked = new Set<string>();
+  // ponytail: ~10 tries per title, then the page text alone; enough while the player loads.
+  const tries = new Map<string, number>();
   const base = videoProvider("netflix", () => {
-    const m = netflixMedia(new URL(location.href), document, lastName);
-    lastName = m?.titleName ?? null;
-    return m;
+    const url = new URL(location.href);
+    const urlId = url.pathname.match(/^\/watch\/(\d+)/)?.[1];
+    const m = netflixMedia(url, document, last && last.id === urlId ? last.name : null);
+    const id = m?.titleId;
+    if (!m || typeof id !== "string") return m;
+    const tried = tries.get(id) ?? 0;
+    if (!apiNames.has(id) && !asked.has(id) && tried < 10) {
+      asked.add(id);
+      tries.set(id, tried + 1);
+      void netflixCall("title", { videoId: id }).then(({ name }) => {
+        if (name) apiNames.set(id, name);
+        else asked.delete(id); // the player wasn't ready: ask again on the next poll
+      });
+    }
+    // Hold back a new title for a couple of polls until its name is known, so the room
+    // (and the "opened a title" notice) gets the name with the title, not after it.
+    if (!apiNames.has(id) && !m.titleName && tried < 3) return null;
+    const named = { ...m, titleName: apiNames.get(id) ?? m.titleName };
+    last = { id, name: named.titleName };
+    return named;
   });
   return {
     ...base,
@@ -251,10 +321,25 @@ function netflixProvider(): StreamingProvider {
   };
 }
 
+/** The room accepts title names up to 200 characters; a longer one would get the whole report refused. */
+export function capName(m: Media | null): Media | null {
+  if (!m?.titleName || m.titleName.length <= 200) return m;
+  return { ...m, titleName: `${[...m.titleName].slice(0, 199).join("")}…` };
+}
+
 export function providerFor(host: string): StreamingProvider | null {
+  const p = serviceProvider(host);
+  return p && { ...p, media: () => capName(p.media()) };
+}
+
+function serviceProvider(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
   if (PRIME_HOSTS.test(host)) {
-    const media = () => primeMedia(new URL(location.href), document, longestVideo() !== null);
+    // Watching once the film is on screen, or already while Prime's ads play before it: they
+    // play with sound, a detail page's trailer plays muted (BUG-056). A detail page also
+    // preloads the film paused and 0 px wide; that is browsing, not watching (BUG-058).
+    const open = () => (longestVideo()?.clientWidth ?? 0) > 0 || playingWithSound();
+    const media = () => primeMedia(new URL(location.href), document, open());
     return {
       ...videoProvider("prime", media),
       video: () => longestVideo(),
@@ -275,7 +360,9 @@ export function providerFor(host: string): StreamingProvider | null {
         if (v) v.currentTime = s;
       },
       stalled: () => isStalled(longestVideo()),
-      ad: () => primeAd(document) ?? separateAd(),
+      // Prime shows its own ad timer. The separate-video guess (built for JioHotstar,
+      // BUG-020) took Prime's previews and trailers for ads while paused (BUG-055).
+      ad: () => primeAd(document),
     };
   }
   if (host === "www.jiohotstar.com" || host === "www.hotstar.com") {
@@ -299,11 +386,15 @@ export function providerFor(host: string): StreamingProvider | null {
     };
   }
   if (__MOCK__ && host === "localhost:4173") {
-    // The mock player stands in for a service in tests: [data-ad] is its ad marker, and
-    // data-buffering on <body> stands in for a starved player.
+    // The mock player stands in for a service in tests: [data-ad] is its ad marker (or an
+    // ad in its own short video, as JioHotstar's may be), and data-buffering on <body>
+    // stands in for a starved player.
     const base = videoProvider("mock", () => mockMedia(new URL(location.href), document));
     return {
       ...base,
+      // data-loading on <body> stands in for a player whose title can't be read yet
+      // (Netflix before its controls show, Prime between episodes).
+      media: () => (document.body.dataset.loading ? null : base.media()),
       stalled: () => document.body.dataset.buffering === "1" || base.stalled(),
       // data-live on <body> stands in for a live stream (no end to its timeline).
       getState: () => {
@@ -312,7 +403,7 @@ export function providerFor(host: string): StreamingProvider | null {
       },
       ad: () => {
         const el = document.querySelector("[data-ad]");
-        return el ? { left: adSeconds(el.textContent) } : null;
+        return el ? { left: adSeconds(el.textContent) } : separateAd();
       },
     };
   }

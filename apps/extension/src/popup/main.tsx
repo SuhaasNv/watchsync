@@ -4,7 +4,10 @@ import { createRoot } from "react-dom/client";
 import { ICONS, type IconName } from "../shared/icons";
 import {
   type AppState,
+  cleanName,
+  codeFrom,
   ERRORS,
+  nameProblem,
   type Push,
   type Reply,
   type Request,
@@ -124,7 +127,11 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
   const [name, setName] = useState(initial);
   const { busy, error, run } = useAction();
   const input = useFocusOnShow<HTMLInputElement>();
-  const trimmed = name.trim();
+  const trimmed = cleanName(name);
+  const problem = nameProblem(name);
+  // Say what's wrong only once they've typed something and moved on, or tried to continue.
+  const [touched, setTouched] = useState(false);
+  const shown = touched && name !== "" ? problem : null;
   return (
     <>
       <Header />
@@ -132,6 +139,8 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
         className="body"
         onSubmit={async (e) => {
           e.preventDefault();
+          setTouched(true);
+          if (problem) return;
           if ((await run({ kind: "setName", name }))?.ok) onDone?.();
         }}
       >
@@ -158,13 +167,18 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
             value={name}
             maxLength={30}
             autoComplete="nickname"
+            aria-invalid={shown ? true : undefined}
+            aria-describedby="name-hint"
+            onBlur={() => setTouched(true)}
             onChange={(e) => setName(e.target.value)}
           />
-          <span className="hint">Friends see this in the room.</span>
+          <span className={shown ? "hint bad" : "hint"} id="name-hint" aria-live="polite">
+            {shown ?? "Friends see this in the room."}
+          </span>
         </label>
         <ErrorLine error={error} />
         <span className="grow" />
-        <button className="btn primary" type="submit" disabled={busy || !trimmed}>
+        <button className="btn primary" type="submit" disabled={busy || problem !== null}>
           Continue
         </button>
       </form>
@@ -260,10 +274,9 @@ function JoinForm() {
           aria-labelledby="join-label"
           placeholder="6-character code"
           value={code}
-          maxLength={6}
           autoComplete="off"
           spellCheck={false}
-          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+          onChange={(e) => setCode(codeFrom(e.target.value))}
         />
         <button className="btn" type="submit" disabled={busy || !valid}>
           {busy ? "Joining…" : "Join room"}
@@ -375,16 +388,44 @@ const CONNECTION = {
   idle: "Offline",
 } as const;
 
+/**
+ * The room's title name, or the name someone on that title reported later: Netflix shows
+ * its title only with the player controls, so the room can start without one (BUG-025).
+ */
+function roomTitleName(state: AppState): string | null {
+  const media = state.media;
+  if (!media) return null;
+  return (
+    media.titleName ??
+    state.participants.find((p) => p.titleId === media.titleId && p.titleName)?.titleName ??
+    null
+  );
+}
+
+/** Whether anyone in the room has the room's title open right now (BUG-026). */
+function someoneOn(state: AppState): boolean {
+  const media = state.media;
+  return (
+    Boolean(media) && state.participants.some((p) => p.connected && p.titleId === media?.titleId)
+  );
+}
+
 /** "Open Dark" when the room is on a title this person doesn't have open. */
 function OpenTitle({ state, me }: { state: AppState; me: string }) {
   const media = state.media;
   const url = safeTitleUrl(media?.titleUrl);
   const self = state.participants.find((p) => p.id === me);
   if (!media || !url || self?.titleId === media.titleId) return null;
+  // Only offer a title someone is watching now: after everyone closes it, the room still
+  // remembers it, and "Open the room's title" alone in a room made no sense (owner, 2 Oct).
+  const watched = state.participants.some(
+    (p) => p.id !== me && p.connected && p.titleId === media.titleId,
+  );
+  if (!watched) return null;
   return (
     <button className="btn primary" type="button" onClick={() => void chrome.tabs.create({ url })}>
       <Icon name="title" />
-      <span className="ellipsis">Open {media.titleName ?? "the room's title"}</span>
+      <span className="ellipsis">Open {roomTitleName(state) ?? "the room's title"}</span>
     </button>
   );
 }
@@ -450,7 +491,9 @@ function RoomScreen({ state }: { state: AppState }) {
               Now watching
             </span>
             <p className="now-name">
-              {media ? (media.titleName ?? SERVICE_LABEL[media.service]) : "Nothing yet"}
+              {media && someoneOn(state)
+                ? (roomTitleName(state) ?? SERVICE_LABEL[media.service])
+                : "Nothing playing"}
             </p>
             <p className="hint">{summary(state, s.participantId)}</p>
           </section>
@@ -509,10 +552,10 @@ function Footer({ update }: { update: AppState["update"] }) {
         <a href={__SITE_URL__} target="_blank" rel="noreferrer">
           {new URL(__SITE_URL__).host}
         </a>
-        <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
+        <a href={`${__SITE_URL__}/privacy/`} target="_blank" rel="noreferrer">
           Privacy
         </a>
-        <a href={`${__API_URL__}/terms`} target="_blank" rel="noreferrer">
+        <a href={`${__SITE_URL__}/terms/`} target="_blank" rel="noreferrer">
           Terms
         </a>
         <span className="grow" />

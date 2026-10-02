@@ -1,0 +1,229 @@
+---
+import { REPO_URL } from "../../lib/site";
+
+/** Everything here must match apps/extension/build.mjs (the manifest) and release.yml. */
+const WORKFLOW_URL = `${REPO_URL}/blob/main/.github/workflows/release.yml`;
+const ATTEST = "gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync";
+const commands = [
+  { os: "Mac", where: "in Terminal", cmd: "shasum -a 256 ~/Downloads/watchsync-extension.zip" },
+  {
+    os: "Windows",
+    where: "in Command Prompt or PowerShell",
+    cmd: "certutil -hashfile Downloads\\watchsync-extension.zip SHA256",
+  },
+  { os: "Linux", where: "in a terminal", cmd: "sha256sum ~/Downloads/watchsync-extension.zip" },
+];
+---
+
+<section class="safe" id="safe" aria-labelledby="safe-title">
+  <h2 id="safe-title">Is it <span class="em">safe?</span></h2>
+  <p class="intro">
+    It runs only on Netflix, Prime Video and JioHotstar pages, and only tells our room service
+    (<code>join.watchsync.space</code>) whether the video is playing, where it is and what's on. It never reads the picture, your passwords or your
+    history, loads no code from the internet and doesn't track you.
+  </p>
+  <p class="intro">
+    Every line is <a href={REPO_URL} rel="noopener">public on GitHub</a>, and each zip is built
+    there by a <a href={WORKFLOW_URL} rel="noopener">public workflow</a>. <a href="/privacy/"
+      >Privacy notice</a
+    >.
+  </p>
+  <details class="block check" id="check">
+    <summary>Check your download</summary>
+    <ol>
+      <li>
+        <p>
+          Find the release's SHA-256 next to its download on the <a href="/releases/"
+            >release notes</a
+          > page.
+        </p>
+        <p class="latest" data-latest-sum hidden>
+          <span>Latest, <span data-sum-version></span>:</span>{" "}
+          <code data-sum></code>
+        </p>
+      </li>
+      <li>
+        <p>Ask your computer for the SHA-256 of the file you downloaded. The two must match.</p>
+        <dl class="cmds">
+          {
+            commands.map((c) => (
+              <div class="cmd">
+                <dt>
+                  {c.os} <span>{c.where}</span>
+                </dt>
+                <dd>
+                  <code>{c.cmd}</code>
+                  <button
+                    class="btn copy"
+                    type="button"
+                    data-copy={c.cmd}
+                    aria-label={`Copy the ${c.os} command`}
+                  >
+                    <span data-copy-label>Copy</span>
+                  </button>
+                </dd>
+              </div>
+            ))
+          }
+        </dl>
+      </li>
+      <li>
+        <p>
+          Optional, with the <a href="https://cli.github.com/" rel="noopener">GitHub CLI</a>: check
+          GitHub's signed record that our workflow built this exact file.
+        </p>
+        <div class="cmd solo">
+          <code>{ATTEST}</code>
+          <button
+            class="btn copy"
+            type="button"
+            data-copy={ATTEST}
+            aria-label="Copy the attestation command"
+          >
+            <span data-copy-label>Copy</span>
+          </button>
+        </div>
+      </li>
+    </ol>
+  </details>
+</section>
+
+<script>
+  // The release notes link to /install/#check: open the steps when someone lands there.
+  const check = document.getElementById("check");
+  const openCheck = () => {
+    if (location.hash === "#check" && check instanceof HTMLDetailsElement) check.open = true;
+  };
+  openCheck();
+  window.addEventListener("hashchange", openCheck);
+</script>
+
+<style>
+  .safe {
+    margin-top: clamp(32px, 5vw, 56px);
+    padding: clamp(24px, 4vw, 44px);
+    border-radius: 24px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .check summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .check[open] summary {
+    margin-bottom: 14px;
+  }
+  .check summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
+  }
+  h2 {
+    font-size: clamp(2rem, 4vw, 3rem);
+    letter-spacing: -0.04em;
+  }
+  .intro {
+    max-width: 40rem;
+    margin-top: 12px;
+    color: var(--text2);
+    font-size: clamp(1.05rem, 1.5vw, 1.2rem);
+  }
+  .block {
+    margin-top: clamp(24px, 3vw, 36px);
+    padding-top: 18px;
+    box-shadow: inset 0 1px 0 var(--line2);
+  }
+  p,
+  li {
+    color: var(--text2);
+  }
+  a {
+    color: var(--text);
+    font-weight: 600;
+  }
+  code {
+    color: var(--text);
+    background: var(--raised);
+    padding: 0.1em 0.4em;
+    border-radius: 6px;
+    font-size: 0.92em;
+    overflow-wrap: anywhere;
+  }
+  .check ol {
+    display: grid;
+    gap: 22px;
+    margin: 0;
+    padding-left: 1.4em;
+  }
+  .check li::marker {
+    color: var(--acc);
+    font-family: var(--display);
+    font-weight: 600;
+  }
+  .check li > p + p,
+  .check li > p + .cmds,
+  .check li > .cmds + p,
+  .check li > p + .cmd {
+    margin-top: 10px;
+  }
+  .latest {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+  }
+  .latest[hidden] {
+    display: none;
+  }
+  .cmds {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+  }
+  .cmds dt {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  .cmds dt span {
+    font-weight: 500;
+    color: var(--text2);
+  }
+  .cmds dd {
+    margin: 4px 0 0;
+  }
+  .cmds dd,
+  .cmd.solo {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .cmds code,
+  .cmd.solo code {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 6px 14px;
+    border-radius: 10px;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line2);
+    font-size: 0.88rem;
+  }
+  .copy {
+    min-height: 44px;
+    min-width: 6.5rem;
+    padding: 0 16px;
+    font-size: 0.95rem;
+  }
+  @media (max-width: 760px) {
+    .pair {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
