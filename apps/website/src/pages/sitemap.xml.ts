@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 
-const PATHS = ["/", "/install/", "/releases/", "/faq/", "/privacy/", "/terms/"];
+const PATHS = ["/", "/features/", "/install/", "/releases/", "/faq/", "/privacy/", "/terms/"];
 
 /** A hand-written sitemap: six pages don't need a plugin. The host comes from PUBLIC_SITE_URL. */
 export const GET: APIRoute = ({ site }) => {
