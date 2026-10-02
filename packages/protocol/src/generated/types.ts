@@ -3,6 +3,9 @@
  * Streaming service a participant has open. 'mock' is the local test player; 'none' means no supported page.
  */
 export type Service = "netflix" | "prime" | "jiohotstar" | "mock" | "none";
+/**
+ * No invisible or direction-changing characters, so nobody can pose as someone else.
+ */
 export type Name = string;
 export type RoomCode = string;
 export type Seconds = number;

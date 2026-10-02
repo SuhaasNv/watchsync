@@ -9,7 +9,13 @@
       "type": "string",
       "enum": ["netflix", "prime", "jiohotstar", "mock", "none"]
     },
-    "Name": { "type": "string", "minLength": 1, "maxLength": 30 },
+    "Name": {
+      "description": "No invisible or direction-changing characters, so nobody can pose as someone else.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 30,
+      "pattern": "^[^\\u0000-\\u001F\\u007F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]+$"
+    },
     "RoomCode": { "type": "string", "pattern": "^[A-HJ-NP-Z2-9]{6}$" },
     "Seconds": { "type": "number", "minimum": 0, "maximum": 86400 },
     "Rate": { "type": "number", "minimum": 0.25, "maximum": 4 },

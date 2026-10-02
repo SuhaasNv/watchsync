@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from . import config, join_page
 from .protocol import is_client_message, is_create_request, message, now_ms
@@ -24,7 +24,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         while True:
             await asyncio.sleep(60)
             rooms.sweep()
-            for limiter in (create_limiter, join_limiter, message_limiter):
+            for limiter in (create_limiter, join_limiter, message_limiter, connect_limiter):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
@@ -32,18 +32,31 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     task.cancel()
 
 
-app = FastAPI(title="WatchSync room service", version=config.VERSION, lifespan=lifespan)
+# No public API docs in production (security audit F2).
+PROD = config.ENVIRONMENT == "production"
+app = FastAPI(
+    title="WatchSync room service",
+    version=config.VERSION,
+    lifespan=lifespan,
+    docs_url=None if PROD else "/docs",
+    redoc_url=None if PROD else "/redoc",
+    openapi_url=None if PROD else "/openapi.json",
+)
 create_limiter = Limiter(config.CREATE_PER_MINUTE, 60)
 join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
 message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
+connect_limiter = Limiter(config.CONNECTS_PER_MINUTE, 60)
+TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
 # newer connection of the same person (stop), anything else = network trouble (reconnect).
 REPLACED = 4000
-ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409}
+FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
+FLOOD_LIMIT = 100
+ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409, "busy": 503}
 sockets: dict[str, WebSocket] = {}
 
 
-def client_ip(request: Request) -> str:
+def client_ip(request: Request | WebSocket) -> str:
     real = request.headers.get("x-real-ip")
     if config.TRUST_PROXY and real:
         return real
@@ -57,6 +70,10 @@ async def security_headers(
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers.setdefault("Content-Security-Policy", join_page.CSP)
+    if PROD:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
     return response
 
 
@@ -96,23 +113,42 @@ def health() -> dict[str, str]:
 @app.post("/api/v1/rooms", status_code=201)
 async def create_room(request: Request) -> dict[str, str]:
     if not create_limiter.allow(client_ip(request)):
-        raise HTTPException(429, "Too many rooms created. Try again in a minute.")
-    return rooms.create(await read_name(request))
+        raise HTTPException(429, "Too many rooms created. Try again in a minute.", TRY_LATER)
+    try:
+        return rooms.create(await read_name(request))
+    except RoomError as e:
+        raise HTTPException(ERROR_STATUS[e.code], e.message, TRY_LATER) from e
 
 
 @app.get("/j/{code}", response_class=HTMLResponse)
 def invite(code: str) -> HTMLResponse:
     page = join_page.render(code)
     if page is None:
-        raise HTTPException(404, "That isn't a WatchSync room code.")
-    return HTMLResponse(page, headers={"Content-Security-Policy": join_page.CSP})
+        return HTMLResponse(join_page.not_found(), status_code=404)
+    return HTMLResponse(page)
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy() -> HTMLResponse:
+    return HTMLResponse(join_page.privacy())
+
+
+@app.get("/terms", response_class=HTMLResponse)
+def terms() -> HTMLResponse:
+    return HTMLResponse(join_page.terms())
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots() -> str:
+    # Invite links are private; nothing here belongs in search results.
+    return "User-agent: *\nDisallow: /\n"
 
 
 @app.post("/api/v1/rooms/{code}/join", status_code=201)
 async def join_room(code: str, request: Request) -> dict[str, str]:
     # Every attempt counts, including wrong codes, so codes cannot be guessed.
     if not join_limiter.allow(client_ip(request)):
-        raise HTTPException(429, "Too many join attempts. Try again in a minute.")
+        raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
     name = await read_name(request)
     try:
         return rooms.join(code.upper(), name)
@@ -316,6 +352,10 @@ def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
 
 @app.websocket("/ws/rooms/{code}")
 async def room_socket(ws: WebSocket, code: str) -> None:
+    if not connect_limiter.allow(client_ip(ws)):
+        await ws.accept()
+        await ws.close(code=status.WS_1013_TRY_AGAIN_LATER)  # the extension backs off
+        return
     found = rooms.authenticate(code, ws.query_params.get("token", ""))
     if found is None:
         # Accept first: a close before accept reaches browsers as 1006, which looks like a
@@ -336,6 +376,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
         room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "joined"}, skip=p.id
     )
     left = False
+    dropped = 0
     try:
         while True:
             raw = await ws.receive()
@@ -346,6 +387,10 @@ async def room_socket(ws: WebSocket, code: str) -> None:
             except ValueError:  # not JSON, NaN/Infinity (BUG-008), or a binary frame
                 msg = None
             if not message_limiter.allow(p.id):
+                dropped += 1
+                if dropped > FLOOD_LIMIT:  # sustained flooding: cut the connection
+                    await ws.close(code=FLOODED)
+                    break
                 await send(
                     p, "SYS.ERROR", {"code": "rate_limited", "message": "Slow down a little."}
                 )

@@ -22,3 +22,6 @@ MESSAGES_PER_10S = int(os.environ.get("MESSAGES_PER_10S", "60"))
 TRUST_PROXY = os.environ.get("TRUST_PROXY") == "1"
 # Request bodies are tiny ({"name": ...}); anything bigger is refused.
 MAX_BODY_BYTES = 2048
+# Ceilings that keep one host's memory bounded (resilience audit, 2 October 2026).
+MAX_ROOMS = int(os.environ.get("MAX_ROOMS", "2000"))
+CONNECTS_PER_MINUTE = int(os.environ.get("CONNECTS_PER_MINUTE", "60"))

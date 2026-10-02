@@ -122,6 +122,8 @@ class Rooms:
 
     def create(self, name: str) -> dict[str, str]:
         self.sweep()
+        if len(self.rooms) >= config.MAX_ROOMS:
+            raise RoomError("busy", "WatchSync is busy. Try again in a few minutes.")
         room = Room(code=self._new_code(), empty_since=now_ms())
         self.rooms[room.code] = room
         return self._add(room, name)
