@@ -509,10 +509,10 @@ function Footer({ update }: { update: AppState["update"] }) {
         <a href={__SITE_URL__} target="_blank" rel="noreferrer">
           {new URL(__SITE_URL__).host}
         </a>
-        <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
+        <a href={`${__SITE_URL__}/privacy/`} target="_blank" rel="noreferrer">
           Privacy
         </a>
-        <a href={`${__API_URL__}/terms`} target="_blank" rel="noreferrer">
+        <a href={`${__SITE_URL__}/terms/`} target="_blank" rel="noreferrer">
           Terms
         </a>
         <span className="grow" />

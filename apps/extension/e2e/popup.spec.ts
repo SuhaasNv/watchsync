@@ -17,6 +17,15 @@ test("name can be changed after first run", async ({ ext }) => {
   await expect(page.getByText("You're Asha")).toBeVisible();
 });
 
+test("footer links go to the website", async ({ ext }) => {
+  const page = await ext.context.newPage();
+  await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
+  const link = (name: string) => page.getByRole("link", { name, exact: true });
+  await expect(link("watchsync.space")).toHaveAttribute("href", "https://watchsync.space");
+  await expect(link("Privacy")).toHaveAttribute("href", "https://watchsync.space/privacy/");
+  await expect(link("Terms")).toHaveAttribute("href", "https://watchsync.space/terms/");
+});
+
 test("create shows a retry message when the service is down", async ({ ext }) => {
   await ext.context.route("**/api/v1/rooms", (route) => route.abort());
   const page = await ext.context.newPage();
