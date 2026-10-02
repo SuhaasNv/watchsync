@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - name: Protocol is generated from the schema
+        run: pnpm gen:protocol && git diff --exit-code -- packages/protocol/src/generated
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @watchsync/extension build
+      - name: Extension end-to-end (mock player)
+        working-directory: apps/extension
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm e2e
+
+  service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/signaling
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run mypy app
+      - run: uv run pytest -q
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
