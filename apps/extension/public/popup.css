@@ -275,3 +275,11 @@ p {
 h2.label {
   margin: 0;
 }
+.foot p {
+  margin: 0;
+}
+.foot p.foot-row {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 4px;
+}
