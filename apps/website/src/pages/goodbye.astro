@@ -1,0 +1,124 @@
+---
+// Opened by Chrome when someone removes the extension (chrome.runtime.setUninstallURL).
+// Nothing here is sent anywhere: each reason opens an answer on the page, and the only way
+// to tell us more is an email the person writes themselves.
+import Base from "../layouts/Base.astro";
+import { CONTACT_EMAIL, DOWNLOAD_URL } from "../lib/site";
+
+const reasons = [
+  {
+    q: "It didn't stay in sync",
+    a: "Make sure everyone has the same title open and is on the latest version (the popup says when a newer one is out). If someone falls behind, the pill shows a Sync button, and Sync everyone lines the room up at your spot.",
+    link: { href: "/faq/", label: "Read the FAQ" },
+  },
+  {
+    q: "Installing it was too fiddly",
+    a: "For now WatchSync installs from a zip with Developer mode, which takes about a minute. A one-click Chrome Web Store version is planned.",
+    link: { href: "/install/", label: "See the install guide" },
+  },
+  {
+    q: "My streaming service isn't supported",
+    a: "WatchSync works with Netflix, Prime Video and JioHotstar today. YouTube and Disney+ are next.",
+    link: { href: "/features/", label: "See what it does" },
+  },
+  {
+    q: "I wanted chat or a video call",
+    a: "Chat and reactions come next, then voice and camera, so you can talk while you watch.",
+    link: { href: "/releases/", label: "Follow the release notes" },
+  },
+  {
+    q: "I was just trying it out",
+    a: "Thanks for giving it a go. It's free, and it'll be here for your next movie night.",
+    link: { href: DOWNLOAD_URL, label: "Download it again" },
+  },
+];
+---
+
+<Base
+  title="Thanks for trying WatchSync"
+  description="WatchSync was removed from your browser. Thanks for trying it."
+  noindex
+>
+  <div class="wrap bye">
+    <header class="page-head">
+      <h1>Thanks for <span class="em">trying it.</span></h1>
+      <p class="lede">
+        WatchSync is off your browser. If something didn't work, pick what happened below: the
+        answer opens right here, and nothing you click is sent to us.
+      </p>
+    </header>
+
+    <ul class="reasons">
+      {
+        reasons.map((r) => (
+          <li>
+            <details>
+              <summary>{r.q}</summary>
+              <p>{r.a}</p>
+              <a class="text-link" href={r.link.href}>
+                {r.link.label}
+              </a>
+            </details>
+          </li>
+        ))
+      }
+    </ul>
+
+    <p class="more">
+      Something else? Tell us in your own words at{" "}
+      <a href={`mailto:${CONTACT_EMAIL}?subject=WatchSync%20feedback`}>{CONTACT_EMAIL}</a>.
+    </p>
+    <p class="links">
+      <a class="btn primary" href={DOWNLOAD_URL}>Download WatchSync again</a>
+      <a class="btn ghost" href="/">Back to home</a>
+    </p>
+  </div>
+</Base>
+
+<style>
+  .bye {
+    max-width: 760px;
+  }
+  .reasons {
+    display: grid;
+    gap: 12px;
+    margin: 0 0 32px;
+    padding: 0;
+    list-style: none;
+  }
+  details {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  summary {
+    cursor: pointer;
+    padding: 18px 20px;
+    font-size: 1.08rem;
+    font-weight: 600;
+  }
+  summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: var(--radius);
+  }
+  details p {
+    padding: 0 20px;
+    color: var(--text2);
+    line-height: 1.6;
+  }
+  details .text-link {
+    display: inline-block;
+    margin: 12px 20px 18px;
+    color: var(--acc);
+  }
+  .more {
+    color: var(--text2);
+    margin-bottom: 24px;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+</style>
