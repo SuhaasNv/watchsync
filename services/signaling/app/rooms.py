@@ -2,6 +2,7 @@
 
 import re
 import secrets
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -111,12 +112,20 @@ class Room:
             if x.hold and x.connected and x.following and x.id not in self.skip_hold
         ]
 
-    def eligible(self, title_id: str | None) -> list[Participant]:
-        """Who a Start together waits for: connected, following, on the title."""
+    def eligible(self, title_id: str | None, left: Collection[str] = ()) -> list[Participant]:
+        """Who a Start together waits for: connected, following, and on the title, or on its
+        service with no title yet: their player is still loading it (BUG-057). Someone in
+        `left` had the title during this start and closed it: no wait (BUG-050)."""
+        service = self.media["service"] if self.media else None
         return [
             x
             for x in self.participants.values()
-            if x.connected and x.following and x.title_id == title_id
+            if x.connected
+            and x.following
+            and (
+                x.title_id == title_id
+                or (x.title_id is None and x.service == service and x.id not in left)
+            )
         ]
 
     def snapshot(self, you: str) -> dict[str, Any]:

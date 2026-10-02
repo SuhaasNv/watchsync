@@ -834,6 +834,32 @@ def test_start_together_stops_waiting_for_someone_who_leaves_the_title() -> None
         hcm.__exit__(None, None, None)
 
 
+def test_start_together_waits_for_someone_still_loading_the_title() -> None:
+    # BUG-057: on Prime the friend's player was still loading (no title yet), the room
+    # didn't count them, and the 3-2-1 started without them.
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        gws.send_json(
+            msg("PRESENCE.UPDATE", {"service": "netflix", "following": True, "media": None})
+        )
+        next_of(gws, "ROOM.PARTICIPANT")
+        hws.send_json(msg("START.REQUEST", {"position": 0, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        hws.send_json(msg("START.READY", {}))
+        assert next_of(hws, "START.STATE")["payload"]["notReady"] == ["Asha"]
+        presence(gws, "1")  # her player shows the title
+        sync_point(gws, 1)
+        gws.send_json(msg("START.READY", {}))
+        while (state := next_of(gws, "START.STATE")["payload"])["phase"] == "preparing":
+            assert state["notReady"] == ["Asha"]
+        assert state["phase"] == "go"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
 def test_start_anyway_skips_who_isnt_ready() -> None:
     host = create()
     guest = join(host["code"]).json()

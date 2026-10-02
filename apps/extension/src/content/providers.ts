@@ -92,20 +92,42 @@ const PRIME_HOSTS = /^www\.(primevideo\.com|amazon\.(com|in|co\.uk|de))$/;
  */
 export function primeMedia(url: URL, doc: Document, playerOpen: boolean): Media | null {
   const id = url.pathname.match(/\/detail\/([\w.-]+)/)?.[1] ?? url.searchParams.get("gti");
-  const title = doc.title
-    .replace(/^(prime video|amazon\.[\w.]+)\s*:\s*/i, "")
-    .replace(/^watch\s+/i, "")
-    .replace(/\s*\|.*$/, "")
-    .trim();
-  if (!id || !title || !playerOpen) return null; // browsing, not watching
+  if (!id || !playerOpen) return null; // browsing, not watching
+  const title = primeName(doc);
   const episode = text(doc, ".atvwebplayersdk-subtitle-text");
   const base = url.pathname.includes("/gp/video") ? "/gp/video/detail" : "/detail";
   return {
     service: "prime",
     titleId: episode ? `${id}:${episode}` : id,
-    titleName: episode ? `${title}, ${episode}` : title,
+    titleName: title && episode ? `${title}, ${episode}` : title,
     titleUrl: `${url.origin}${base}/${id}`,
   };
+}
+
+/** Prime's storefront line ("Watch movies, TV shows, sports, and live TV"), never a title. */
+const PRIME_STOREFRONT = /movies,? (and )?tv shows|^(amazon(\.[\w.]+)?|prime video)$/i;
+
+/**
+ * The show's name. Prime is a single-page app that keeps its storefront page title while a
+ * show plays (BUG-054), so the page title comes last, after the player's and the detail
+ * page's own title, and a storefront line is never taken for a name.
+ */
+function primeName(doc: Document): string | null {
+  const candidates = [
+    text(doc, ".atvwebplayersdk-title-text"),
+    text(doc, '[data-automation-id="title"]'),
+    doc.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content,
+    doc.title,
+  ];
+  for (const raw of candidates) {
+    const name = raw
+      ?.replace(/^(prime video|amazon\.[\w.]+)\s*:\s*/i, "")
+      .replace(/^watch\s+/i, "")
+      .replace(/\s*\|.*$/, "")
+      .trim();
+    if (name && !PRIME_STOREFRONT.test(name)) return name;
+  }
+  return null;
 }
 
 /**
@@ -136,11 +158,21 @@ export function separateAd(doc: Document = document): { left: number | null } | 
   return null;
 }
 
+/** A video playing with sound: a player in use, not a muted autoplaying trailer. */
+export function playingWithSound(doc: Document = document): boolean {
+  return [...doc.querySelectorAll("video")].some((v) => !v.paused && !v.muted && v.volume > 0);
+}
+
 /** Prime shows an ad countdown in the player while an ad plays. */
 export function primeAd(doc: Document): { left: number | null } | null {
   const el = doc.querySelector<HTMLElement>(".atvwebplayersdk-ad-timer");
-  if (!el || el.checkVisibility?.() === false) return null; // absent or hidden: no ad
-  return { left: adSeconds(el.textContent) };
+  if (!el) return null;
+  // The player can keep an empty or see-through timer in the page between ads: only a
+  // shown timer that says "Ad" or counts down is one (BUG-055).
+  const shown = el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true });
+  const label = el.textContent?.trim() ?? "";
+  if (shown === false || !/\bad\b|\d:\d{2}/i.test(label)) return null;
+  return { left: adSeconds(label) };
 }
 
 /**
@@ -303,7 +335,11 @@ export function providerFor(host: string): StreamingProvider | null {
 function serviceProvider(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
   if (PRIME_HOSTS.test(host)) {
-    const media = () => primeMedia(new URL(location.href), document, longestVideo() !== null);
+    // Watching once the film is on screen, or already while Prime's ads play before it: they
+    // play with sound, a detail page's trailer plays muted (BUG-056). A detail page also
+    // preloads the film paused and 0 px wide; that is browsing, not watching (BUG-058).
+    const open = () => (longestVideo()?.clientWidth ?? 0) > 0 || playingWithSound();
+    const media = () => primeMedia(new URL(location.href), document, open());
     return {
       ...videoProvider("prime", media),
       video: () => longestVideo(),
@@ -324,7 +360,9 @@ function serviceProvider(host: string): StreamingProvider | null {
         if (v) v.currentTime = s;
       },
       stalled: () => isStalled(longestVideo()),
-      ad: () => primeAd(document) ?? separateAd(),
+      // Prime shows its own ad timer. The separate-video guess (built for JioHotstar,
+      // BUG-020) took Prime's previews and trailers for ads while paused (BUG-055).
+      ad: () => primeAd(document),
     };
   }
   if (host === "www.jiohotstar.com" || host === "www.hotstar.com") {

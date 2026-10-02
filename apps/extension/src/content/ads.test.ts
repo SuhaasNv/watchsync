@@ -2,12 +2,15 @@
 // Nobody on the team can trigger a real ad on demand, so these pin the behaviour down
 // against DOM fixtures.
 import { describe, expect, test } from "vitest";
-import { adSeconds, longestVideo, primeAd, separateAd } from "./providers";
+import { adSeconds, longestVideo, playingWithSound, primeAd, separateAd } from "./providers";
 
 const doc = (html: string) => new DOMParser().parseFromString(html, "text/html");
 
 type VideoProps = Partial<
-  Record<"paused" | "duration" | "currentTime" | "readyState" | "clientWidth", number | boolean>
+  Record<
+    "paused" | "duration" | "currentTime" | "readyState" | "clientWidth" | "muted" | "volume",
+    number | boolean
+  >
 >;
 
 /** jsdom has no media pipeline: give a <video> the state a real player would report. */
@@ -164,4 +167,22 @@ describe("separateAd (BUG-020 heuristic)", () => {
     const { d } = page({ ...FILM, duration: Infinity, paused: true }, { ...AD, paused: false });
     expect(separateAd(d)).toBeNull();
   });
+});
+
+describe("no ad when there isn't one (BUG-055)", () => {
+  test("Prime's empty timer left in the page", () => {
+    const d = doc(`<div class="atvwebplayersdk-ad-timer"> </div>`);
+    expect(primeAd(d)).toBeNull();
+  });
+});
+
+test("a Prime detail page's preloaded film isn't watching; on screen it is (BUG-058)", () => {
+  // As seen on primevideo.com, 3 Oct 2026: a muted 15 s trailer plays full width while the
+  // 43-minute episode sits loaded, paused and 0 px wide.
+  const trailer = { readyState: 4, duration: 15, paused: false, muted: true, clientWidth: 1905 };
+  const preloaded = { ...FILM, paused: true, clientWidth: 0 };
+  const { d } = page(trailer, preloaded);
+  expect(longestVideo(d)?.clientWidth).toBe(0);
+  expect(playingWithSound(d)).toBe(false);
+  expect(separateAd(d)).not.toBeNull(); // why Prime no longer uses this guess (BUG-055)
 });
