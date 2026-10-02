@@ -1,7 +1,8 @@
 # Marketing site and downloads page (apps/website, a static Astro build) served by Caddy.
 # Built from the repo root because the site is a pnpm workspace package.
 
-FROM node:24-slim AS build
+# Base images are pinned by digest (BUG-043); bump them on purpose for security updates.
+FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 CI=1
 RUN corepack enable
 WORKDIR /repo
@@ -21,7 +22,7 @@ ARG PUBLIC_SITE_URL
 ARG PUBLIC_CHANNEL
 RUN pnpm --filter @watchsync/website build
 
-FROM caddy:2-alpine
+FROM caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
 COPY apps/website/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /repo/apps/website/dist /srv
 # Static files only: no admin API, no certificates (Railway's edge terminates TLS), no root.
