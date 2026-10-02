@@ -5,6 +5,8 @@ on:
     branches: [dev, main]
   push:
     branches: [dev, main]
+  # The release workflow runs these same checks before it builds a release.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
