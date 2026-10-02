@@ -455,7 +455,14 @@ async def release_if_clear(room: Room, by: Participant) -> None:
 
 
 async def start_request(room: Room, p: Participant, position: float, title_id: str | None) -> None:
-    room.start = {"by": p.name, "position": position, "titleId": title_id, "ready": set()}
+    # "had": who was on the title during this start; one of them with no title closed it.
+    room.start = {
+        "by": p.name,
+        "position": position,
+        "titleId": title_id,
+        "ready": set(),
+        "had": set(),
+    }
     set_playback(room, "paused", position, now_ms())
     if room.playback is not None:
         room.playback["titleId"] = title_id
@@ -466,7 +473,10 @@ async def start_progress(room: Room) -> None:
     start = room.start
     if start is None:
         return
-    waiting = [x for x in room.eligible(start["titleId"]) if x.id not in start["ready"]]
+    start["had"] |= {x.id for x in room.participants.values() if x.title_id == start["titleId"]}
+    waiting = [
+        x for x in room.eligible(start["titleId"], start["had"]) if x.id not in start["ready"]
+    ]
     if not waiting:
         await start_go(room)
         return
