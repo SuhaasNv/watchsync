@@ -2,7 +2,9 @@
 // the host moves into the fullscreen element so prompts stay visible in fullscreen.
 
 const host = document.createElement("watchsync-overlay");
-const root = host.attachShadow({ mode: "open" });
+// Closed, so the service page can't read who is in the room; test builds open it so
+// Playwright can reach the overlay.
+const root = host.attachShadow({ mode: __MOCK__ ? "open" : "closed" });
 root.innerHTML = `<style>
   :host { all: initial; }
   .wrap { position: fixed; right: 24px; bottom: 96px; z-index: 2147483647; display: flex;
@@ -24,9 +26,9 @@ root.innerHTML = `<style>
   .pill[data-corner="tr"] { right: 16px; }
   .pill[data-corner="tl"] { left: 16px; }
   .pill.idle:not(:hover):not(:focus-within) { opacity: 0; }
-  .pill button { height: 28px; min-width: 28px; border-radius: 999px; }
+  .pill button { height: 28px; min-width: 28px; border-radius: 9px; }
   .face { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center;
-    justify-content: center; background: #2a363c; color: #ecf2f1; font-weight: 600;
+    justify-content: center; background: #19242a; color: #ecf2f1; font-weight: 600;
     box-shadow: inset 0 0 0 2px #7f9092; }
   .face { position: relative; }
   .face.synced { box-shadow: inset 0 0 0 2px #5ed8c3; }

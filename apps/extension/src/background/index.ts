@@ -46,26 +46,38 @@ function sendPresence() {
 function push(msg: Push) {
   for (const p of ports) p.postMessage(msg);
 }
+/** Only the popup may see the room token; pages' content scripts never need it. */
+function stateFor(port: chrome.runtime.Port): AppState {
+  if (port.name === "popup") return state;
+  return { ...state, session: state.session && { ...state.session, token: "" } };
+}
 function changed() {
-  push({ kind: "state", state });
+  for (const p of ports) p.postMessage({ kind: "state", state: stateFor(p) } satisfies Push);
 }
 
 async function restore() {
   const { name } = await chrome.storage.local.get("name");
   const { session } = await chrome.storage.session.get("session");
   state.name = typeof name === "string" ? name : null;
-  if (session) {
-    state.session = session as Session;
+  if (isRoomTicket(session)) {
+    state.session = session;
     connect();
     return;
   }
   // The browser restarted (session storage is gone): offer the last room back for a day.
   const { lastRoom } = await chrome.storage.local.get("lastRoom");
-  const saved = lastRoom as { ticket: Session; at: number } | undefined;
-  if (saved && Date.now() - saved.at < DAY) {
-    lastTicket = saved.ticket;
-    state.lastRoom = saved.ticket.code;
+  if (isSaved(lastRoom) && Date.now() - lastRoom.at < DAY) {
+    lastTicket = lastRoom.ticket;
+    state.lastRoom = lastRoom.ticket.code;
+  } else if (lastRoom !== undefined) {
+    await chrome.storage.local.remove("lastRoom"); // stale or malformed: forget it
   }
+}
+
+function isSaved(v: unknown): v is { ticket: Session; at: number } {
+  if (typeof v !== "object" || v === null) return false;
+  const { ticket, at } = v as { ticket?: unknown; at?: unknown };
+  return typeof at === "number" && isRoomTicket(ticket);
 }
 const ready = restore();
 
@@ -230,7 +242,16 @@ async function endSession(notice: string | null) {
   changed();
 }
 
-async function handle(req: Request): Promise<Reply> {
+// One request at a time, so a join from the popup and the invite page can't both add a
+// participant (resilience audit).
+let queue: Promise<unknown> = Promise.resolve();
+function handle(req: Request): Promise<Reply> {
+  const run = queue.then(() => handleNow(req));
+  queue = run.catch(() => {});
+  return run;
+}
+
+async function handleNow(req: Request): Promise<Reply> {
   await ready;
   try {
     switch (req.kind) {
@@ -332,5 +353,5 @@ chrome.runtime.onConnect.addListener((port) => {
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
-  ready.then(() => port.postMessage({ kind: "state", state } satisfies Push));
+  ready.then(() => port.postMessage({ kind: "state", state: stateFor(port) } satisfies Push));
 });

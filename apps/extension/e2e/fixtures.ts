@@ -91,7 +91,7 @@ export async function room(ext: Ext, friendProfile = "") {
   const friend = await launchWithExtension(friendProfile);
   const fpop = await popup(friend, "Asha");
   await fpop.getByRole("textbox", { name: "Or join a friend's room" }).fill(code);
-  await fpop.getByRole("button", { name: "Join", exact: true }).click();
+  await fpop.getByRole("button", { name: "Join room", exact: true }).click();
   await expect(fpop.getByTestId("room-code")).toHaveText(code);
   // Player events in the first 3 s after a page load are ignored (BUG-004): wait them out.
   await hostTab.waitForTimeout(Math.max(0, loadedAt + 3200 - Date.now()));

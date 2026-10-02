@@ -78,7 +78,7 @@ function onPush(m: Push) {
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
     const before = provider.getState()?.position ?? 0;
     apply(provider, playback, serverNow).catch((e: unknown) =>
-      toast(e instanceof Error ? e.message : "WatchSync couldn't control the player"),
+      toast(e instanceof Error ? e.message : "We couldn't control the player here."),
     );
     const holder = room.participants.find((p) => p.id === byId && p.hold);
     if (holder && action === "pause") return; // the wait card explains it (drawWait)
