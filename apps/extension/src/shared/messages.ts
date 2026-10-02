@@ -97,6 +97,18 @@ export function cleanName(raw: string): string {
   return Array.from(raw.replace(NOT_IN_NAMES, "").trim()).slice(0, 30).join("").trim();
 }
 
+/**
+ * Why a typed name can't be used, in words for the person, or null if it's fine. Every
+ * name field (popup, welcome page, invite page) and the background use this one check.
+ */
+export function nameProblem(raw: string): string | null {
+  const name = cleanName(raw);
+  if (!name) return "Enter your name.";
+  if (!/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name))
+    return "Use at least one letter or number.";
+  return null;
+}
+
 /** The room code in what someone typed or pasted: a code, a spaced code or an invite link. */
 export function codeFrom(text: string): string {
   const fromLink = text.match(/\/j\/([A-Za-z0-9]{6})(?![A-Za-z0-9])/)?.[1];

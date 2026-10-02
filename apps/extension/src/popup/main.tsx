@@ -4,8 +4,10 @@ import { createRoot } from "react-dom/client";
 import { ICONS, type IconName } from "../shared/icons";
 import {
   type AppState,
+  cleanName,
   codeFrom,
   ERRORS,
+  nameProblem,
   type Push,
   type Reply,
   type Request,
@@ -125,7 +127,11 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
   const [name, setName] = useState(initial);
   const { busy, error, run } = useAction();
   const input = useFocusOnShow<HTMLInputElement>();
-  const trimmed = name.trim();
+  const trimmed = cleanName(name);
+  const problem = nameProblem(name);
+  // Say what's wrong only once they've typed something and moved on, or tried to continue.
+  const [touched, setTouched] = useState(false);
+  const shown = touched && name !== "" ? problem : null;
   return (
     <>
       <Header />
@@ -133,6 +139,8 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
         className="body"
         onSubmit={async (e) => {
           e.preventDefault();
+          setTouched(true);
+          if (problem) return;
           if ((await run({ kind: "setName", name }))?.ok) onDone?.();
         }}
       >
@@ -159,13 +167,18 @@ function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () =>
             value={name}
             maxLength={30}
             autoComplete="nickname"
+            aria-invalid={shown ? true : undefined}
+            aria-describedby="name-hint"
+            onBlur={() => setTouched(true)}
             onChange={(e) => setName(e.target.value)}
           />
-          <span className="hint">Friends see this in the room.</span>
+          <span className={shown ? "hint bad" : "hint"} id="name-hint" aria-live="polite">
+            {shown ?? "Friends see this in the room."}
+          </span>
         </label>
         <ErrorLine error={error} />
         <span className="grow" />
-        <button className="btn primary" type="submit" disabled={busy || !trimmed}>
+        <button className="btn primary" type="submit" disabled={busy || problem !== null}>
           Continue
         </button>
       </form>

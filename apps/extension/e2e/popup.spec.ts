@@ -4,6 +4,25 @@ import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, launchWithExtension, test } from "./fixtures";
 
+test("the name field says what's wrong and only continues with a usable name", async ({ ext }) => {
+  const page = await ext.context.newPage();
+  await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
+  const name = page.getByLabel("Your name");
+  const go = page.getByRole("button", { name: "Continue" });
+  await expect(go).toBeDisabled();
+  await name.fill("...!!");
+  await name.blur();
+  await expect(page.getByText("Use at least one letter or number.")).toBeVisible();
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await expect(go).toBeDisabled();
+  await name.fill("\u200b  ");
+  await expect(page.getByText("Enter your name.")).toBeVisible();
+  await name.fill("Maya 😀");
+  await expect(name).not.toHaveAttribute("aria-invalid", "true");
+  await go.click();
+  await expect(page.getByText("You're Maya 😀")).toBeVisible();
+});
+
 test("name can be changed after first run", async ({ ext }) => {
   const page = await ext.context.newPage();
   await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cleanName, codeFrom, safeTitleUrl } from "./messages";
+import { cleanName, codeFrom, nameProblem, safeTitleUrl } from "./messages";
 
 test("invites only redirect to supported service pages", () => {
   expect(safeTitleUrl("https://www.netflix.com/watch/80057281")).toBe(
@@ -33,4 +33,16 @@ test("a pasted invite link or spaced code becomes the code", () => {
   expect(codeFrom("Join me: https://join.watchsync.space/j/XK4M9Q tonight")).toBe("XK4M9Q");
   expect(codeFrom("ABCDEFGH")).toBe("ABCDEF");
   expect(codeFrom("ab")).toBe("AB");
+});
+
+test("a name needs a letter, number or emoji; the message says what to do", () => {
+  expect(nameProblem("")).toBe("Enter your name.");
+  expect(nameProblem("   ")).toBe("Enter your name.");
+  expect(nameProblem("\u200b\u200e")).toBe("Enter your name."); // invisible only
+  expect(nameProblem("...!!")).toBe("Use at least one letter or number.");
+  expect(nameProblem("Asha")).toBeNull();
+  expect(nameProblem("शीला")).toBeNull();
+  expect(nameProblem("R2")).toBeNull();
+  expect(nameProblem("😀")).toBeNull();
+  expect(nameProblem("<b>Sam</b>")).toBeNull(); // shown as text, never HTML
 });

@@ -1,6 +1,6 @@
 // First-run welcome page (opened by the background on install). Static content lives in
 // welcome.html; this file adds the step tour, scroll reveals, pin status and the name form.
-import { ERRORS, send } from "../shared/messages";
+import { ERRORS, nameProblem, send } from "../shared/messages";
 
 function $<T extends HTMLElement>(selector: string): T {
   const el = document.querySelector<T>(selector);
@@ -138,6 +138,13 @@ send({ kind: "getState" })
 
 async function saveName(): Promise<boolean> {
   const name = input.value.trim();
+  const problem = nameProblem(name);
+  if (problem) {
+    status.classList.add("error");
+    status.textContent = problem;
+    input.setAttribute("aria-invalid", "true");
+    return false;
+  }
   save.disabled = true;
   status.classList.remove("error");
   try {
