@@ -90,6 +90,8 @@ test("after a long wait, the others can go on without them", async ({ ext }) => 
 
     // Asha's player recovers and catches up to the room.
     await buffering(tab, false);
+    // The late wait card is gone, not left behind (BUG-021).
+    await expect(hostTab.getByRole("button", { name: "Keep waiting" })).toHaveCount(0);
     await expect.poll(() => gap(tab, hostTab), { timeout: 6000 }).toBeLessThan(1);
   } finally {
     await friend.context.close();
