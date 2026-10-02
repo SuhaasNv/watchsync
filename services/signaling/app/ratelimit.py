@@ -19,3 +19,13 @@ class Limiter:
             return False
         q.append(now)
         return True
+
+    def prune(self) -> None:
+        """Forget keys with no hits inside the window, so memory doesn't grow (BUG-011)."""
+        now = time.monotonic()
+        for key, q in list(self.hits.items()):
+            if not q or now - q[-1] > self.window_s:
+                del self.hits[key]
+
+    def forget(self, key: str) -> None:
+        self.hits.pop(key, None)
