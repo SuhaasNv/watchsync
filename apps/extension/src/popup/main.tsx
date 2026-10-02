@@ -25,7 +25,8 @@ function useAppState() {
   return state;
 }
 
-function useAction() {
+/** `unreachable` overrides the generic network message for this action. */
+function useAction(unreachable?: string) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async (req: Request): Promise<Reply | null> => {
@@ -33,7 +34,10 @@ function useAction() {
     setError(null);
     try {
       const r = await send(req);
-      if (!r.ok) setError(ERRORS[r.error] ?? ERRORS.unreachable ?? null);
+      if (!r.ok) {
+        const generic = ERRORS[r.error] ?? ERRORS.unreachable ?? null;
+        setError(r.error === "unreachable" && unreachable ? unreachable : generic);
+      }
       return r;
     } finally {
       setBusy(false);
@@ -61,17 +65,17 @@ function ErrorLine({ error }: { error: string | null }) {
   ) : null;
 }
 
-function NameScreen() {
-  const [name, setName] = useState("");
+function NameScreen({ initial = "", onDone }: { initial?: string; onDone?: () => void }) {
+  const [name, setName] = useState(initial);
   const { busy, error, run } = useAction();
   return (
     <>
       <Header />
       <form
         className="body"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          run({ kind: "setName", name });
+          if ((await run({ kind: "setName", name }))?.ok) onDone?.();
         }}
       >
         <div>
@@ -101,7 +105,9 @@ function NameScreen() {
 }
 
 function HomeScreen({ state }: { state: AppState }) {
-  const { busy, error, run } = useAction();
+  const { busy, error, run } = useAction("We couldn't create the room. Try again.");
+  const [editing, setEditing] = useState(false);
+  if (editing) return <NameScreen initial={state.name ?? ""} onDone={() => setEditing(false)} />;
   return (
     <>
       <Header />
@@ -117,7 +123,10 @@ function HomeScreen({ state }: { state: AppState }) {
         <ErrorLine error={error} />
         <span className="grow" />
         <p className="hint center">
-          You're <b>{state.name}</b>
+          You're <b>{state.name}</b> ·{" "}
+          <button className="link" type="button" onClick={() => setEditing(true)}>
+            Change name
+          </button>
         </p>
       </div>
     </>
