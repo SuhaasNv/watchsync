@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.1] - 2026-10-03
+
+### Fixed
+- The Chrome Web Store accepts the package: the extension's description was 4 characters over the store's limit. Nothing else changes.
+
 ## [0.1.0] - 2026-10-03
 
 Streaming Sync: a Chrome and Brave extension that keeps friends' Netflix, Prime Video and JioHotstar tabs in step, each on their own account, through a small room service.

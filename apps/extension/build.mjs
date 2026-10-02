@@ -40,7 +40,7 @@ const manifest = {
   version: pkg.version,
   ...(channel === "dev" ? { version_name: `${pkg.version} dev ${build}` } : {}),
   description:
-    "Watch together in sync with friends, each on your own account. Works with Netflix, Prime Video and JioHotstar. Not affiliated with them.",
+    "Watch in sync with friends, each on your own account. Works with Netflix, Prime Video and JioHotstar. Not affiliated with them.",
   icons: { 16: "icons/16.png", 32: "icons/32.png", 48: "icons/48.png", 128: "icons/128.png" },
   action: { default_popup: "popup.html", default_icon: { 16: "icons/16.png", 32: "icons/32.png" } },
   background: { service_worker: "background.js", type: "module" },
@@ -58,6 +58,12 @@ const manifest = {
     { matches: [`${api}/j/*`], js: ["join-page.js"], run_at: "document_idle" },
   ],
 };
+
+// The Chrome Web Store refuses a package whose description is over 132 characters (BUG-059).
+if (manifest.description.length > 132)
+  throw new Error(
+    `manifest description is ${manifest.description.length} characters; the store allows 132`,
+  );
 
 rmSync("dist", { recursive: true, force: true });
 mkdirSync("dist");
