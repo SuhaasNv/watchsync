@@ -29,6 +29,9 @@ test("a title name that shows up late still reaches the friend's prompt (BUG-025
     await expect(tab.getByText("Suhaas is watching Late Film. Open it?")).toBeVisible({
       timeout: 5000,
     });
+    // The popup's "Now watching" says it too, not just the service.
+    await fpop.reload();
+    await expect(fpop.locator(".now-name")).toHaveText("Late Film");
   } finally {
     await friend.context.close();
   }

@@ -197,10 +197,16 @@ function videoProvider(service: Service, media: () => Media | null): StreamingPr
   };
 }
 
-type NetflixAction = "play" | "pause" | "seek";
+type NetflixAction = "play" | "pause" | "seek" | "title";
 
-/** Sends a command to src/page/netflix-bridge.ts (page context) and waits for its answer. */
-function netflixCommand(action: NetflixAction, ms = 0): Promise<boolean> {
+/**
+ * Sends a command to src/page/netflix-bridge.ts (page context) and waits for its answer:
+ * whether it worked, and for "title" the name it read.
+ */
+function netflixCall(
+  action: NetflixAction,
+  extra: { ms?: number; videoId?: string } = {},
+): Promise<{ ok: boolean; name: string | null }> {
   const id = crypto.randomUUID();
   return new Promise((resolve) => {
     const onResult = (e: Event) => {
@@ -213,27 +219,53 @@ function netflixCommand(action: NetflixAction, ms = 0): Promise<boolean> {
         return; // the page can dispatch anything on document
       }
       if (typeof r !== "object" || r === null || (r as { id?: unknown }).id !== id) return;
-      done((r as { ok?: unknown }).ok === true);
+      const { ok, name } = r as { ok?: unknown; name?: unknown };
+      done({
+        ok: ok === true,
+        name: typeof name === "string" && name.length <= 200 ? name : null,
+      });
     };
-    const done = (ok: boolean) => {
+    const done = (result: { ok: boolean; name: string | null }) => {
       clearTimeout(timer);
       document.removeEventListener("watchsync:netflix-result", onResult);
-      resolve(ok);
+      resolve(result);
     };
-    const timer = setTimeout(() => done(false), 1000);
+    const timer = setTimeout(() => done({ ok: false, name: null }), 1000);
     document.addEventListener("watchsync:netflix-result", onResult);
     document.dispatchEvent(
-      new CustomEvent("watchsync:netflix-command", { detail: JSON.stringify({ id, action, ms }) }),
+      new CustomEvent("watchsync:netflix-command", {
+        detail: JSON.stringify({ id, action, ...extra }),
+      }),
     );
   });
 }
 
+const netflixCommand = async (action: NetflixAction, ms = 0) =>
+  (await netflixCall(action, { ms })).ok;
+
 function netflixProvider(): StreamingProvider {
   let lastName: string | null = null;
+  // The name from Netflix's player data, per video: it doesn't need the controls (BUG-025).
+  const apiNames = new Map<string, string>();
+  const asked = new Set<string>();
+  // ponytail: ~10 tries per title, then the page text alone; enough while the player loads.
+  const tries = new Map<string, number>();
   const base = videoProvider("netflix", () => {
     const m = netflixMedia(new URL(location.href), document, lastName);
-    lastName = m?.titleName ?? null;
-    return m;
+    const id = m?.titleId;
+    if (!m || typeof id !== "string") return m;
+    const tried = tries.get(id) ?? 0;
+    if (!apiNames.has(id) && !asked.has(id) && tried < 10) {
+      asked.add(id);
+      tries.set(id, tried + 1);
+      void netflixCall("title", { videoId: id }).then(({ name }) => {
+        if (name) apiNames.set(id, name);
+        else asked.delete(id); // the player wasn't ready: ask again on the next poll
+      });
+    }
+    const named = { ...m, titleName: apiNames.get(id) ?? m.titleName };
+    lastName = named.titleName;
+    return named;
   });
   return {
     ...base,
