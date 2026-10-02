@@ -1,0 +1,12 @@
+:root {
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  width: 360px;
+  background: #0c1215;
+  color: #ecf2f1;
+  font:
+    14px / 20px system-ui,
+    sans-serif;
+}
