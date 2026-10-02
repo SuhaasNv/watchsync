@@ -1,0 +1,695 @@
+---
+import { clock, DURATION, PEOPLE, START, STEPS } from "../../lib/demo-script";
+import { CARS, H, RIDGES, stars, W } from "../../lib/film";
+import DownloadButton from "../DownloadButton.astro";
+
+const starField = stars(36);
+const initials = PEOPLE.map((p) => ({ id: p.id, initial: p.name.charAt(0) }));
+---
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap hero-top">
+    <p class="eyebrow">A browser extension for movie nights apart</p>
+    <h1 id="hero-title" class="hero-title">
+      <span class="line">Press play <span class="beat">here.</span></span>
+      <span class="line"><span class="em">It plays <span class="beat">there.</span></span></span>
+    </h1>
+    <div class="hero-side">
+      <p class="lede">
+        WatchSync keeps your streaming tab in step with your friends' tabs, so movie night works
+        across cities. You each use your own Netflix, Prime Video or JioHotstar account.
+      </p>
+      <div class="ctas">
+        <DownloadButton withVersion>
+          <a class="btn ghost" href="/install/">How to install</a>
+        </DownloadButton>
+      </div>
+    </div>
+  </div>
+
+  <figure class="wrap demo" data-demo>
+    <!-- The film every screen shows. One drawing, three <use>s: the same frame, everywhere. -->
+    <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="ws-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop id="ws-sky0" offset="0" stop-color="#1d4350"></stop>
+          <stop id="ws-sky1" offset="0.62" stop-color="#d27a5a"></stop>
+          <stop id="ws-sky2" offset="1" stop-color="#ffd08a"></stop>
+        </linearGradient>
+        <radialGradient id="ws-glow">
+          <stop offset="0" stop-color="#ffd25a" stop-opacity="0.55"></stop>
+          <stop offset="1" stop-color="#ffd25a" stop-opacity="0"></stop>
+        </radialGradient>
+        <symbol id="ws-film" viewBox={`0 0 ${W} ${H}`}>
+          <rect width={W} height={H} fill="url(#ws-sky)"></rect>
+          <g id="ws-stars" opacity="0">
+            {starField.map((s) => <circle cx={s.x} cy={s.y} r={s.r} fill="#ecf2f1" />)}
+          </g>
+          <g id="ws-sun" transform="translate(212 92)">
+            <circle r="34" fill="url(#ws-glow)"></circle>
+            <circle r="13" fill="#ffd25a"></circle>
+          </g>
+          <path id="ws-far" d={RIDGES.far} fill="#4b6168"></path>
+          <path id="ws-mid" d={RIDGES.mid} fill="#2a3d44"></path>
+          <g id="ws-train" transform="translate(-160 0)">
+            <rect x="-6" y="135.4" width="170" height="1.2" fill="#0b1317"></rect>
+            {
+              CARS.map((x, i) => (
+                <g transform={`translate(${x} 124)`}>
+                  <rect width={i === 0 ? 27 : 27} height="10" rx={i === 0 ? 3 : 1.5} fill="#0b1317" />
+                  {[4, 10, 16, 22].map((wx) => (
+                    <rect x={wx - 1.5} y="3" width="3" height="3" rx="0.6" fill="#ffd25a" />
+                  ))}
+                </g>
+              ))
+            }
+          </g>
+          <path id="ws-near" d={RIDGES.near} fill="#111c21"></path>
+        </symbol>
+      </defs>
+    </svg>
+
+    <div class="stage" aria-hidden="true">
+      {
+        PEOPLE.map((p, i) => (
+          <div class:list={["screen", { main: i === 0 }]} data-screen={p.id}>
+            <p class="label">
+              <span class="who">{p.name}</span>
+              <span class="where">
+                {p.place} · {p.time}
+              </span>
+            </p>
+            <div class="viewport">
+              <svg class="film" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
+                <use href="#ws-film" width={W} height={H} />
+              </svg>
+              <div class="ad" data-ad>
+                <span class="ad-shape" />
+                <span class="ad-chip">
+                  Ad · <span data-ad-left>0:08</span>
+                </span>
+              </div>
+              <div class="loading">
+                <span class="spinner" />
+              </div>
+              <div class="pill">
+                {initials.map((f) => (
+                  <span class="face synced" data-face={f.id}>
+                    {f.initial}
+                  </span>
+                ))}
+              </div>
+              <div class="notice" data-notice />
+              <div class="controls">
+                <span class="pp" data-play>
+                  <svg class="i-pause" viewBox="0 0 16 16">
+                    <rect x="3.5" y="2.5" width="3" height="11" rx="1" />
+                    <rect x="9.5" y="2.5" width="3" height="11" rx="1" />
+                  </svg>
+                  <svg class="i-play" viewBox="0 0 16 16">
+                    <path d="M4.5 2.8v10.4a.8.8 0 0 0 1.2.7l8.3-5.2a.8.8 0 0 0 0-1.4L5.7 2.1a.8.8 0 0 0-1.2.7Z" />
+                  </svg>
+                </span>
+                <span class="track" data-track>
+                  <span class="fill" data-fill />
+                  <span class="head-rail" data-head>
+                    <span class="head" />
+                  </span>
+                </span>
+                <span class="time">
+                  <span data-time>{clock(START)}</span>
+                  <span class="dur"> / {clock(DURATION)}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        ))
+      }
+      <span class="cursor" data-cursor>
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path
+            d="M5 3.2v15.6c0 .6.7.9 1.1.5l3.7-3.6 2.6 5.6c.2.4.7.6 1.1.4l1.7-.8c.4-.2.6-.7.4-1.1l-2.6-5.5h5.2c.6 0 .9-.7.5-1.1L6.1 2.7c-.4-.4-1.1-.1-1.1.5Z"
+            fill="#ecf2f1"
+            stroke="#0c1215"
+            stroke-width="1.4"
+            stroke-linejoin="round"></path>
+        </svg>
+        <span class="ripple"></span>
+      </span>
+    </div>
+
+    <figcaption class="demo-bar">
+      <p class="sr-only">
+        An animation of three friends watching the same film in three cities. When one pauses,
+        skips or gets an ad, every screen follows, and the others see a short notice saying who
+        did what.
+      </p>
+      <button class="demo-toggle" type="button" data-toggle aria-pressed="false">
+        <svg class="i-pause" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"></rect>
+          <rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"></rect>
+        </svg>
+        <svg class="i-play" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <path
+            d="M4.5 2.8v10.4a.8.8 0 0 0 1.2.7l8.3-5.2a.8.8 0 0 0 0-1.4L5.7 2.1a.8.8 0 0 0-1.2.7Z"
+            fill="currentColor"></path>
+        </svg>
+        <span data-toggle-label>Pause demo</span>
+      </button>
+      <ol class="steps" aria-label="Demo steps">
+        {
+          STEPS.map((s, i) => (
+            <li>
+              <button type="button" class="step" data-step={i} aria-label={`Step ${i + 1}: ${s.caption}`}>
+                <span class="dot" />
+              </button>
+            </li>
+          ))
+        }
+      </ol>
+      <p class="caption" data-caption>{STEPS[0]?.caption}</p>
+    </figcaption>
+  </figure>
+</section>
+
+<script>
+  import { startDemo } from "../../scripts/demo";
+  const root = document.querySelector<HTMLElement>("[data-demo]");
+  if (root) startDemo(root);
+</script>
+
+<style>
+  .hero {
+    position: relative;
+    overflow-x: clip;
+    padding-top: clamp(40px, 7vw, 96px);
+    isolation: isolate;
+  }
+  /* The light a screen throws into a dark room. */
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 30% -10% auto;
+    height: 900px;
+    z-index: -1;
+    background:
+      radial-gradient(50% 45% at 38% 50%, rgba(255, 196, 120, 0.13), transparent 70%),
+      radial-gradient(40% 40% at 75% 55%, rgba(94, 216, 195, 0.08), transparent 70%);
+    pointer-events: none;
+  }
+  .hero-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+    grid-template-areas:
+      "eyebrow eyebrow"
+      "title side";
+    align-items: end;
+    gap: 28px clamp(24px, 4vw, 64px);
+  }
+  .eyebrow {
+    grid-area: eyebrow;
+  }
+  .hero-title {
+    grid-area: title;
+    font-size: clamp(3.4rem, 9.6vw, 9.4rem);
+    font-weight: 600;
+    line-height: 0.88;
+    letter-spacing: -0.045em;
+    font-variation-settings:
+      "opsz" 144,
+      "SOFT" 40;
+  }
+  .line {
+    display: block;
+  }
+  .line + .line {
+    margin-top: 0.06em;
+    padding-left: 0.6em;
+  }
+  .hero-title .em {
+    font-weight: 380;
+    letter-spacing: -0.03em;
+  }
+  /* "here." and "there." breathe together once on load: one beat, two places. */
+  @media (prefers-reduced-motion: no-preference) {
+    .beat {
+      animation: beat 1.6s var(--ease) 0.25s both;
+    }
+  }
+  @keyframes beat {
+    from {
+      opacity: 0.25;
+      font-weight: 200;
+    }
+  }
+  .hero-side {
+    grid-area: side;
+    display: grid;
+    gap: 28px;
+    padding-bottom: 0.6em;
+  }
+  .ctas {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  /* Demo stage */
+  .demo {
+    margin-top: clamp(48px, 7vw, 96px);
+    margin-bottom: 0;
+  }
+  .defs {
+    position: absolute;
+  }
+  .stage {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1.72fr) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: clamp(14px, 2vw, 28px);
+    align-items: start;
+  }
+  .screen {
+    container-type: inline-size;
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+  .screen.main {
+    grid-row: span 2;
+  }
+  .screen:not(.main):last-of-type {
+    margin-top: clamp(0px, 1vw, 12px);
+  }
+  .label {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .who {
+    font-family: var(--display);
+    font-size: 1.35rem;
+    font-weight: 560;
+    font-variation-settings:
+      "opsz" 36,
+      "SOFT" 100;
+    letter-spacing: -0.01em;
+  }
+  .main .who {
+    font-size: 1.6rem;
+  }
+  .where {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--text2);
+  }
+  .viewport {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: clamp(10px, 2cqi, 18px);
+    overflow: hidden;
+    background: #05090b;
+    box-shadow:
+      0 0 0 1px rgba(214, 236, 240, 0.12),
+      0 30px 80px -30px rgba(0, 0, 0, 0.9),
+      0 0 120px -40px rgba(255, 196, 120, 0.25);
+    font-family: var(--sans);
+    color: var(--text);
+  }
+  .film {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.3s;
+  }
+  .screen.rewinding .film {
+    opacity: 0;
+  }
+
+  /* The WatchSync pill, as on a real service page. */
+  .pill {
+    position: absolute;
+    top: clamp(8px, 3cqi, 18px);
+    right: clamp(8px, 3cqi, 18px);
+    display: flex;
+    gap: clamp(3px, 1.2cqi, 6px);
+    padding: clamp(3px, 1.2cqi, 6px);
+    border-radius: 999px;
+    background: #121a1e;
+    box-shadow:
+      0 4px 18px rgba(0, 0, 0, 0.4),
+      inset 0 0 0 1px rgba(214, 236, 240, 0.12);
+  }
+  .face {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: clamp(18px, 5.6cqi, 30px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #19242a;
+    font-size: clamp(9px, 2.5cqi, 13px);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 2px #7f9092;
+    transition: box-shadow 0.3s;
+  }
+  .face.synced {
+    box-shadow: inset 0 0 0 2px #5ed8c3;
+  }
+  .face.synced::after {
+    content: "";
+    position: absolute;
+    right: -10%;
+    bottom: -10%;
+    width: 38%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #5ed8c3;
+    box-shadow: 0 0 0 max(1px, 0.3cqi) #121a1e;
+  }
+
+  /* Notices: the extension's overlay card. */
+  .notice {
+    position: absolute;
+    right: 3.4cqi;
+    bottom: 14cqi;
+    max-width: 78%;
+    padding: 2.2cqi 3cqi;
+    border-radius: 2.6cqi;
+    background: #121a1e;
+    font-size: max(11px, 3.1cqi);
+    line-height: 1.35;
+    font-weight: 500;
+    box-shadow:
+      0 8px 28px rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(214, 236, 240, 0.12);
+    opacity: 0;
+    transform: translateY(8px);
+    transition:
+      opacity 0.2s ease-out,
+      transform 0.2s ease-out;
+  }
+  .notice.show {
+    opacity: 1;
+    transform: none;
+  }
+  .notice.wait::before {
+    content: "";
+    display: inline-block;
+    width: 0.6em;
+    height: 0.6em;
+    margin-right: 0.55em;
+    border-radius: 50%;
+    background: var(--warn);
+    vertical-align: 0.05em;
+  }
+
+  /* Player controls */
+  .controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 3cqi;
+    padding: 6cqi 3.4cqi 3cqi;
+    background: linear-gradient(transparent, rgba(4, 7, 9, 0.85));
+  }
+  .pp {
+    display: grid;
+    place-items: center;
+    width: max(16px, 5cqi);
+    aspect-ratio: 1;
+  }
+  .pp svg {
+    width: 100%;
+    fill: #ecf2f1;
+  }
+  .pp .i-play,
+  .screen.paused .pp .i-pause {
+    display: none;
+  }
+  .screen.paused .pp .i-play {
+    display: block;
+  }
+  .track {
+    position: relative;
+    flex: 1;
+    height: max(3px, 0.9cqi);
+    border-radius: 99px;
+    background: rgba(236, 242, 241, 0.25);
+  }
+  .fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: #ecf2f1;
+    transform-origin: left;
+    /* 40:50 of 1:52:00, until the script takes over. */
+    transform: scaleX(0.3646);
+  }
+  .head-rail {
+    position: absolute;
+    inset: 0;
+    transform: translateX(36.46%);
+  }
+  .head {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: max(9px, 2.6cqi);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #ecf2f1;
+    translate: -50% -50%;
+  }
+  .time {
+    font-family: var(--mono);
+    font-size: max(9px, 2.5cqi);
+    font-variant-numeric: tabular-nums;
+    color: #ecf2f1;
+    white-space: nowrap;
+  }
+  .dur {
+    color: var(--text2);
+  }
+  @container (max-width: 360px) {
+    .dur {
+      display: none;
+    }
+  }
+
+  /* An ad on this person's own screen */
+  .ad {
+    position: absolute;
+    inset: 0;
+    display: none;
+    background: #ebe3d3;
+    overflow: hidden;
+  }
+  .screen.on-ad .ad {
+    display: block;
+  }
+  .ad-shape {
+    position: absolute;
+    left: 14%;
+    top: 18%;
+    width: 46%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: #ff9f4a;
+    box-shadow: 34cqi 6cqi 0 -6cqi #5ed8c3;
+  }
+  .ad-chip {
+    position: absolute;
+    left: 3.4cqi;
+    bottom: 3.4cqi;
+    padding: 1cqi 2.4cqi;
+    border-radius: 6px;
+    background: #1b1503;
+    color: #ffd25a;
+    font-family: var(--mono);
+    font-size: max(10px, 3cqi);
+    font-weight: 600;
+  }
+  .screen.on-ad .controls {
+    display: none;
+  }
+
+  /* Loading */
+  .loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    place-items: center;
+    background: rgba(5, 9, 11, 0.55);
+  }
+  .screen.is-loading .loading {
+    display: grid;
+  }
+  .spinner {
+    width: 11cqi;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: max(2px, 0.9cqi) solid rgba(236, 242, 241, 0.2);
+    border-top-color: #ecf2f1;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      rotate: 1turn;
+    }
+  }
+
+  /* The pretend pointer */
+  .cursor {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    opacity: 0;
+    pointer-events: none;
+    will-change: transform, opacity;
+    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
+  }
+  .cursor svg {
+    position: relative;
+    z-index: 1;
+  }
+  .ripple {
+    position: absolute;
+    left: 6px;
+    top: 4px;
+    width: 36px;
+    height: 36px;
+    margin: -18px 0 0 -18px;
+    border-radius: 50%;
+    border: 2px solid #ffd25a;
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  /* Caption and controls under the demo */
+  .demo-bar {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    align-items: center;
+    gap: 12px 20px;
+    margin-top: 28px;
+    padding-top: 20px;
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+  .demo-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--raised);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px var(--line2);
+  }
+  .demo-toggle .i-play,
+  .demo-toggle[aria-pressed="true"] .i-pause {
+    display: none;
+  }
+  .demo-toggle[aria-pressed="true"] .i-play {
+    display: block;
+  }
+  .steps {
+    display: flex;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .step {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    background: var(--text3);
+    transition:
+      width 0.3s var(--ease),
+      background-color 0.3s;
+  }
+  .step[aria-current="step"] .dot {
+    width: 20px;
+    background: var(--acc);
+  }
+  .caption {
+    font-family: var(--display);
+    font-size: clamp(1.1rem, 1.8vw, 1.45rem);
+    font-weight: 450;
+    font-variation-settings:
+      "opsz" 36,
+      "SOFT" 100;
+    color: var(--text);
+    min-height: 1.4em;
+  }
+
+  @media (max-width: 960px) {
+    .hero-top {
+      grid-template-columns: 1fr;
+      grid-template-areas: "eyebrow" "title" "side";
+    }
+    .hero-side {
+      padding-bottom: 0;
+    }
+  }
+  @media (max-width: 720px) {
+    .stage {
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 12px;
+    }
+    .screen.main {
+      grid-column: 1 / -1;
+      grid-row: auto;
+    }
+    .screen:not(.main):last-of-type {
+      margin-top: 0;
+    }
+    .who {
+      font-size: 1.1rem;
+    }
+    .main .who {
+      font-size: 1.3rem;
+    }
+    .where {
+      font-size: 0.7rem;
+    }
+    .label {
+      gap: 2px 8px;
+    }
+    .demo-bar {
+      grid-template-columns: auto 1fr;
+    }
+    .caption {
+      grid-column: 1 / -1;
+    }
+    .steps {
+      justify-content: flex-end;
+    }
+  }
+</style>

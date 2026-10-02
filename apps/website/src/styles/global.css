@@ -1,0 +1,367 @@
+/*
+ * WatchSync website. Tokens come from the extension (Evening theme) so the site and the
+ * popup feel like one thing. Three families: Fraunces for display, Figtree for text,
+ * JetBrains Mono for codes and addresses. All self-hosted: no requests to font CDNs.
+ */
+@import "@fontsource-variable/fraunces/full.css";
+@import "@fontsource-variable/fraunces/full-italic.css";
+@import "@fontsource-variable/figtree/wght.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+
+:root {
+  color-scheme: dark;
+  --bg: #0c1215;
+  --bg-deep: #080c0e;
+  --surface: #121a1e;
+  --raised: #19242a;
+  --line: rgba(214, 236, 240, 0.09);
+  --line2: rgba(214, 236, 240, 0.18);
+  --text: #ecf2f1;
+  --text2: #a9b8b9;
+  --text3: #8d9ea0;
+  --acc: #ffd25a;
+  --acc-soft: rgba(255, 210, 90, 0.14);
+  --on-acc: #1b1503;
+  --pres: #5ed8c3;
+  --pres-soft: rgba(94, 216, 195, 0.15);
+  --warn: #ff9f4a;
+  --focus: #ffd25a;
+
+  /* Paper: the one light section, for the privacy promise. */
+  --paper: #f2ede2;
+  --ink: #0c1215;
+  --ink2: #3c4846;
+
+  --display: "Fraunces Variable", "Iowan Old Style", Georgia, serif;
+  --sans: "Figtree Variable", -apple-system, system-ui, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, Menlo, monospace;
+
+  --gutter: clamp(16px, 4vw, 48px);
+  --max: 1240px;
+  --radius: 14px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: 88px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Film grain, very faint, so flat darks feel like a lit room rather than a screen. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("/grain.svg");
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-color: var(--acc);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--acc);
+  color: var(--on-acc);
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 560;
+  font-variation-settings:
+    "opsz" 144,
+    "SOFT" 60;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+code,
+kbd,
+.mono {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+/* An accent word: Fraunces italic with its wonky, soft forms, in the yellow of the mark. */
+.em {
+  font-style: italic;
+  font-weight: 400;
+  font-variation-settings:
+    "opsz" 144,
+    "SOFT" 100,
+    "WONK" 1;
+  color: var(--acc);
+}
+
+.wrap {
+  width: 100%;
+  max-width: calc(var(--max) + var(--gutter) * 2);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip {
+  position: absolute;
+  left: 16px;
+  top: -100px;
+  z-index: 200;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--acc);
+  color: var(--on-acc);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.skip:focus {
+  top: 12px;
+}
+
+/* Small uppercase label above a heading. */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+
+.eyebrow::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+
+.lede {
+  font-size: clamp(1.125rem, 1.6vw, 1.3rem);
+  line-height: 1.55;
+  color: var(--text2);
+  max-width: 38em;
+}
+
+/* Buttons: the extension's shapes (10px radius, yellow primary), a little larger. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 650;
+  font-size: 1rem;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  transition:
+    transform 0.2s var(--ease),
+    background-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.btn:hover {
+  background: #213038;
+}
+
+.btn:active {
+  transform: translateY(1px) scale(0.985);
+}
+
+.btn.primary {
+  background: var(--acc);
+  color: var(--on-acc);
+  box-shadow:
+    0 0 0 1px rgba(255, 210, 90, 0.4),
+    0 10px 30px -10px rgba(255, 210, 90, 0.55);
+}
+
+.btn.primary:hover {
+  background: #ffdc7a;
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn.ghost:hover {
+  background: rgba(214, 236, 240, 0.06);
+}
+
+.btn svg {
+  flex: none;
+}
+
+.btn .sub {
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over every component animation */
+    animation-duration: 0.001ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over every component animation */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over every component animation */
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Long-form pages: install, FAQ, privacy, terms, release notes. */
+.page-head {
+  padding-block: clamp(56px, 10vw, 120px) clamp(32px, 5vw, 56px);
+}
+
+.page-head h1 {
+  font-size: clamp(3rem, 8vw, 6.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  margin-top: 18px;
+}
+
+.page-head .lede {
+  margin-top: 22px;
+}
+
+.prose {
+  max-width: 44rem;
+  color: var(--text2);
+}
+
+.prose h2 {
+  font-size: clamp(1.6rem, 3vw, 2rem);
+  color: var(--text);
+  margin: 2.2em 0 0.6em;
+}
+
+.prose h3,
+.prose h4 {
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text);
+  margin: 1.6em 0 0.4em;
+}
+
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0 0 1em;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.25em;
+}
+
+.prose li {
+  margin-bottom: 0.45em;
+}
+
+.prose li::marker {
+  color: var(--acc);
+}
+
+.prose a {
+  color: var(--text);
+}
+
+.prose strong {
+  color: var(--text);
+}
+
+.prose code {
+  color: var(--text);
+  background: var(--raised);
+  padding: 0.1em 0.4em;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}

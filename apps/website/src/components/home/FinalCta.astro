@@ -1,0 +1,113 @@
+---
+import DownloadButton from "../DownloadButton.astro";
+
+const later = ["Chat and reactions", "More services", "Voice and camera", "Groups"];
+---
+
+<section class="final" aria-labelledby="final-title">
+  <div class="wrap">
+    <h2 id="final-title" class="big">
+      <span>Pick a film.</span>
+      <span>Send a link.</span>
+      <span class="em">Press play.</span>
+    </h2>
+    <div class="row">
+      <div class="ctas">
+        <DownloadButton withVersion>
+          <a class="btn ghost" href="/install/">How to install</a>
+        </DownloadButton>
+      </div>
+      <aside class="later" aria-labelledby="later-title">
+        <h3 id="later-title">Coming later</h3>
+        <p>Planned, not in WatchSync yet:</p>
+        <ul>
+          {later.map((l) => <li>{l}</li>)}
+        </ul>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<style>
+  .final {
+    position: relative;
+    padding-top: clamp(96px, 13vw, 200px);
+    isolation: isolate;
+  }
+  .final::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 30%;
+    height: 70%;
+    z-index: -1;
+    background: radial-gradient(45% 60% at 30% 50%, rgba(255, 196, 120, 0.1), transparent 70%);
+  }
+  .big {
+    font-size: clamp(3.2rem, 10vw, 9.5rem);
+    font-weight: 620;
+    line-height: 0.9;
+    letter-spacing: -0.05em;
+  }
+  .big span {
+    display: block;
+  }
+  .big span:nth-child(2) {
+    padding-left: 0.5em;
+    font-weight: 300;
+    color: var(--text2);
+  }
+  .big .em {
+    padding-left: 1em;
+    font-weight: 400;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 40px;
+    margin-top: clamp(40px, 6vw, 72px);
+  }
+  .ctas {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .later {
+    max-width: 22rem;
+    padding: 20px 22px;
+    border-radius: 16px;
+    border: 1px dashed rgba(214, 236, 240, 0.28);
+  }
+  .later h3 {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text2);
+  }
+  .later p {
+    margin-top: 8px;
+    color: var(--text2);
+    font-size: 0.95rem;
+  }
+  .later ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .later li {
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: rgba(214, 236, 240, 0.06);
+    font-size: 0.88rem;
+    color: var(--text);
+  }
+</style>

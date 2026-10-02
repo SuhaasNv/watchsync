@@ -1,0 +1,91 @@
+---
+// The notice text matches services/signaling/app/join_page.py (PRIVACY). Change both together.
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Privacy · WatchSync" description="What WatchSync collects, why, and for how long.">
+  <div class="wrap">
+    <header class="page-head">
+      <p class="eyebrow">Privacy</p>
+      <h1>Privacy <span class="em">notice.</span></h1>
+      <p class="lede">Last updated: 2 October 2026</p>
+    </header>
+    <div class="prose">
+      <p>
+        WatchSync is a browser extension that keeps friends' video players in step. It is run by
+        Suhaas Nv. Questions, requests and complaints about your data:
+        <a href="mailto:suhaasnvs@gmail.com">suhaasnvs@gmail.com</a>.
+      </p>
+      <h2>What WatchSync collects, and why</h2>
+      <ul>
+        <li>Your display name, so the people in your room can see who is there.</li>
+        <li>A room code and a random token, so you can join your room and rejoin it.</li>
+        <li>
+          What you have open on a supported service: the service, the title or episode ID and name,
+          and its link, so your room can line everyone up on the same title.
+        </li>
+        <li>
+          Your player's state: playing or paused, position, speed, and whether it is loading or
+          showing an ad, to keep everyone in step and let the room wait for you.
+        </li>
+        <li>Your IP address, held in memory only to stop abuse (rate limits).</li>
+      </ul>
+      <h2>What WatchSync does not collect</h2>
+      <p>
+        No passwords or service account details, no viewing history, no video or audio, no cookies,
+        no analytics, no advertising.
+      </p>
+      <h2>Who can see it</h2>
+      <p>
+        The people in your room see your name, which service and title you have open, and whether
+        you are in sync, loading or on an ad. The room service runs on Railway in the United
+        States. Nobody else receives your data, and it is never sold.
+      </p>
+      <h2>How long it is kept</h2>
+      <ul>
+        <li>
+          Rooms live in the service's memory only. When you leave a room, your entry is deleted at
+          once.
+        </li>
+        <li>
+          A room is deleted about 15 minutes after the last person leaves. Every restart of the
+          service deletes all rooms.
+        </li>
+        <li>
+          Codes of ended rooms (no personal data) are kept for 24 hours, so a late friend learns the
+          room ended.
+        </li>
+        <li>
+          On your computer, Chrome keeps your name, and your last room for up to 24 hours so you can
+          rejoin. Leaving the room or removing the extension deletes them.
+        </li>
+      </ul>
+      <h2>Your choices and rights</h2>
+      <p>
+        You can leave a room or remove the extension at any time. You can ask to see, correct or
+        delete your data, or withdraw your consent, by writing to the address above. If you are in
+        India you may complain to the Data Protection Board of India; in the EU, to your data
+        protection authority.
+      </p>
+      <h2>Age</h2>
+      <p>WatchSync is for people aged 18 and over.</p>
+      <h2>Changes</h2>
+      <p>If this notice changes, the date above changes.</p>
+
+      <h2 class="site">About this website</h2>
+      <p>
+        This website sets no cookies and runs no analytics. Its fonts are served from this site.
+        To show the latest version and the release notes, your browser asks GitHub's public API for
+        the list of WatchSync releases, and downloads come from GitHub, so GitHub sees your IP
+        address when that happens. GitHub's own privacy statement covers that.
+      </p>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .site {
+    padding-top: 1.4em;
+    border-top: 1px solid var(--line2);
+  }
+</style>

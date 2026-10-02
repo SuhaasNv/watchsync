@@ -1,0 +1,198 @@
+---
+import changelog from "../../../../CHANGELOG.md?raw";
+import Base from "../layouts/Base.astro";
+import { renderMarkdown } from "../lib/markdown";
+import { RELEASES_URL } from "../lib/site";
+
+// The changelog in the repository, rendered at build time: shown when GitHub can't be reached.
+const changelogHtml = renderMarkdown(changelog.replace(/^# Changelog\s*/, ""), {
+  headingOffset: 1,
+});
+---
+
+<Base
+  title="Release notes · WatchSync"
+  description="What's new in each WatchSync release, with downloads. Straight from GitHub Releases."
+>
+  <div class="wrap">
+    <header class="page-head">
+      <p class="eyebrow">Release notes</p>
+      <h1>What's <span class="em">new.</span></h1>
+      <p class="lede">
+        Every version of WatchSync, newest first. Each one comes from our public GitHub, with its
+        notes and its download.
+      </p>
+    </header>
+
+    <section aria-labelledby="releases-title" class="live">
+      <h2 id="releases-title" class="sr-only">Releases</h2>
+      <div data-releases aria-busy="true">
+        <p class="state loading" data-state="loading">
+          <span class="spinner" aria-hidden="true"></span> Loading releases from GitHub…
+        </p>
+        <p class="state" data-state="empty" hidden>
+          No releases published yet. The changelog below shows what's coming in the first one.
+        </p>
+        <div class="state error" data-state="error" hidden>
+          <p data-error-text>We couldn't reach GitHub just now.</p>
+          <p>
+            <a href={RELEASES_URL} rel="noopener">See every release on GitHub</a>, or read the
+            changelog below.
+          </p>
+        </div>
+        <ol class="list" data-list></ol>
+      </div>
+    </section>
+
+    <section class="changelog" aria-labelledby="changelog-title" data-changelog>
+      <p class="eyebrow">From the repository</p>
+      <h2 id="changelog-title">Changelog</h2>
+      <div class="prose" set:html={changelogHtml} />
+    </section>
+  </div>
+</Base>
+
+<script>
+  import { initReleases } from "../scripts/releases-page";
+  initReleases();
+</script>
+
+<style>
+  .live {
+    min-height: 120px;
+  }
+  .state {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 24px;
+    border-radius: 16px;
+    background: var(--surface);
+    color: var(--text2);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .state[hidden] {
+    display: none;
+  }
+  .error {
+    display: grid;
+    gap: 6px;
+  }
+  .error a {
+    color: var(--text);
+    font-weight: 650;
+  }
+  .spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--line2);
+    border-top-color: var(--acc);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      rotate: 1turn;
+    }
+  }
+  .list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .list:empty {
+    display: none;
+  }
+  .changelog {
+    margin-top: clamp(72px, 10vw, 140px);
+    padding-top: 40px;
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+  .changelog h2 {
+    margin-top: 18px;
+    font-size: clamp(2.4rem, 5vw, 4rem);
+    letter-spacing: -0.04em;
+  }
+  .changelog .prose {
+    margin-top: 24px;
+  }
+  .changelog .prose :global(h3) {
+    font-family: var(--display);
+    font-size: clamp(1.5rem, 2.6vw, 2rem);
+    font-weight: 540;
+    letter-spacing: -0.02em;
+  }
+</style>
+
+<style is:global>
+  /* Release cards are built by the script, so their styles can't be scoped. */
+  .release {
+    display: grid;
+    grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+    gap: 24px clamp(32px, 5vw, 72px);
+    padding-block: clamp(32px, 5vw, 56px);
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+  .release:first-child {
+    box-shadow: inset 0 2px 0 var(--acc);
+  }
+  .release-meta {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    justify-items: start;
+  }
+  .release-name {
+    font-size: clamp(1.8rem, 3.4vw, 2.8rem);
+    letter-spacing: -0.03em;
+  }
+  .release-tag {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--text2);
+  }
+  .release-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .badge {
+    padding: 3px 9px;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    font-weight: 650;
+    background: rgba(214, 236, 240, 0.08);
+    color: var(--text2);
+  }
+  .badge.rc {
+    background: rgba(255, 159, 74, 0.14);
+    color: var(--warn);
+  }
+  .badge.latest {
+    background: var(--pres-soft);
+    color: var(--pres);
+  }
+  .release-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .release-links .btn {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 0.95rem;
+  }
+  .release .prose h3,
+  .release .prose h4 {
+    margin-top: 0;
+  }
+  .release .prose > :first-child {
+    margin-top: 0;
+  }
+  @media (max-width: 760px) {
+    .release {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

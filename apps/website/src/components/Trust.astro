@@ -1,0 +1,267 @@
+---
+import { REPO_URL } from "../lib/site";
+
+interface Props {
+  /** "paper" is the light section on the home page; "panel" sits inside the install guide. */
+  variant?: "paper" | "panel";
+  headingLevel?: 2 | 3;
+}
+const { variant = "paper", headingLevel = 2 } = Astro.props;
+const H = headingLevel === 2 ? "h2" : "h3";
+const Sub = headingLevel === 2 ? "h3" : "h4";
+---
+
+<section class:list={["trust", variant]} aria-labelledby={`trust-title-${variant}`}>
+  <div class="inner">
+    <div class="top">
+    <div class="intro">
+      <p class="eyebrow">What WatchSync can see</p>
+      <H id={`trust-title-${variant}`} class="title">
+        It sees the clock. <span class="em">Never the picture.</span>
+      </H>
+      <p class="lead">
+        WatchSync only sees whether the video is playing, where it is, and what's on. It doesn't
+        read your passwords or payments, and it can't open other sites: it only runs on Netflix,
+        Prime Video and JioHotstar pages.
+      </p>
+    </div>
+    <figure class="receipt">
+      <figcaption>Everything Asha's tab tells her room</figcaption>
+      <dl>
+        <div><dt>name</dt><dd>Asha</dd></div>
+        <div><dt>room</dt><dd>XBLHRQ</dd></div>
+        <div><dt>title</dt><dd>The Night Train, S1:E3</dd></div>
+        <div><dt>state</dt><dd>playing</dd></div>
+        <div><dt>position</dt><dd>42:10</dd></div>
+        <div><dt>speed</dt><dd>1x</dd></div>
+        <div><dt>loading or ad</dt><dd>no</dd></div>
+      </dl>
+    </figure>
+    </div>
+
+    <div class="cols">
+      <div>
+        <Sub>Shared with your room</Sub>
+        <ul>
+          <li>The name you type in</li>
+          <li>Your room code</li>
+          <li>The title or episode you have open</li>
+          <li>Playing or paused, the position and the speed</li>
+          <li>Whether your video is loading or on an ad</li>
+        </ul>
+      </div>
+      <div>
+        <Sub>Never collected</Sub>
+        <ul class="no">
+          <li>The video or the sound</li>
+          <li>Passwords, payments or account details</li>
+          <li>Your viewing history</li>
+          <li>Cookies, analytics or ads</li>
+        </ul>
+      </div>
+      <div>
+        <Sub>Why Developer mode?</Sub>
+        <p>
+          WatchSync isn't on the Chrome Web Store yet, so you load it yourself, and Chrome calls
+          that Developer mode. Chrome then shows a banner about developer-mode extensions. That's
+          expected.
+        </p>
+        <p>
+          Downloads come from our <a href={REPO_URL} rel="noopener">public GitHub</a>, where you can
+          read every line of the code.
+        </p>
+      </div>
+    </div>
+    <p class="more"><a href="/privacy/">Read the full privacy notice</a></p>
+  </div>
+</section>
+
+<style>
+  .trust.paper {
+    margin-top: clamp(96px, 13vw, 200px);
+    padding-block: clamp(64px, 9vw, 128px);
+    background: var(--paper);
+    color: var(--ink);
+    --text2: var(--ink2);
+  }
+  .paper .inner {
+    width: 100%;
+    max-width: calc(var(--max) + var(--gutter) * 2);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+  .paper .eyebrow {
+    color: var(--ink2);
+  }
+  .paper .eyebrow::before {
+    background: var(--ink);
+  }
+  .paper .em {
+    color: #8a5a00;
+  }
+  .trust.panel {
+    padding: clamp(24px, 4vw, 44px);
+    border-radius: 24px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .top {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr);
+    gap: 40px clamp(32px, 6vw, 96px);
+    align-items: end;
+  }
+  .panel .top {
+    grid-template-columns: 1fr;
+  }
+  .panel .receipt {
+    display: none;
+  }
+  .receipt {
+    margin: 0;
+    padding: 22px 24px 18px;
+    border-radius: 6px;
+    background: #fffdf7;
+    color: var(--ink);
+    box-shadow:
+      0 1px 0 rgba(12, 18, 21, 0.08),
+      0 24px 50px -24px rgba(12, 18, 21, 0.35);
+    rotate: 1.5deg;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+  }
+  .receipt figcaption {
+    padding-bottom: 12px;
+    margin-bottom: 10px;
+    border-bottom: 1px dashed rgba(12, 18, 21, 0.3);
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink2);
+  }
+  .receipt dl {
+    margin: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .receipt dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .receipt dt {
+    color: var(--ink2);
+  }
+  .receipt dd {
+    margin: 0;
+    font-weight: 600;
+    text-align: right;
+  }
+  .intro {
+    display: grid;
+    gap: 20px;
+    max-width: 52rem;
+  }
+  .title {
+    font-size: clamp(2.6rem, 6.4vw, 5.6rem);
+    letter-spacing: -0.045em;
+    line-height: 0.95;
+  }
+  .panel .title {
+    font-size: clamp(2rem, 4vw, 3rem);
+  }
+  .lead {
+    font-size: clamp(1.1rem, 1.6vw, 1.3rem);
+    line-height: 1.55;
+    max-width: 40rem;
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 32px clamp(24px, 4vw, 56px);
+    margin-top: clamp(40px, 6vw, 64px);
+  }
+  .cols > div {
+    padding-top: 18px;
+    box-shadow: inset 0 2px 0 currentColor;
+  }
+  .panel .cols > div {
+    box-shadow: inset 0 1px 0 var(--line2);
+  }
+  .cols h3,
+  .cols h4 {
+    font-family: var(--sans);
+    font-size: 1.05rem;
+    font-weight: 750;
+    letter-spacing: 0;
+    margin-bottom: 12px;
+  }
+  .cols p {
+    color: var(--text2);
+    margin-bottom: 10px;
+  }
+  .cols a {
+    color: inherit;
+    font-weight: 650;
+  }
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+  }
+  li {
+    position: relative;
+    padding-left: 26px;
+    color: var(--text2);
+  }
+  li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 0.55em;
+    width: 12px;
+    height: 7px;
+    border-left: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    color: #1a7f6e;
+  }
+  .panel li::before {
+    color: var(--pres);
+  }
+  .no li::before {
+    top: 0.75em;
+    width: 12px;
+    height: 0;
+    border-left: 0;
+    border-bottom: 2px solid currentColor;
+    transform: none;
+    color: #b3471d;
+  }
+  .panel .no li::before {
+    color: var(--warn);
+  }
+  .more {
+    margin-top: 36px;
+    font-weight: 650;
+  }
+  .more a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  @media (max-width: 860px) {
+    .top {
+      grid-template-columns: 1fr;
+    }
+    .receipt {
+      rotate: none;
+      max-width: 26rem;
+    }
+    .cols {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

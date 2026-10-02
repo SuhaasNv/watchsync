@@ -1,0 +1,56 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Page not found · WatchSync"
+  description="This page doesn't exist. Head back to WatchSync's home page or install guide."
+  noindex
+>
+  <div class="wrap lost">
+    <p class="code" aria-hidden="true">4<span>0</span>4</p>
+    <h1>This scene <span class="em">got cut.</span></h1>
+    <p class="lede">
+      The page you were after isn't here. If a friend sent you a room link, it starts with the room
+      service's address, not this site's: ask them to send it again.
+    </p>
+    <p class="links">
+      <a class="btn primary" href="/">Back to home</a>
+      <a class="btn ghost" href="/install/">Install guide</a>
+    </p>
+  </div>
+</Base>
+
+<style>
+  .lost {
+    display: grid;
+    gap: 24px;
+    justify-items: start;
+    padding-top: clamp(56px, 10vw, 120px);
+  }
+  .code {
+    font-family: var(--display);
+    font-size: clamp(7rem, 26vw, 20rem);
+    font-weight: 700;
+    font-variation-settings:
+      "opsz" 144,
+      "SOFT" 100;
+    line-height: 0.8;
+    letter-spacing: -0.06em;
+    color: transparent;
+    -webkit-text-stroke: 1.5px rgba(214, 236, 240, 0.3);
+  }
+  .code span {
+    color: var(--acc);
+    -webkit-text-stroke: 0;
+  }
+  h1 {
+    font-size: clamp(2.6rem, 6vw, 5rem);
+    letter-spacing: -0.04em;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+</style>

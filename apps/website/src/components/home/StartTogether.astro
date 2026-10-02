@@ -1,0 +1,207 @@
+---
+const people = ["Suhaas", "Asha", "Ravi"];
+---
+
+<section class="start" aria-labelledby="start-title" data-reveal data-countdown>
+  <div class="wrap grid">
+    <div class="copy">
+      <p class="eyebrow">For the opening scene</p>
+      <h2 id="start-title">Start <span class="em">together.</span></h2>
+      <p class="lede">
+        Press Start together on the pill. WatchSync checks everyone is ready, counts down 3, 2, 1,
+        and every player starts at the same moment.
+      </p>
+      <p class="note">
+        Your screen says "Getting ready to start together · waiting for Asha" until she's there,
+        then "Starting together in 3".
+      </p>
+      <button class="btn ghost again" type="button" data-again>
+        <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path
+            d="M4 10a6 6 0 1 0 1.8-4.3M4 3.5v3h3"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"></path>
+        </svg>
+        Count down again
+      </button>
+    </div>
+
+    <div class="show" aria-hidden="true">
+      <ul class="ready">
+        {
+          people.map((p) => (
+            <li>
+              <span class="face">{p.charAt(0)}</span>
+              <span>{p}</span>
+              <span class="tag">Ready</span>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="digits">
+        <span data-n="3">3</span><span data-n="2">2</span><span data-n="1">1</span>
+      </p>
+      <p class="go">Playing, all at once</p>
+    </div>
+  </div>
+</section>
+
+<script>
+  const section = document.querySelector<HTMLElement>("[data-countdown]");
+  const again = section?.querySelector<HTMLButtonElement>("[data-again]");
+  if (section && again) {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const phases = ["ready", "3", "2", "1", "go"] as const;
+    let timers: ReturnType<typeof setTimeout>[] = [];
+    const run = () => {
+      for (const t of timers) clearTimeout(t);
+      timers = [];
+      if (reduce.matches) {
+        section.dataset.phase = "go";
+        return;
+      }
+      section.dataset.phase = "idle";
+      phases.forEach((p, i) => {
+        timers.push(setTimeout(() => (section.dataset.phase = p), 300 + i * 1000));
+      });
+    };
+    section.dataset.phase = reduce.matches ? "go" : "idle";
+    section.addEventListener("reveal", run, { once: true });
+    again.addEventListener("click", run);
+  }
+</script>
+
+<style>
+  .start {
+    padding-top: clamp(96px, 13vw, 200px);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(32px, 6vw, 96px);
+    align-items: center;
+  }
+  .copy {
+    display: grid;
+    gap: 20px;
+    justify-items: start;
+  }
+  h2 {
+    font-size: clamp(3rem, 7.5vw, 6.5rem);
+    letter-spacing: -0.045em;
+  }
+  .note {
+    color: var(--text2);
+    font-size: 0.98rem;
+  }
+  .again {
+    min-height: 44px;
+    margin-top: 4px;
+  }
+
+  .show {
+    position: relative;
+    padding: clamp(24px, 4vw, 40px);
+    border-radius: 24px;
+    background:
+      radial-gradient(70% 60% at 50% 100%, rgba(255, 210, 90, 0.1), transparent 70%),
+      var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+    overflow: hidden;
+  }
+  .ready {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ready li {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 6px;
+    border-radius: 99px;
+    background: var(--bg);
+    font-weight: 600;
+    font-size: 0.92rem;
+    box-shadow: inset 0 0 0 1px var(--line2);
+  }
+  .face {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--raised);
+    font-size: 0.75rem;
+    box-shadow: inset 0 0 0 2px var(--text3);
+    transition: box-shadow 0.3s;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text3);
+    transition: color 0.3s;
+  }
+  .start:not([data-phase="idle"]) .face {
+    box-shadow: inset 0 0 0 2px var(--pres);
+  }
+  .start:not([data-phase="idle"]) .tag {
+    color: var(--pres);
+  }
+
+  .digits {
+    display: flex;
+    justify-content: space-between;
+    margin: clamp(16px, 3vw, 28px) 0 0;
+    font-family: var(--display);
+    font-size: clamp(6rem, 15vw, 13rem);
+    font-weight: 700;
+    font-variation-settings:
+      "opsz" 144,
+      "SOFT" 100;
+    line-height: 0.9;
+    letter-spacing: -0.04em;
+  }
+  .digits span {
+    color: transparent;
+    -webkit-text-stroke: 1.5px rgba(214, 236, 240, 0.28);
+    transition:
+      color 0.25s,
+      -webkit-text-stroke-color 0.25s,
+      transform 0.5s var(--ease);
+  }
+  .start[data-phase="3"] [data-n="3"],
+  .start[data-phase="2"] [data-n="2"],
+  .start[data-phase="1"] [data-n="1"] {
+    color: var(--acc);
+    -webkit-text-stroke-color: var(--acc);
+    transform: scale(1.06);
+  }
+  .start[data-phase="go"] .digits span {
+    color: var(--acc);
+    -webkit-text-stroke-color: var(--acc);
+  }
+  .go {
+    margin-top: 12px;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text3);
+    transition: color 0.3s;
+  }
+  .start[data-phase="go"] .go {
+    color: var(--pres);
+  }
+  @media (max-width: 860px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

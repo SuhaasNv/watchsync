@@ -1,0 +1,20 @@
+---
+/** The WatchSync mark: a filled dot (you) beside a ring (your friend). Decorative. */
+interface Props {
+  size?: number;
+  class?: string;
+}
+const { size = 28, class: className } = Astro.props;
+---
+
+<svg
+  class={className}
+  width={size}
+  height={Math.round(size * 0.62)}
+  viewBox="0 0 42 26"
+  aria-hidden="true"
+  focusable="false"
+>
+  <circle cx="13" cy="13" r="12" fill="#ffd25a"></circle>
+  <circle cx="30" cy="13" r="9.6" fill="none" stroke="#ecf2f1" stroke-width="3.6"></circle>
+</svg>

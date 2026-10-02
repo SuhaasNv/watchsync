@@ -1,0 +1,108 @@
+---
+import { DOWNLOAD_URL, FALLBACK_VERSION } from "../lib/site";
+
+interface Props {
+  /** Show the version line under the button. */
+  withVersion?: boolean;
+  size?: "default" | "compact";
+  class?: string;
+}
+const { withVersion = false, size = "default", class: className } = Astro.props;
+---
+
+<div class:list={["download", size, className]} data-download-block>
+  <div class="actions">
+  <a class="btn primary" href={DOWNLOAD_URL}>
+    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <path
+        d="M10 3v9.2m0 0 3.6-3.6M10 12.2 6.4 8.6M4 15.5h12"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"></path>
+    </svg>
+    {size === "compact" ? <span>Download</span> : <span>Download for Chrome &amp; Brave</span>}
+  </a>
+  <slot />
+  </div>
+  {
+    withVersion && (
+      <>
+        <p class="meta">
+          <span data-version>{FALLBACK_VERSION}</span>
+          <span aria-hidden="true"> · </span>
+          <span>Free, from our public GitHub</span>
+        </p>
+        <div class="device-note" data-device-note hidden>
+          <p data-device-text />
+          <button class="btn copy" type="button" data-share-page>
+            <span data-share-label>Copy the link to this page</span>
+          </button>
+          <p class="sr-only" role="status" data-share-status />
+        </div>
+      </>
+    )
+  }
+</div>
+
+<style>
+  .download {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+    max-width: 100%;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .compact .btn {
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    gap: 8px;
+  }
+  .meta {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text2);
+    letter-spacing: 0.02em;
+  }
+  .device-note {
+    display: grid;
+    gap: 12px;
+    justify-items: start;
+    max-width: 30rem;
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: var(--acc-soft);
+    box-shadow: inset 0 0 0 1px rgba(255, 210, 90, 0.35);
+  }
+  .device-note[hidden] {
+    display: none;
+  }
+  .device-note p {
+    color: var(--text);
+    font-weight: 550;
+  }
+  .copy {
+    min-height: 44px;
+    font-size: 0.95rem;
+  }
+  /* On a phone the download is secondary: the note leads, and the header button goes. */
+  :global(.on-phone) .device-note {
+    order: -1;
+  }
+  :global(.on-phone) .download.compact {
+    display: none;
+  }
+  :global(.on-phone) .download:has(.device-note:not([hidden])) .btn.primary {
+    background: var(--raised);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--line2);
+  }
+</style>
