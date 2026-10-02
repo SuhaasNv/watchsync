@@ -48,6 +48,10 @@ function player(): NetflixPlayer | null {
 }
 
 document.addEventListener("watchsync:netflix-command", (e) => {
+  // After an update the page can hold the old bridge and the new one: answer once (BUG-052).
+  const once = e as Event & { watchsyncHandled?: true };
+  if (once.watchsyncHandled) return;
+  once.watchsyncHandled = true;
   const detail = (e as CustomEvent<unknown>).detail;
   if (typeof detail !== "string") return;
   let cmd: { id?: unknown; action?: unknown; ms?: unknown; videoId?: unknown };

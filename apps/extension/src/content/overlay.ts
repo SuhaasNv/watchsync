@@ -7,6 +7,13 @@ const host = document.createElement("watchsync-overlay");
 // Closed, so the service page can't read who is in the room; test builds open it so
 // Playwright can reach the overlay.
 const root = host.attachShadow({ mode: __MOCK__ ? "open" : "closed" });
+let retired = false;
+
+/** This copy of the extension was replaced by an update: take its UI off the page for good. */
+export function retireOverlay() {
+  retired = true;
+  host.remove();
+}
 root.innerHTML = `<style>
   :host { all: initial; }
   .wrap, .pill { font: 14px/20px -apple-system, system-ui, "Segoe UI", sans-serif; color: #ecf2f1;
@@ -88,6 +95,7 @@ const notices = root.querySelector(".notices") as HTMLDivElement;
 const asks = root.querySelector(".asks") as HTMLDivElement;
 
 function mount() {
+  if (retired) return;
   const parent = document.fullscreenElement ?? document.documentElement;
   if (host.parentNode !== parent) parent.append(host);
 }

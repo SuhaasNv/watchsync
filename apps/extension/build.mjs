@@ -44,7 +44,8 @@ const manifest = {
   icons: { 16: "icons/16.png", 32: "icons/32.png", 48: "icons/48.png", 128: "icons/128.png" },
   action: { default_popup: "popup.html", default_icon: { 16: "icons/16.png", 32: "icons/32.png" } },
   background: { service_worker: "background.js", type: "module" },
-  permissions: ["storage"],
+  // scripting: add WatchSync to service tabs already open at install or update (BUG-052).
+  permissions: ["storage", "scripting"],
   host_permissions: [`${api}/*`],
   content_scripts: [
     { matches: serviceMatches, js: ["content.js"], run_at: "document_idle" },

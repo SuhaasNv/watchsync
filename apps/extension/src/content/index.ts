@@ -4,7 +4,7 @@ import type { Media } from "@watchsync/protocol";
 import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
 import { type AppState, type Push, SERVICE_LABEL, send, type TabEvent } from "../shared/messages";
 import { align } from "./align";
-import { clearPrompt, notice, prompt, renderPill, toast } from "./overlay";
+import { clearPrompt, notice, prompt, renderPill, retireOverlay, toast } from "./overlay";
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
 import { providerFor } from "./providers";
 
@@ -709,6 +709,8 @@ function catchUp(tries = 5) {
 }
 
 function connect() {
+  // Updated or reloaded: this copy is cut off and the new one runs the page (BUG-052).
+  if (!chrome.runtime?.id) return retire();
   port = chrome.runtime.connect({ name: "tab" });
   port.onMessage.addListener(onPush);
   // The background worker can restart; reconnect and report again.
@@ -726,6 +728,13 @@ function connect() {
     setTimeout(() => {
       if (!mine) reportPresence();
     }, 5000);
+}
+
+const timers: ReturnType<typeof setInterval>[] = [];
+
+function retire() {
+  for (const t of timers) clearInterval(t);
+  retireOverlay();
 }
 
 /** When this tab's title went missing; 0 while it has one. */
@@ -772,10 +781,12 @@ if (provider) {
     if (room?.session && room.following && mine)
       post({ kind: "playback", action, status, position, rate, titleId: mine.titleId });
   });
-  setInterval(poll, 1000);
-  setInterval(checkDrift, 1000);
-  setInterval(() => {
-    checkHold();
-    drawWait();
-  }, 250);
+  timers.push(
+    setInterval(poll, 1000),
+    setInterval(checkDrift, 1000),
+    setInterval(() => {
+      checkHold();
+      drawWait();
+    }, 250),
+  );
 }

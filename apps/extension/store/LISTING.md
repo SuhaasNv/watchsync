@@ -58,6 +58,7 @@ WatchSync is not affiliated with Netflix, Amazon or JioStar. You need your own s
 Keep the user's video playback in sync with friends watching the same title on supported streaming sites (Netflix, Prime Video, JioHotstar).
 
 **Permission justifications:**
+- `scripting`: when WatchSync is installed or updated, adds its player sync to Netflix, Prime Video and JioHotstar tabs that are already open, so people don't have to reload them. It runs only WatchSync's own packaged scripts, only on those sites.
 - `storage`: remembers the user's chosen display name and the room they are in, so the popup and a restarted browser can rejoin the room.
 - Host permission for the WatchSync room service (`https://join.watchsync.space/*`): connects to the room so play, pause and position reach the other people in it, and lets invite links (`/j/CODE`) open the room in the extension.
 - Content scripts on `https://www.netflix.com/*`, `https://www.primevideo.com/*`, `https://www.amazon.*/gp/video/*`, `https://www.jiohotstar.com/*` and `https://www.hotstar.com/*`: read whether the video is playing, its position and the title being watched, apply play, pause and seek from the room, and show the small in-page notices. Nothing else on these pages is read.
