@@ -4,7 +4,7 @@ WatchSync keeps your Netflix, Prime Video or JioHotstar tab in sync with your fr
 
 ## Install
 
-1. Get `watchsync-extension-v0.1.0.zip` from the person who invited you and unzip it. Keep the folder; Chrome loads it from there.
+1. Download the zip from [watchsync.space](https://watchsync.space) (or [directly](https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip)) and unzip it. Keep the folder; Chrome loads it from there.
 2. In Chrome, open `chrome://extensions`.
 3. Turn on **Developer mode** (top right).
 4. Click **Load unpacked** and choose the unzipped folder.

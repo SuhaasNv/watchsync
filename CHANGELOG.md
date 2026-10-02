@@ -37,7 +37,7 @@ Streaming Sync: a Chrome extension that keeps friends' Netflix, Prime Video and 
 
 ### Known issues
 - Netflix has been tested by two people on real accounts. Prime Video still needs that two-person test, and JioHotstar can only be checked from India (it redirects elsewhere), including how it tells ads apart.
-- Ads are detected on Prime Video only; on Netflix and JioHotstar the buffering wait still applies but WatchSync never claims an ad.
+- Ads are detected on Prime Video and JioHotstar (JioHotstar still to be checked from India); on Netflix the buffering wait still applies but WatchSync never claims an ad.
 - On Prime Video, when the room moves to another episode of the same show, friends pick it in the player themselves.
 - Installed as an unpacked zip (Developer mode); a Chrome Web Store listing waits for the legal review (DEC-024).
 - A redeploy of the room service ends every open room.
