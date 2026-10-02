@@ -95,6 +95,26 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         ):
             room.media = media
             await broadcast(room, "ROOM.MEDIA", {"media": media, "byId": p.id, "byName": p.name})
+    elif msg["type"] == "PLAYBACK.UPDATE":
+        action = payload["action"]
+        before = room.playback["status"] if room.playback else "paused"
+        status_ = {"play": "playing", "pause": "paused"}.get(action, before)
+        now = now_ms()
+        room.playback = {
+            "status": status_,
+            "position": payload["position"],
+            "rate": payload["rate"],
+            "updatedAt": now,
+            "titleId": payload["titleId"],
+        }
+        state = {
+            "playback": room.playback,
+            "action": action,
+            "byId": p.id,
+            "byName": p.name,
+            "serverTime": now,
+        }
+        await broadcast(room, "PLAYBACK.STATE", state, skip=p.id)
 
 
 @app.websocket("/ws/rooms/{code}")

@@ -146,6 +146,9 @@ function onServer(msg: AnyServerMessage) {
     case "ROOM.MEDIA":
       state.media = msg.payload.media;
       break;
+    case "PLAYBACK.STATE":
+      state.playback = msg.payload.playback;
+      break;
     case "SYS.PONG": {
       samples.push(clockSample(msg.payload.t1, msg.payload.serverTime, Date.now()));
       if (samples.length > 10) samples.shift();
@@ -225,7 +228,10 @@ chrome.runtime.onConnect.addListener((port) => {
   });
   if (port.name === "tab")
     port.onMessage.addListener((e: TabEvent) => {
-      if (e.kind !== "presence") return;
+      if (e.kind === "playback") {
+        const { kind: _, ...update } = e;
+        return sendServer(envelope("PLAYBACK.UPDATE", update));
+      }
       clearTimeout(tabGone);
       presencePort = port;
       presence = { service: e.service, media: e.media };

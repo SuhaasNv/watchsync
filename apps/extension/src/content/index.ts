@@ -4,6 +4,7 @@ import type { Media } from "@watchsync/protocol";
 import type { AppState, Push, TabEvent } from "../shared/messages";
 import { align } from "./align";
 import { clearPrompt, prompt, toast } from "./overlay";
+import { apply, listen } from "./playback";
 import { providerFor } from "./providers";
 
 const provider = providerFor(location.host);
@@ -50,7 +51,19 @@ function reconcile(roomBefore: Media | null) {
   ]);
 }
 
+const NOTICE = { play: "pressed play", pause: "paused", seek: "jumped" } as const;
+
 function onPush(m: Push) {
+  if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
+    const { playback, action, byName } = m.message.payload;
+    if (!provider || !mine || playback.titleId !== mine.titleId) return;
+    const serverNow = Date.now() + (room?.clockOffset ?? 0);
+    apply(provider, playback, serverNow).catch((e: unknown) =>
+      toast(e instanceof Error ? e.message : "WatchSync couldn't control the player"),
+    );
+    toast(`${byName} ${NOTICE[action]}`, 3000);
+    return;
+  }
   if (m.kind !== "state") return;
   room = m.state;
   const next = room.session ? room.media : null;
@@ -90,5 +103,9 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 if (provider) {
   poll(); // read the title first so the first report isn't "nothing open"
   connect();
+  listen(provider, (action, position, rate) => {
+    if (room?.session && mine)
+      post({ kind: "playback", action, position, rate, titleId: mine.titleId });
+  });
   setInterval(poll, 1000);
 }
