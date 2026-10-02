@@ -1,0 +1,35 @@
+name: Production smoke
+
+# Checks the live production site and room service every six hours and after each release.
+# Production only: pinging the dev services would keep them awake (DEC-026, dev sleeps).
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Room service is healthy
+        run: |
+          body=$(curl -fsS --retry 3 --retry-delay 10 --max-time 15 https://join.watchsync.space/health)
+          echo "$body"
+          echo "$body" | grep -q '"status"'
+      - name: Website pages answer
+        run: |
+          for path in / /features/ /install/ /releases/ /faq/ /privacy/ /terms/; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --max-time 15 "https://watchsync.space$path")
+            echo "$path $code"
+            [ "$code" = "200" ] || exit 1
+          done
+      - name: Download link resolves to a zip
+        run: |
+          curl -fsSIL --max-time 20 https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip \
+            | grep -i "content-type: application/\(zip\|octet-stream\)"

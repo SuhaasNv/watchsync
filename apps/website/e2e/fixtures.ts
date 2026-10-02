@@ -1,6 +1,15 @@
 import { test as base, type Page, type Route } from "@playwright/test";
 
-export const PAGES = ["/", "/install/", "/releases/", "/faq/", "/privacy/", "/terms/", "/nope/"];
+export const PAGES = [
+  "/",
+  "/features/",
+  "/install/",
+  "/releases/",
+  "/faq/",
+  "/privacy/",
+  "/terms/",
+  "/nope/",
+];
 
 export const RELEASE = {
   tag_name: "v0.1.0-rc.1",

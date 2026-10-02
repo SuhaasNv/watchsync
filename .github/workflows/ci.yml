@@ -46,6 +46,27 @@ jobs:
             apps/extension/test-results
           retention-days: 7
 
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @watchsync/website build
+      - name: Website end-to-end (every page, axe WCAG 2.2 AA, 375 to 1440 px)
+        working-directory: apps/website
+        run: |
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm e2e
+      - name: The dev channel builds too
+        run: PUBLIC_CHANNEL=dev pnpm --filter @watchsync/website exec astro build --outDir /tmp/dev-site
+      - name: Website image builds
+        run: docker build -f Dockerfile.website -t watchsync-website .
+      - name: Room service image builds
+        run: docker build -f Dockerfile.signaling -t watchsync-room-service .
+
   service:
     runs-on: ubuntu-latest
     defaults:
