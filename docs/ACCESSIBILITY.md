@@ -1,4 +1,4 @@
-# Accessibility — WCAG 2.2 AA (DEC-022)
+# Accessibility: WCAG 2.2 AA (DEC-022)
 
 Target: WCAG 2.2 level AA for every WatchSync surface from v0.1.0.
 
