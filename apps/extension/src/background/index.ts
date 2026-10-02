@@ -65,6 +65,7 @@ async function api(path: string, body: unknown) {
 function errorFor(status: number, data: unknown): string {
   if (status === 404) return "not_found";
   if (status === 409) return "full";
+  if (status === 410) return "expired";
   if (status === 429) return "rate_limited";
   const detail = (data as { detail?: unknown } | null)?.detail;
   return typeof detail === "string" && status === 422 ? "invalid" : "unreachable";
@@ -108,13 +109,31 @@ function connect() {
   };
 }
 
+// Keeps the people list in arrival order when someone's row is replaced.
+const seen = new Map<string, number>();
+const order = (id: string) => {
+  if (!seen.has(id)) seen.set(id, seen.size);
+  return seen.get(id) ?? 0;
+};
+
 function onServer(msg: AnyServerMessage) {
   switch (msg.type) {
     case "ROOM.STATE":
       state.connection = "connected";
       state.participants = msg.payload.participants;
+      for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
       state.playback = msg.payload.playback;
+      break;
+    case "ROOM.PARTICIPANT": {
+      const { participant, event } = msg.payload;
+      const others = state.participants.filter((p) => p.id !== participant.id);
+      state.participants = event === "left" ? others : [...others, participant];
+      if (event !== "left") state.participants.sort((a, b) => order(a.id) - order(b.id));
+      break;
+    }
+    case "ROOM.MEDIA":
+      state.media = msg.payload.media;
       break;
     case "SYS.PONG": {
       samples.push(clockSample(msg.payload.t1, msg.payload.serverTime, Date.now()));
@@ -128,6 +147,10 @@ function onServer(msg: AnyServerMessage) {
 }
 
 async function startSession(ticket: Session) {
+  socket?.close(); // switching rooms from the invite page
+  socket = null;
+  seen.clear();
+  Object.assign(state, { participants: [], media: null, playback: null });
   state.session = ticket;
   await chrome.storage.session.set({ session: ticket });
   connect();
@@ -150,7 +173,14 @@ async function handle(req: Request): Promise<Reply> {
         if (!state.name) throw new Error("invalid");
         await startSession(await api("/api/v1/rooms", { name: state.name }));
         break;
-      case "join":
+      case "join": {
+        const code = req.code.trim().toUpperCase();
+        if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) throw new Error("not_found");
+        if (!state.name) throw new Error("invalid");
+        if (state.session?.code === code) break;
+        await startSession(await api(`/api/v1/rooms/${code}/join`, { name: state.name }));
+        break;
+      }
       case "leave":
       case "follow":
         throw new Error("unsupported");

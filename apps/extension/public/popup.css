@@ -167,6 +167,16 @@ p {
   opacity: 0.45;
   cursor: default;
 }
+.stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.stack > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .link {
   border: 0;
   padding: 0;

@@ -1,15 +1,15 @@
+import type { Participant } from "@watchsync/protocol";
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { type AppState, type Push, type Reply, type Request, send } from "../shared/messages";
-
-const ERRORS: Record<string, string> = {
-  unreachable: "We couldn't reach WatchSync. Check your connection and try again.",
-  rate_limited: "Too many tries. Wait a minute and try again.",
-  invalid: "Enter a name of 1 to 30 characters.",
-  not_found: "We can't find that room. Check the code with your friend.",
-  expired: "This room is no longer available.",
-  full: "This room is full.",
-};
+import {
+  type AppState,
+  ERRORS,
+  type Push,
+  type Reply,
+  type Request,
+  SERVICE_LABEL,
+  send,
+} from "../shared/messages";
 
 export const inviteLink = (code: string) => `${__API_URL__}/j/${code}`;
 
@@ -121,6 +121,7 @@ function HomeScreen({ state }: { state: AppState }) {
           {busy ? "Creating room…" : "Create a room"}
         </button>
         <ErrorLine error={error} />
+        <JoinForm />
         <span className="grow" />
         <p className="hint center">
           You're <b>{state.name}</b> ·{" "}
@@ -131,6 +132,48 @@ function HomeScreen({ state }: { state: AppState }) {
       </div>
     </>
   );
+}
+
+function JoinForm() {
+  const [code, setCode] = useState("");
+  const { busy, error, run } = useAction();
+  const valid = /^[A-HJ-NP-Z2-9]{6}$/.test(code);
+  return (
+    <form
+      className="field"
+      onSubmit={(e) => {
+        e.preventDefault();
+        run({ kind: "join", code });
+      }}
+    >
+      <span className="label" id="join-label">
+        Or join a friend's room
+      </span>
+      <div className="row">
+        <input
+          className="input code-input grow"
+          aria-labelledby="join-label"
+          placeholder="Code"
+          value={code}
+          maxLength={6}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+        />
+        <button className="btn" type="submit" disabled={busy || !valid}>
+          {busy ? "Joining…" : "Join"}
+        </button>
+      </div>
+      <ErrorLine error={error} />
+    </form>
+  );
+}
+
+function Watching({ p }: { p: Participant }) {
+  if (!p.connected) return <span className="hint">Away</span>;
+  if (p.service === "none") return <span className="hint">No title open</span>;
+  const service = SERVICE_LABEL[p.service];
+  return <span className="hint">{p.titleName ? `${service} · ${p.titleName}` : service}</span>;
 }
 
 function CopyButton({ text, label, primary }: { text: string; label: string; primary?: boolean }) {
@@ -180,11 +223,13 @@ function RoomScreen({ state }: { state: AppState }) {
               <span className="avatar" aria-hidden="true">
                 {p.name.slice(0, 1).toUpperCase()}
               </span>
-              <span className="grow">
-                {p.name}
-                {p.id === s.participantId ? " (you)" : ""}
+              <span className="grow stack">
+                <span>
+                  {p.name}
+                  {p.id === s.participantId ? " (you)" : ""}
+                </span>
+                <Watching p={p} />
               </span>
-              <span className="dim">{p.connected ? "" : "away"}</span>
             </li>
           ))}
         </ul>
