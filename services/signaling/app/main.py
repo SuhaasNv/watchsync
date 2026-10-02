@@ -179,35 +179,40 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await send(p, "SYS.PONG", {"t1": payload["t1"], "serverTime": now_ms()})
     elif msg["type"] == "PRESENCE.UPDATE":
         media = payload["media"]
-        was_with_room = room.media is not None and p.title_id == room.media["titleId"]
+        room_title = room.media["titleId"] if room.media else None
+        # Straight from the room's title to another one: the next episode.
+        straight = room_title is not None and p.title_id == room_title
+        # Came from the room's title, maybe through the service's browse page (BUG-014).
+        was_with_room = room_title is not None and p.last_title_id == room_title
         p.service = payload["service"]
         p.following = payload["following"]
         p.title_id = media["titleId"] if media else None
         p.title_name = media["titleName"] if media else None
+        if media is not None:
+            p.last_title_id = media["titleId"]
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
-        # The room takes the first title anyone opens, then moves with whoever was on the
-        # room's title and opened another one (next episode). Others are asked, not moved.
-        moved_on = was_with_room and room.media is not None and media is not None
-        if media is not None and (
-            room.media is None or (moved_on and media["titleId"] != room.media["titleId"])
-        ):
-            first = room.media is None
+        # The room takes the first title anyone opens, then moves with whoever was watching
+        # with it and opened another title. People watching on their own never move it.
+        moves = media is not None and p.following and media["titleId"] != room_title
+        if moves and (room_title is None or was_with_room):
             room.media = media
             # The next episode starts from the top for everyone; arriving followers catch up
-            # to this clock, not to the previous title's position (US-020). The room's first
-            # title keeps no clock: its opener may be resuming mid-film.
+            # to this clock (US-020). A newly picked title keeps no clock: its opener may be
+            # resuming mid-film and publishes their position instead.
             room.playback = (
-                None
-                if first
-                else {
+                {
                     "status": "playing",
                     "position": 0,
                     "rate": 1,
                     "updatedAt": now_ms(),
                     "titleId": media["titleId"],
                 }
+                if straight
+                else None
             )
-            await broadcast(room, "ROOM.MEDIA", {"media": media, "byId": p.id, "byName": p.name})
+            how = "next" if straight else "new"
+            change = {"media": media, "byId": p.id, "byName": p.name, "how": how}
+            await broadcast(room, "ROOM.MEDIA", change)
     elif msg["type"] == "PLAYBACK.UPDATE":
         action = payload["action"]
         if room.held and action == "play":

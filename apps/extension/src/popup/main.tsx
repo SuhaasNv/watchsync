@@ -241,6 +241,26 @@ function RoomScreen({ state }: { state: AppState }) {
   const copy = useFocusOnShow<HTMLButtonElement>();
   const s = state.session;
   if (!s) return null;
+  // Alone, inviting is the next step; once others are here, the room is about them (BUG-016).
+  const alone = state.participants.filter((p) => p.id !== s.participantId).length === 0;
+  const people = (
+    <ul className="people" aria-label="People in the room">
+      {state.participants.map((p) => (
+        <li key={p.id}>
+          <span className="avatar" aria-hidden="true">
+            {p.name.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="grow stack">
+            <span>
+              {p.name}
+              {p.id === s.participantId ? " (you)" : ""}
+            </span>
+            <Watching p={p} />
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
   const status = {
     connected: "Connected",
     connecting: "Connecting…",
@@ -251,33 +271,27 @@ function RoomScreen({ state }: { state: AppState }) {
     <>
       <Header right={<span className={`badge ${state.connection}`}>{status}</span>} />
       <div className="body">
-        <div>
-          <p className="dim">Send this to your friends</p>
-          <p className="code" data-testid="room-code">
-            {s.code}
-          </p>
-        </div>
-        <div className="row">
-          <CopyButton text={inviteLink(s.code)} label="Copy link" primary buttonRef={copy} />
-          <CopyButton text={s.code} label="Copy code" />
-        </div>
-        <p className="hint">Your friend needs the WatchSync extension and their own account.</p>
-        <ul className="people" aria-label="People in the room">
-          {state.participants.map((p) => (
-            <li key={p.id}>
-              <span className="avatar" aria-hidden="true">
-                {p.name.slice(0, 1).toUpperCase()}
-              </span>
-              <span className="grow stack">
-                <span>
-                  {p.name}
-                  {p.id === s.participantId ? " (you)" : ""}
-                </span>
-                <Watching p={p} />
-              </span>
-            </li>
-          ))}
-        </ul>
+        {alone ? (
+          <>
+            <div>
+              <p className="dim">Send this to your friends</p>
+              <p className="code" data-testid="room-code">
+                {s.code}
+              </p>
+            </div>
+            <div className="row">
+              <CopyButton text={inviteLink(s.code)} label="Copy link" primary buttonRef={copy} />
+              <CopyButton text={s.code} label="Copy code" />
+            </div>
+            <p className="hint">Your friend needs the WatchSync extension and their own account.</p>
+            {people}
+          </>
+        ) : (
+          <>
+            <h2 className="label">In this room ({state.participants.length})</h2>
+            {people}
+          </>
+        )}
         <button
           className="btn"
           type="button"
@@ -286,6 +300,17 @@ function RoomScreen({ state }: { state: AppState }) {
           {state.following ? "Watch on my own" : "Sync with the room"}
         </button>
         <span className="grow" />
+        {!alone && (
+          <div className="invite">
+            <p className="hint">
+              Invite more · <span data-testid="room-code">{s.code}</span>
+            </p>
+            <div className="row">
+              <CopyButton text={inviteLink(s.code)} label="Copy link" />
+              <CopyButton text={s.code} label="Copy code" />
+            </div>
+          </div>
+        )}
         <button className="btn danger" type="button" onClick={() => send({ kind: "leave" })}>
           Leave room
         </button>

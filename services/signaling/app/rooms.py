@@ -25,6 +25,8 @@ class Participant:
     token: str
     service: str = "none"
     title_id: str | None = None
+    # The last title this person had open, kept while they browse between titles (BUG-014).
+    last_title_id: str | None = None
     title_name: str | None = None
     following: bool = True
     connected: bool = False

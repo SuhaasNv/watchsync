@@ -24,6 +24,7 @@ const state: AppState = {
   clockOffset: 0,
   lastRoom: null,
   notice: null,
+  mediaMove: null,
 };
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
@@ -171,6 +172,7 @@ function onServer(msg: AnyServerMessage) {
   switch (msg.type) {
     case "ROOM.STATE":
       state.connection = "connected";
+      state.mediaMove = null;
       state.notice = null;
       attempt = 0;
       state.participants = msg.payload.participants;
@@ -185,9 +187,12 @@ function onServer(msg: AnyServerMessage) {
       if (event !== "left") state.participants.sort((a, b) => order(a.id) - order(b.id));
       break;
     }
-    case "ROOM.MEDIA":
-      state.media = msg.payload.media;
+    case "ROOM.MEDIA": {
+      const { media, how, byId, byName } = msg.payload;
+      state.media = media;
+      state.mediaMove = { how, byId, byName };
       break;
+    }
     case "PLAYBACK.STATE":
       state.playback = msg.payload.playback;
       break;

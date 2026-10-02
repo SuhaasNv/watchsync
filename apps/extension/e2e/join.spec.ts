@@ -28,6 +28,12 @@ test("friend joins by typing the code and the host sees them arrive", async ({ e
     await expect(page.getByTestId("room-code")).toHaveText(code);
     await expect(page.getByText("Asha (you)")).toBeVisible();
     await expect(host.getByText("Asha", { exact: true })).toBeVisible({ timeout: 1000 });
+    // With others in the room, both popups lead with the people, not the invite (BUG-016).
+    for (const p of [page, host]) {
+      await expect(p.getByRole("heading", { name: "In this room (2)" })).toBeVisible();
+      await expect(p.getByText("Send this to your friends")).toHaveCount(0);
+      await expect(p.getByText("Invite more")).toBeVisible();
+    }
   } finally {
     await friend.context.close();
   }

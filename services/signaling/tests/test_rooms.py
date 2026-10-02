@@ -600,3 +600,64 @@ def test_too_many_socket_connects_are_told_to_try_later(monkeypatch: pytest.Monk
     with pytest.raises(WebSocketDisconnect) as closed, client.websocket_connect(url) as ws:
         ws.receive_json()
     assert closed.value.code == 1013
+
+
+def test_opening_another_title_via_browse_moves_the_room_as_new() -> None:
+    """BUG-014: a gap with no title (the service's browse page) must not lose the room."""
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        presence(hws, None)  # back to browse
+        next_of(hws, "ROOM.PARTICIPANT")
+        presence(hws, "7")  # opens another movie
+        moved = next_of(hws, "ROOM.MEDIA")["payload"]
+        assert moved["how"] == "new" and moved["media"]["titleId"] == "7"
+        assert next_of(gws, "ROOM.MEDIA")["payload"]["byName"] == "Suhaas"
+        # A newly picked title keeps no clock; its opener publishes their position.
+        assert main.rooms.rooms[host["code"]].playback is None
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_next_episode_is_marked_next_and_own_watchers_never_move_the_room() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        presence(hws, "2")  # straight on: next episode
+        assert next_of(hws, "ROOM.MEDIA")["payload"]["how"] == "next"
+        # The guest, watching on their own, opens something else: the room stays.
+        gws.send_json(
+            {
+                "id": "o",
+                "type": "PRESENCE.UPDATE",
+                "timestamp": 1,
+                "payload": {"service": "netflix", "following": False, "media": None},
+            }
+        )
+        next_of(gws, "ROOM.PARTICIPANT")
+        gws.send_json(
+            {
+                "id": "o2",
+                "type": "PRESENCE.UPDATE",
+                "timestamp": 1,
+                "payload": {
+                    "service": "netflix",
+                    "following": False,
+                    "media": {
+                        "service": "netflix",
+                        "titleId": "9",
+                        "titleName": "Other",
+                        "titleUrl": "https://www.netflix.com/watch/9",
+                    },
+                },
+            }
+        )
+        next_of(gws, "ROOM.PARTICIPANT")
+        media = main.rooms.rooms[host["code"]].media
+        assert media is not None and media["titleId"] == "2"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)

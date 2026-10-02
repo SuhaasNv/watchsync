@@ -2,7 +2,14 @@ import type { Media } from "@watchsync/protocol";
 import { expect, test } from "vitest";
 import { align } from "./align";
 import { clock } from "./playback";
-import { hotstarMedia, mainVideo, netflixMedia, primeAd, primeMedia } from "./providers";
+import {
+  hotstarMedia,
+  mainVideo,
+  netflixMedia,
+  primeAd,
+  primeMedia,
+  primeVideo,
+} from "./providers";
 
 // Shape of Netflix's title overlay from the UC-002 desk research, not yet captured from a
 // live account. Replace with a real capture during the DEC-019 confirm checks.
@@ -65,30 +72,43 @@ test("clock formats notice times", () => {
   expect(clock(-3)).toBe("0:00");
 });
 
-// Shapes from the UC-002 desk research; replace with live captures during the DEC-019 checks.
-const PRIME_PLAYER = `<div class="atvwebplayersdk-title-text">The Boys</div>
-  <div class="atvwebplayersdk-subtitle-text">Season 1, Ep. 3 Get Some</div>`;
-
-test("prime reads the title from the URL and the episode from the player", () => {
-  const m = primeMedia(
-    new URL("https://www.primevideo.com/detail/0KRGHGZCHKS920ZQGY5LBRF7MA/ref=x?autoplay=1"),
-    doc(PRIME_PLAYER),
+test("prime reads the title from the page title and the ID from the URL (BUG-015)", () => {
+  const d = doc("");
+  d.title = "Prime Video: Vaarasudu";
+  const url = new URL(
+    "https://www.primevideo.com/region/eu/detail/0TQV0X9RJF64O24RIRD1BHH37H?ref_=x",
   );
-  expect(m).toEqual({
+  expect(primeMedia(url, d, true)).toEqual({
     service: "prime",
-    titleId: "0KRGHGZCHKS920ZQGY5LBRF7MA:Season 1, Ep. 3 Get Some",
-    titleName: "The Boys, Season 1, Ep. 3 Get Some",
-    titleUrl: "https://www.primevideo.com/detail/0KRGHGZCHKS920ZQGY5LBRF7MA",
+    titleId: "0TQV0X9RJF64O24RIRD1BHH37H",
+    titleName: "Vaarasudu",
+    titleUrl: "https://www.primevideo.com/detail/0TQV0X9RJF64O24RIRD1BHH37H",
   });
+  // Detail page with only the trailer: not watching yet.
+  expect(primeMedia(url, d, false)).toBeNull();
 });
 
-test("prime on amazon.in keeps the gp/video path, and browsing isn't watching", () => {
-  const m = primeMedia(
-    new URL("https://www.amazon.in/gp/video/detail/B0ABC12345"),
-    doc(PRIME_PLAYER),
-  );
+test("prime on amazon.in keeps the gp/video path and cleans the store title", () => {
+  const d = doc("");
+  d.title = "Amazon.in: Watch Vaarasudu | Prime Video";
+  const m = primeMedia(new URL("https://www.amazon.in/gp/video/detail/B0ABC12345"), d, true);
   expect(m?.titleUrl).toBe("https://www.amazon.in/gp/video/detail/B0ABC12345");
-  expect(primeMedia(new URL("https://www.primevideo.com/detail/X1"), doc(""))).toBeNull();
+  expect(m?.titleName).toBe("Vaarasudu");
+});
+
+test("prime picks the film, not the detail page's trailer", () => {
+  const d = doc("<video id=trailer></video><video id=film></video>");
+  const [trailer, film] = [...d.querySelectorAll("video")];
+  for (const [v, duration] of [
+    [trailer, 101],
+    [film, 10146],
+  ] as const) {
+    Object.defineProperty(v, "readyState", { value: 4 });
+    Object.defineProperty(v, "duration", { value: duration, configurable: true });
+  }
+  expect(primeVideo(d)?.id).toBe("film");
+  Object.defineProperty(film, "duration", { value: 90 });
+  expect(primeVideo(d)).toBeNull();
 });
 
 test("prime ad timer gives the time left", () => {

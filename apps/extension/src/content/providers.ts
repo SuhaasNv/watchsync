@@ -84,21 +84,37 @@ export function netflixMedia(url: URL, doc: Document, lastName: string | null): 
 const PRIME_HOSTS = /^www\.(primevideo\.com|amazon\.(com|in|co\.uk|de))$/;
 
 /**
- * Prime Video: the title is /detail/<id> (or the gti parameter); episodes often change
- * inside the player without a URL change, so the episode line is part of the identity.
+ * Prime Video, as seen on a live player (BUG-015, 2 October 2026): the player uses generated
+ * class names, so the title comes from the page title ("Prime Video: Vaarasudu") and the ID
+ * from /detail/<id> (or gti). Detail pages also run a short trailer, so a title only counts
+ * as watching while the long video is loaded. Episodes change inside the player; the old
+ * subtitle line is still read if present.
  */
-export function primeMedia(url: URL, doc: Document): Media | null {
+export function primeMedia(url: URL, doc: Document, playerOpen: boolean): Media | null {
   const id = url.pathname.match(/\/detail\/([\w.-]+)/)?.[1] ?? url.searchParams.get("gti");
-  const title = text(doc, ".atvwebplayersdk-title-text");
-  if (!id || !title) return null; // no player open: browsing, not watching
+  const title = doc.title
+    .replace(/^(prime video|amazon\.[\w.]+)\s*:\s*/i, "")
+    .replace(/^watch\s+/i, "")
+    .replace(/\s*\|.*$/, "")
+    .trim();
+  if (!id || !title || !playerOpen) return null; // browsing, not watching
   const episode = text(doc, ".atvwebplayersdk-subtitle-text");
-  const base = url.pathname.startsWith("/gp/video") ? "/gp/video/detail" : "/detail";
+  const base = url.pathname.includes("/gp/video") ? "/gp/video/detail" : "/detail";
   return {
     service: "prime",
     titleId: episode ? `${id}:${episode}` : id,
     titleName: episode ? `${title}, ${episode}` : title,
     titleUrl: `${url.origin}${base}/${id}`,
   };
+}
+
+/** Prime's film or episode: the longest loaded video (trailers and previews are short). */
+export function primeVideo(doc: Document = document): HTMLVideoElement | null {
+  let best: HTMLVideoElement | null = null;
+  for (const v of doc.querySelectorAll("video"))
+    if (v.readyState > 0 && Number.isFinite(v.duration) && v.duration > (best?.duration ?? 300))
+      best = v;
+  return best;
 }
 
 /** Prime shows an ad countdown in the player while an ad plays. */
@@ -219,8 +235,29 @@ function netflixProvider(): StreamingProvider {
 export function providerFor(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
   if (PRIME_HOSTS.test(host)) {
-    const base = videoProvider("prime", () => primeMedia(new URL(location.href), document));
-    return { ...base, ad: () => primeAd(document) };
+    const media = () => primeMedia(new URL(location.href), document, primeVideo() !== null);
+    return {
+      ...videoProvider("prime", media),
+      video: () => primeVideo(),
+      getState: () => stateOf(primeVideo()),
+      // Prime's player cancels video.play() (AbortError); its own space shortcut, sent to
+      // the video's parent, resumes reliably. Pause and seek work on the element.
+      play: async () => {
+        const v = primeVideo();
+        if (!v?.paused) return;
+        for (const type of ["keydown", "keyup"])
+          v.parentElement?.dispatchEvent(
+            new KeyboardEvent(type, { key: " ", code: "Space", keyCode: 32, bubbles: true }),
+          );
+      },
+      pause: async () => primeVideo()?.pause(),
+      seek: async (s) => {
+        const v = primeVideo();
+        if (v) v.currentTime = s;
+      },
+      stalled: () => isStalled(primeVideo()),
+      ad: () => primeAd(document),
+    };
   }
   if (host === "www.jiohotstar.com" || host === "www.hotstar.com")
     return videoProvider("jiohotstar", () => hotstarMedia(new URL(location.href), document));
