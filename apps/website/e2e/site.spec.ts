@@ -159,6 +159,9 @@ test.describe("install guide", () => {
     );
     // With no release published, there is no checksum to show yet.
     await expect(page.locator("[data-latest-sum]")).toBeHidden();
+    // The checking steps stay folded until asked for.
+    await expect(safe.getByRole("button", { name: "Copy the Windows command" })).toBeHidden();
+    await safe.getByText("Check your download").click();
     await safe.getByRole("button", { name: "Copy the Windows command" }).click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       "certutil -hashfile Downloads\\watchsync-extension.zip SHA256",
@@ -167,6 +170,12 @@ test.describe("install guide", () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       "gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync",
     );
+  });
+
+  test("opens the checking steps when linked from the release notes", async ({ page }) => {
+    await page.goto("/install/#check");
+    await expect(page.locator("#check")).toHaveAttribute("open", "");
+    await expect(page.getByRole("button", { name: "Copy the Mac command" })).toBeVisible();
   });
 });
 
