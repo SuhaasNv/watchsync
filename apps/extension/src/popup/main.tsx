@@ -322,14 +322,17 @@ function RoomScreen({ state }: { state: AppState }) {
 function Footer() {
   return (
     <footer className="foot">
-      <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
-        Privacy
-      </a>{" "}
-      ·{" "}
-      <a href={`${__API_URL__}/terms`} target="_blank" rel="noreferrer">
-        Terms
-      </a>{" "}
-      · Not affiliated with Netflix, Amazon or JioStar. · v{chrome.runtime.getManifest().version}
+      <p className="foot-row">
+        <a href={`${__API_URL__}/privacy`} target="_blank" rel="noreferrer">
+          Privacy
+        </a>
+        <a href={`${__API_URL__}/terms`} target="_blank" rel="noreferrer">
+          Terms
+        </a>
+        <span className="grow" />
+        <span>v{chrome.runtime.getManifest().version}</span>
+      </p>
+      <p>Not affiliated with Netflix, Amazon or JioStar.</p>
     </footer>
   );
 }
