@@ -204,11 +204,32 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
         raise HTTPException(429, "Too many join attempts. Try again in a minute.", TRY_LATER)
     body = await read_body(request, is_join_request)
     try:
-        return rooms.join(code.upper(), name_in(body), body.get("token"))
+        ticket = rooms.join(code.upper(), name_in(body), body.get("token"))
     except RoomError as e:
         if e.code == "not_found":
             failed_join_limiter.allow(EVERYONE)
         raise HTTPException(ERROR_STATUS[e.code], e.message) from e
+    await end_away_namesake(rooms.rooms[ticket["code"]], ticket["participantId"])
+    return ticket
+
+
+async def end_away_namesake(room: Room, new_id: str) -> None:
+    """A plain join under the name of someone who is away is them back after a browser
+    restart, which clears the rejoin token (BUG-044): end the away row now instead of after
+    its grace, and announce a rejoin (BUG-048). They still get a new place, never the old one
+    (BUG-041), so at worst someone with the code ends an away friend's wait early."""
+    p = room.participants[new_id]
+    for x in list(room.participants.values()):
+        task = away.get(x.id)
+        if x is p or x.name != p.name or task is None:
+            continue
+        del away[x.id]
+        task.cancel()
+        rooms.leave(room, x, end_if_empty=False)
+        room.gone.discard(x.name)
+        p.rejoined = True
+        await broadcast(room, "ROOM.PARTICIPANT", {"participant": x.public(), "event": "left"})
+        await release_if_clear(room, x)
 
 
 async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:

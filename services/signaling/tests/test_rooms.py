@@ -1148,31 +1148,38 @@ def test_rejoining_with_the_last_token_replaces_the_away_row(
 def test_a_name_alone_cannot_take_over_someone_away(
     live: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """BUG-041: anyone with the code could kick a dropped friend by joining under their name."""
+    """BUG-041: anyone with the code could take a dropped friend's place under their name."""
     host = create()
     guest = join(host["code"]).json()
     elsewhere = create("Asha")
     url = f"/ws/rooms/{host['code']}?token="
-    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 0.5)
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 30)
+    room = main.rooms.rooms[host["code"]]
     with live.websocket_connect(url + host["token"]) as hws:
         hws.receive_json()
         with live.websocket_connect(url + guest["token"]) as gws:
             gws.receive_json()
         next_of(hws, "ROOM.PARTICIPANT")  # joined
         next_of(hws, "ROOM.PARTICIPANT")  # away
-        # Same name, no token (or a token from another room): a separate participant.
-        for token in (None, elsewhere["token"], "x" * 43):
-            r = rejoin(host["code"], "Asha", token).json()
-            assert r["participantId"] != guest["participantId"]
-            assert not main.rooms.rooms[host["code"]].participants[r["participantId"]].rejoined
-        assert main.rooms.rooms[host["code"]].participants[guest["participantId"]].name == "Asha"
+        # Same name, no token (or a token from another room): never her place or her id.
+        r = live.post(f"/api/v1/rooms/{host['code']}/join", json={"name": "Asha"}).json()
+        assert r["participantId"] != guest["participantId"]
+        # BUG-048: that is her back after a browser restart, so her away row ends now
+        # instead of after 60 s, and the newcomer arrives as a rejoin.
+        left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+        assert left["event"] == "left" and left["participant"]["id"] == guest["participantId"]
+        assert guest["participantId"] not in room.participants
+        assert room.participants[r["participantId"]].rejoined
+        for token in (elsewhere["token"], "x" * 43):
+            other = rejoin(host["code"], "Asha", token).json()
+            # Nobody is away now: just another participant, and the first newcomer stays.
+            assert other["participantId"] not in (guest["participantId"], r["participantId"])
+            assert not room.participants[other["participantId"]].rejoined
+        assert r["participantId"] in room.participants
         with live.websocket_connect(url + r["token"]) as nws:
             nws.receive_json()
             came = next_of(hws, "ROOM.PARTICIPANT")["payload"]
-            assert came["event"] == "joined" and came["participant"]["id"] == r["participantId"]
-            # The real Asha's row stays until her own grace period ends.
-            left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
-            assert left["event"] == "left" and left["participant"]["id"] == guest["participantId"]
+            assert came["event"] == "rejoined" and came["participant"]["id"] == r["participantId"]
     assert (
         client.post(
             f"/api/v1/rooms/{host['code']}/join", json={"name": "Asha", "token": "bad token!"}
