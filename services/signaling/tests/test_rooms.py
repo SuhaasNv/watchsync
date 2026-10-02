@@ -195,3 +195,34 @@ def test_room_moves_only_with_someone_who_was_on_its_title() -> None:
         assert moved["payload"]["byName"] == "Suhaas"
         snapshot = main.rooms.rooms[host["code"]].snapshot("x")
         assert snapshot["media"]["titleId"] == "2"
+
+
+def test_playback_update_is_stamped_kept_and_sent_to_others_only() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with (
+        client.websocket_connect(url + host["token"]) as hws,
+        client.websocket_connect(url + guest["token"]) as gws,
+    ):
+        hws.receive_json()
+        gws.receive_json()
+        next_of(hws, "ROOM.PARTICIPANT")  # the guest's arrival
+        before = main.now_ms()
+        hws.send_json(
+            {
+                "id": "u",
+                "type": "PLAYBACK.UPDATE",
+                "timestamp": 1,
+                "payload": {"action": "pause", "position": 61.5, "rate": 1, "titleId": "1"},
+            }
+        )
+        hws.send_json({"id": "p", "type": "SYS.PING", "timestamp": 1, "payload": {"t1": 1}})
+        # The sender's next message is its pong: no PLAYBACK.STATE echo.
+        assert hws.receive_json()["type"] == "SYS.PONG"
+        got = next_of(gws, "PLAYBACK.STATE")["payload"]
+        assert got["action"] == "pause" and got["byName"] == "Suhaas"
+        assert got["playback"]["status"] == "paused"
+        assert got["playback"]["position"] == 61.5
+        assert got["playback"]["updatedAt"] >= before
+        assert main.rooms.rooms[host["code"]].playback == got["playback"]
