@@ -62,6 +62,9 @@ rmSync("dist", { recursive: true, force: true });
 mkdirSync("dist");
 cpSync("public", "dist", { recursive: true });
 writeFileSync("dist/manifest.json", JSON.stringify(manifest, null, 2));
+// The welcome page links to this build's privacy notice.
+const welcome = readFileSync("dist/welcome.html", "utf8");
+writeFileSync("dist/welcome.html", welcome.replaceAll("__API_URL__", api));
 
 const common = {
   bundle: true,
@@ -88,6 +91,7 @@ const builds = [
       "netflix-bridge": "src/page/netflix-bridge.ts",
       "join-page": "src/content/join-page.ts",
       popup: "src/popup/main.tsx",
+      welcome: "src/welcome/main.ts",
     },
     format: "iife",
   },
