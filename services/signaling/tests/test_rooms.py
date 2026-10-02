@@ -502,3 +502,63 @@ def test_start_anyway_skips_who_isnt_ready() -> None:
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)
+
+
+def test_nan_is_refused_and_never_reaches_the_room() -> None:
+    host = create()
+    with client.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+        ws.send_text(
+            '{"id":"n","type":"PLAYBACK.UPDATE","timestamp":1,"payload":{"action":"play",'
+            '"status":"playing","position":NaN,"rate":1,"titleId":"1"}}'
+        )
+        err = ws.receive_json()
+        assert err["type"] == "SYS.ERROR" and err["payload"]["code"] == "invalid_message"
+        ws.send_bytes(b"\x00binary")
+        assert ws.receive_json()["payload"]["code"] == "invalid_message"
+    assert main.rooms.rooms[host["code"]].playback is None
+
+
+def test_sending_to_a_peer_that_dropped_never_raises() -> None:
+    class Dead:
+        async def send_json(self, _: Any) -> None:
+            raise WebSocketDisconnect(1006)
+
+    host = create()
+    p = main.rooms.rooms[host["code"]].participants[host["participantId"]]
+    main.sockets[p.id] = Dead()  # type: ignore[assignment]
+    try:
+        import asyncio
+
+        asyncio.run(main.send(p, "SYS.PONG", {"t1": 1, "serverTime": 1}))
+    finally:
+        del main.sockets[p.id]
+
+
+def test_limiter_forgets_idle_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import ratelimit
+
+    clock = [1000.0]
+    monkeypatch.setattr(ratelimit.time, "monotonic", lambda: clock[0])
+    limiter = ratelimit.Limiter(2, 10)
+    limiter.allow("1.2.3.4")
+    limiter.allow("5.6.7.8")
+    clock[0] += 11
+    limiter.allow("5.6.7.8")
+    limiter.prune()
+    assert list(limiter.hits) == ["5.6.7.8"]
+    limiter.forget("5.6.7.8")
+    assert not limiter.hits
+
+
+def test_bodies_must_be_small_json() -> None:
+    assert client.post("/api/v1/rooms", content=b'{"name":"a"}').status_code == 415
+    plain = {"content-type": "text/plain"}
+    assert client.post("/api/v1/rooms", content=b'{"name":"a"}', headers=plain).status_code == 415
+
+    def big() -> Any:
+        for _ in range(100):
+            yield b"x" * 1024
+
+    headers = {"content-type": "application/json"}
+    assert client.post("/api/v1/rooms", content=big(), headers=headers).status_code == 413

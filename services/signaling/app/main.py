@@ -1,7 +1,9 @@
 """HTTP and WebSocket entry points. Room logic lives in rooms.py."""
 
+import asyncio
+import contextlib
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
@@ -12,7 +14,25 @@ from .protocol import is_client_message, is_create_request, message, now_ms
 from .ratelimit import Limiter
 from .rooms import Participant, Room, RoomError, rooms
 
-app = FastAPI(title="WatchSync room service", version=config.VERSION)
+
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Every minute: end rooms empty past the expiry and forget idle rate-limit keys, so
+    names and titles leave memory on time even with no other traffic (BUG-011)."""
+
+    async def sweeper() -> None:
+        while True:
+            await asyncio.sleep(60)
+            rooms.sweep()
+            for limiter in (create_limiter, join_limiter, message_limiter):
+                limiter.prune()
+
+    task = asyncio.create_task(sweeper())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="WatchSync room service", version=config.VERSION, lifespan=lifespan)
 create_limiter = Limiter(config.CREATE_PER_MINUTE, 60)
 join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
 message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
@@ -41,18 +61,31 @@ async def security_headers(
 
 
 async def read_name(request: Request) -> str:
-    """The display name from a create or join body; 413 or 422 on anything else."""
-    body = await request.body()
-    if len(body) > config.MAX_BODY_BYTES:
+    """The display name from a create or join body; 413, 415 or 422 on anything else."""
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        # Also forces a CORS preflight, so other sites can't post here (no CORS allowed).
+        raise HTTPException(415, "Send JSON.")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > config.MAX_BODY_BYTES:
         raise HTTPException(413, "Request too large.")
+    body = b""
+    async for chunk in request.stream():  # never hold more than the cap (BUG-012)
+        body += chunk
+        if len(body) > config.MAX_BODY_BYTES:
+            raise HTTPException(413, "Request too large.")
     try:
-        data = json.loads(body)
+        data = json.loads(body, parse_constant=reject_constant)
     except ValueError:
         data = None
     if not is_create_request(data):
         raise HTTPException(422, "A name of 1 to 30 characters is required.")
     name: str = data["name"].strip()
     return name or "Guest"
+
+
+def reject_constant(name: str) -> None:
+    """JSON allows no NaN or Infinity, but Python's parser does; refuse them (BUG-008)."""
+    raise ValueError(f"{name} is not allowed")
 
 
 @app.get("/health")
@@ -90,10 +123,10 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
 async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:
     ws = sockets.get(p.id)
     if ws is not None:
-        try:
+        # A peer that just dropped must never break the sender's handler (BUG-010); the
+        # peer's own handler cleans up after it.
+        with contextlib.suppress(Exception):
             await ws.send_json(message(type_, payload))
-        except RuntimeError:
-            pass  # socket already closing; its own handler cleans up
 
 
 async def broadcast(
@@ -285,6 +318,9 @@ def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
 async def room_socket(ws: WebSocket, code: str) -> None:
     found = rooms.authenticate(code, ws.query_params.get("token", ""))
     if found is None:
+        # Accept first: a close before accept reaches browsers as 1006, which looks like a
+        # network drop and makes the extension retry forever (BUG-009).
+        await ws.accept()
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     room, p = found
@@ -302,7 +338,13 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     left = False
     try:
         while True:
-            msg = await ws.receive_json()
+            raw = await ws.receive()
+            if raw["type"] == "websocket.disconnect":
+                break
+            try:
+                msg = json.loads(raw.get("text") or "", parse_constant=reject_constant)
+            except ValueError:  # not JSON, NaN/Infinity (BUG-008), or a binary frame
+                msg = None
             if not message_limiter.allow(p.id):
                 await send(
                     p, "SYS.ERROR", {"code": "rate_limited", "message": "Slow down a little."}
@@ -322,11 +364,12 @@ async def room_socket(ws: WebSocket, code: str) -> None:
                 await ws.close(code=status.WS_1000_NORMAL_CLOSURE)
                 break
             await handle(room, p, msg)
-    except (WebSocketDisconnect, ValueError):  # ValueError: client sent non-JSON
+    except WebSocketDisconnect:
         pass
     finally:
         if sockets.get(p.id) is ws:  # not replaced by a newer connection
             del sockets[p.id]
+            message_limiter.forget(p.id)
             p.connected = False
             p.hold = None  # don't keep the room waiting for someone who's gone
             if not left:
