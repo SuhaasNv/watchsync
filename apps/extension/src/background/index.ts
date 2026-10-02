@@ -140,8 +140,18 @@ function sendServer(msg: AnyClientMessage) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
-/** 1, 2, 4, 8, 16, then every 30 s, each with up to 30% jitter so clients don't stampede. */
-const backoff = (n: number) => Math.min(30_000, 1000 * 2 ** n) * (1 + Math.random() * 0.3);
+// 1, 2, 4, 8, then every 10 s: short enough that a friend back on Wi-Fi rejoins quickly
+// (BUG-018), with jitter so a room's clients don't all retry at once after a redeploy.
+const backoff = (n: number) => Math.min(10_000, 1000 * 2 ** n) * (1 + Math.random() * 0.3);
+
+/** Someone opened the popup or a service page while we wait to retry: try right away. */
+function retryNow() {
+  if (state.connection !== "reconnecting" || !state.session) return;
+  clearTimeout(retry);
+  connect();
+}
+// The browser saying the network is back is the best moment to retry.
+self.addEventListener("online", retryNow);
 
 function connect() {
   const s = state.session;
@@ -343,6 +353,7 @@ chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
 chrome.runtime.onConnect.addListener((port) => {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   ports.add(port);
+  retryNow();
   port.onDisconnect.addListener(() => {
     ports.delete(port);
     if (port !== presencePort) return;
