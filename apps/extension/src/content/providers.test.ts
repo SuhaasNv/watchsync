@@ -173,3 +173,23 @@ test("title names over 200 characters are cut, not refused by the room", () => {
   expect(name.endsWith("…")).toBe(true);
   expect(capName({ ...long, titleName: "Dune" })?.titleName).toBe("Dune");
 });
+
+test("prime never takes its storefront page title for the show's name (BUG-054)", () => {
+  const url = new URL("https://www.amazon.in/gp/video/detail/B0REACHER1");
+  const d = doc("");
+  d.title = "Prime Video: Watch movies, TV shows, sports, and live TV";
+  // No real name anywhere yet: the title goes out without one, the room fills it in later.
+  expect(primeMedia(url, d, true)?.titleName).toBeNull();
+  // The player's own title wins over the page title.
+  const player = doc(`<div class="atvwebplayersdk-title-text">Reacher</div>
+    <div class="atvwebplayersdk-subtitle-text">Season 3, Ep. 1</div>`);
+  player.title = d.title;
+  expect(primeMedia(url, player, true)?.titleName).toBe("Reacher, Season 3, Ep. 1");
+  // Then the detail page's heading, then og:title.
+  const detail = doc(`<h1 data-automation-id="title">Reacher</h1>`);
+  detail.title = d.title;
+  expect(primeMedia(url, detail, true)?.titleName).toBe("Reacher");
+  const og = doc(`<meta property="og:title" content="Watch Reacher - Season 3 | Prime Video">`);
+  og.title = d.title;
+  expect(primeMedia(url, og, true)?.titleName).toBe("Reacher - Season 3");
+});

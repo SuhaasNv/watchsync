@@ -2,12 +2,15 @@
 // Nobody on the team can trigger a real ad on demand, so these pin the behaviour down
 // against DOM fixtures.
 import { describe, expect, test } from "vitest";
-import { adSeconds, longestVideo, primeAd, separateAd } from "./providers";
+import { adSeconds, longestVideo, playingWithSound, primeAd, separateAd } from "./providers";
 
 const doc = (html: string) => new DOMParser().parseFromString(html, "text/html");
 
 type VideoProps = Partial<
-  Record<"paused" | "duration" | "currentTime" | "readyState" | "clientWidth", number | boolean>
+  Record<
+    "paused" | "duration" | "currentTime" | "readyState" | "clientWidth" | "muted" | "volume",
+    number | boolean
+  >
 >;
 
 /** jsdom has no media pipeline: give a <video> the state a real player would report. */
@@ -163,5 +166,12 @@ describe("separateAd (BUG-020 heuristic)", () => {
   test("a live film has no length, so nothing next to it reads as an ad", () => {
     const { d } = page({ ...FILM, duration: Infinity, paused: true }, { ...AD, paused: false });
     expect(separateAd(d)).toBeNull();
+  });
+});
+
+describe("no ad when there isn't one (BUG-055)", () => {
+  test("Prime's empty timer left in the page", () => {
+    const d = doc(`<div class="atvwebplayersdk-ad-timer"> </div>`);
+    expect(primeAd(d)).toBeNull();
   });
 });
