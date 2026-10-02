@@ -17,6 +17,21 @@ test("a friend on another title is asked, and Open takes them there", async ({ e
   }
 });
 
+test("the popup offers the room's title to a friend who isn't on it", async ({ ext }) => {
+  const { friend, fpop } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/film`);
+    const open = fpop.getByRole("button", { name: "Open Demo Show, E1" });
+    await expect(open).toBeVisible({ timeout: 5000 });
+    const opened = friend.context.waitForEvent("page");
+    await open.click();
+    await (await opened).waitForURL(`${MOCK}/watch/ep1`);
+  } finally {
+    await friend.context.close();
+  }
+});
+
 test("the room moves to the next episode together", async ({ ext }) => {
   const { hostTab, friend } = await room(ext);
   try {
@@ -54,7 +69,9 @@ test("opening another movie asks friends to continue or watch on their own (BUG-
       if (v) v.currentTime = 40; // resuming mid-film
     });
 
-    await expect(tab.getByText("Suhaas opened Demo Film.")).toBeVisible({ timeout: 6000 });
+    await expect(tab.getByText("Suhaas opened Demo Film on Test player.")).toBeVisible({
+      timeout: 6000,
+    });
     await expect(tab.getByRole("button", { name: "Watch on my own" }).first()).toBeVisible();
     await tab.getByRole("button", { name: "Continue with Suhaas" }).click();
     await tab.waitForURL(`${MOCK}/watch/film`);
@@ -81,7 +98,7 @@ test("watch on my own from the new-movie prompt keeps the friend where they are"
     await hostTab.waitForTimeout(1500);
     await hostTab.goto(`${MOCK}/watch/film`);
 
-    const card = tab.getByText("Suhaas opened Demo Film.");
+    const card = tab.getByText("Suhaas opened Demo Film on Test player.");
     await expect(card).toBeVisible({ timeout: 6000 });
     await tab.getByRole("button", { name: "Watch on my own" }).first().click();
     await expect(card).toHaveCount(0);

@@ -2,9 +2,9 @@
 // keeps it on the room's title.
 import type { Media } from "@watchsync/protocol";
 import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
-import { type AppState, type Push, send, type TabEvent } from "../shared/messages";
+import { type AppState, type Push, SERVICE_LABEL, send, type TabEvent } from "../shared/messages";
 import { align } from "./align";
-import { clearPrompt, prompt, renderPill, toast } from "./overlay";
+import { clearPrompt, notice, prompt, renderPill, toast } from "./overlay";
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
 import { providerFor } from "./providers";
 
@@ -18,6 +18,8 @@ let room: AppState | null = null;
 let mine: Media | null = null;
 let roomMedia: Media | null = null;
 let dismissed: string | null = null;
+/** Who last moved the room's clock, so drift can say whose position it is. */
+let lastActor: { id: string; name: string } | null = null;
 
 function post(event: TabEvent) {
   port?.postMessage(event);
@@ -27,10 +29,13 @@ function reportPresence() {
   if (provider) post({ kind: "presence", service: provider.service, media: mine });
 }
 
-function whoIsOn(media: Media): string {
+function friendOn(media: Media): string | null {
   const me = room?.session?.participantId;
-  const p = room?.participants.find((x) => x.id !== me && x.titleId === media.titleId);
-  return p?.name ?? "Your friend";
+  return room?.participants.find((x) => x.id !== me && x.titleId === media.titleId)?.name ?? null;
+}
+
+function whoIsOn(media: Media): string {
+  return friendOn(media) ?? "Your friend";
 }
 
 /** Called when the room's title or this tab's title changes. */
@@ -49,13 +54,15 @@ function reconcile(roomBefore: Media | null) {
       `${whoIsOn(media)} is on ${title}. Pick it in the player to watch together.`,
       [{ label: "OK", run: () => (dismissed = media.titleId) }],
       "align",
+      { who: friendOn(media), icon: "title" },
     );
   }
   const move = room.mediaMove;
   if (step.kind === "follow" && move?.how === "new") {
     // Someone picked another title (BUG-014): ask, don't drag everyone along.
+    const service = SERVICE_LABEL[media.service];
     return prompt(
-      `${move.byName} opened ${title}.`,
+      service ? `${move.byName} opened ${title} on ${service}.` : `${move.byName} opened ${title}.`,
       [
         { label: "Watch on my own", run: () => follow(false) },
         {
@@ -65,10 +72,14 @@ function reconcile(roomBefore: Media | null) {
         },
       ],
       "align",
+      { who: move.byName, icon: "title" },
     );
   }
   if (step.kind === "follow") {
-    toast(`Moving to ${title} with ${whoIsOn(media)}`);
+    toast(`Moving to ${title} with ${whoIsOn(media)}`, 4000, {
+      who: friendOn(media),
+      icon: "title",
+    });
     location.assign(step.url);
     return;
   }
@@ -80,6 +91,7 @@ function reconcile(roomBefore: Media | null) {
       { label: "Open", primary: true, run: () => location.assign(step.url) },
     ],
     "align",
+    { who: friendOn(media), icon: "title" },
   );
 }
 
@@ -88,6 +100,7 @@ const NOTICE = { play: "pressed play", pause: "paused" } as const;
 function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
     const { playback, action, byId, byName } = m.message.payload;
+    lastActor = { id: byId, name: byName };
     if (!provider || !mine || playback.titleId !== mine.titleId) return;
     if (!room?.following) return; // watching on my own (US-027)
     if (isLive()) return; // live streams aren't synced in v0.1 (US-032)
@@ -95,15 +108,23 @@ function onPush(m: Push) {
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
     const before = provider.getState()?.position ?? 0;
     apply(provider, playback, serverNow).catch((e: unknown) =>
-      toast(e instanceof Error ? e.message : "We couldn't control the player here."),
+      toast(e instanceof Error ? e.message : "We couldn't control the player here.", 6000, {
+        icon: "alert",
+        tone: "bad",
+      }),
     );
     const holder = room.participants.find((p) => p.id === byId && p.hold);
     if (holder && action === "pause") return; // the wait card explains it (drawWait)
     if (action === "play" && waitShownAt) return; // drawWait says "Back together"
-    if (action !== "seek") return toast(`${byName} ${NOTICE[action]}`, 3000);
+    if (action !== "seek")
+      return toast(`${byName} ${NOTICE[action]}`, 3000, { who: byName, icon: action });
     const to = expectedPosition(playback, serverNow);
     if (Math.abs(to - before) < 1) return; // already there; nothing visibly moved
-    toast(`${byName} ${to > before ? "skipped ahead" : "went back"} to ${clock(to)}`, 4000);
+    const ahead = to > before;
+    toast(`${byName} ${ahead ? "skipped ahead" : "went back"} to ${clock(to)}`, 4000, {
+      who: byName,
+      icon: ahead ? "ahead" : "back",
+    });
     return;
   }
   if (m.kind === "server" && m.message.type === "START.STATE") {
@@ -118,13 +139,15 @@ function onPush(m: Push) {
   }
   if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
     const { participant, event } = m.message.payload;
-    if (event === "left") toast(`${participant.name} left`);
+    if (event === "left")
+      toast(`${participant.name} left`, 4000, { who: participant.name, icon: "leave" });
     return;
   }
   if (m.kind !== "state") return;
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
   room = m.state;
+  showConnection();
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
   if (room.following && wasFollowing === false) {
@@ -143,7 +166,27 @@ function onPush(m: Push) {
 }
 
 let behind: string | null = null;
+/** The drift prompt as shown; null while hidden, including after "Stay here". */
+let behindShown: string | null = null;
+/** Signed drift in seconds at the last check (local minus room). */
+let drift = 0;
+/** "Stay here": the drift and room clock the person chose to keep, so we don't nag. */
+let stayed: { drift: number; updatedAt: number } | null = null;
 let nextCorrection = 0;
+
+let lost = false;
+
+/** A calm line while the room connection is down, and one when it's back (no positions). */
+function showConnection() {
+  const down = Boolean(room?.session) && room?.connection === "reconnecting";
+  if (down === lost) return;
+  lost = down;
+  if (down)
+    return notice("connection", "Connection lost. Reconnecting…", { icon: "sync", tone: "warn" });
+  notice("connection", null);
+  if (room?.session && room.connection === "connected")
+    toast("Back with the room", 3000, { icon: "check", tone: "ok" });
+}
 
 const follow = (following: boolean) => void send({ kind: "follow", following });
 
@@ -168,25 +211,35 @@ function drawPill() {
   const me = room.session.participantId;
   const roomTitle = roomMedia?.titleId;
   const people = room.participants.map((p) => {
+    const online = room?.connection === "connected";
     const synced =
       p.id === me
-        ? room?.following === true && behind === null && mine?.titleId === roomTitle
+        ? online && room?.following === true && behind === null && mine?.titleId === roomTitle
         : p.connected && p.following && p.titleId === roomTitle;
     const state = !p.connected
       ? "away"
-      : p.hold === "ad"
-        ? "on an ad"
-        : p.hold === "buffering"
-          ? "loading"
-          : !p.following
-            ? "watching on their own"
-            : p.titleId !== roomTitle
-              ? "on another title"
-              : synced
-                ? "in sync"
-                : "catching up";
+      : p.id === me && !online
+        ? "reconnecting"
+        : p.hold === "ad"
+          ? "on an ad"
+          : p.hold === "buffering"
+            ? "loading"
+            : !p.following
+              ? "watching on their own"
+              : p.titleId !== roomTitle
+                ? "on another title"
+                : synced
+                  ? "in sync"
+                  : "catching up";
     const name = p.id === me ? `${p.name} (you)` : p.name;
-    return { initial: p.name.slice(0, 1).toUpperCase(), label: `${name}, ${state}`, synced };
+    const mark = synced
+      ? "synced"
+      : !p.connected
+        ? "away"
+        : p.hold || (p.id === me && !online)
+          ? "wait"
+          : "none";
+    return { name: p.name, label: `${name}, ${state}`, mark } as const;
   });
   renderPill({
     people,
@@ -201,11 +254,36 @@ function drawPill() {
 }
 
 function showBehind(text: string | null) {
-  if (text === behind) return;
+  if (text === null) stayed = null;
+  const quiet =
+    text !== null &&
+    stayed !== null &&
+    stayed.updatedAt === room?.playback?.updatedAt &&
+    Math.abs(drift - stayed.drift) <= 10;
+  const shown = quiet ? null : text;
+  if (text === behind && shown === behindShown) return;
   behind = text;
-  if (text) prompt(text, [{ label: "Sync", primary: true, run: () => resync() }], "drift");
+  behindShown = shown;
+  if (shown)
+    prompt(
+      shown,
+      [
+        { label: "Stay here", run: () => stay() },
+        { label: "Catch up", primary: true, run: () => resync() },
+      ],
+      "drift",
+      { icon: "sync", tone: "accent" },
+    );
   else clearPrompt("drift");
   drawPill();
+}
+
+/** Keep my position; ask again only if the gap grows by 10 s or the room's clock changes. */
+function stay() {
+  const updatedAt = room?.playback?.updatedAt;
+  if (updatedAt === undefined) return;
+  stayed = { drift, updatedAt };
+  behindShown = null;
 }
 
 function resync() {
@@ -236,8 +314,11 @@ function checkDrift() {
     seekQuietly(provider, expected).catch(() => {});
     return showBehind(null);
   }
-  const n = Math.round(Math.abs(local.position - expected));
-  showBehind(`You're ${n} seconds ${local.position < expected ? "behind" : "ahead"}`);
+  drift = local.position - expected;
+  const n = Math.round(Math.abs(drift));
+  const me = room.session.participantId;
+  const whose = lastActor && lastActor.id !== me ? lastActor.name : "the room";
+  showBehind(`You're ${n} seconds ${drift < 0 ? `behind ${whose}` : `ahead of ${whose}`}`);
 }
 
 // ---- Live streams (US-032) ----
@@ -253,6 +334,7 @@ function isLive(): boolean {
       "Live streams can't be synced yet. Everyone is watching live on their own.",
       [{ label: "OK", run: () => {} }],
       "live",
+      { icon: "live", tone: "warn" },
     );
   }
   return live;
@@ -320,7 +402,7 @@ function drawWait() {
   if (!who) {
     if (waitShownAt) {
       clearPrompt("wait");
-      toast("Back together", 3000);
+      toast("Back together", 3000, { icon: "check", tone: "ok" });
       waitShownAt = 0;
       waitKey = "";
     }
@@ -332,6 +414,11 @@ function drawWait() {
     who.hold === "ad" ? `${who.name} is on an ad${left}` : `Waiting for ${who.name} to load`;
   const late = Date.now() - waitShownAt > WAIT_CHOICE_MS;
   const key = late ? "wait-late" : "wait";
+  const detail = late
+    ? `This is taking a while. Play on now and ${who.name} can catch up later.`
+    : who.hold === "ad"
+      ? "Paused for everyone until the ad ends."
+      : `Paused for everyone until ${who.name} catches up.`;
   if (key !== waitKey) clearPrompt(waitKey);
   waitKey = key;
   prompt(
@@ -343,6 +430,7 @@ function drawWait() {
         ]
       : [],
     key,
+    { who: who.name, icon: who.hold === "ad" ? "ad" : "wait", detail },
   );
 }
 
@@ -407,6 +495,7 @@ function onStart(s: {
       text,
       [{ label: "Start anyway", run: () => post({ kind: "startForce" }) }],
       "start",
+      { who: s.byName, icon: "play", detail: "Everyone jumps to the same moment first." },
     );
   }
   // go: count down to one shared server moment, then everyone plays.
@@ -414,7 +503,8 @@ function onStart(s: {
   const startLocal = (s.startAt ?? 0) - (room?.clockOffset ?? 0);
   const tick = () => {
     const n = Math.ceil((startLocal - Date.now()) / 1000);
-    if (n > 0) return prompt(`Starting together in ${n}`, [], "start");
+    if (n > 0)
+      return prompt(`Starting together in ${n}`, [], "start", { who: s.byName, icon: "play" });
     clearInterval(countdown);
     clearPrompt("start");
     startPhase = null;
@@ -450,6 +540,7 @@ function offerRejoin() {
       { label: "Rejoin", primary: true, run: () => void send({ kind: "rejoin" }) },
     ],
     "rejoin",
+    { icon: "rejoin", tone: "accent" },
   );
 }
 
