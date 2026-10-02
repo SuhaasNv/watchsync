@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Page, Worker } from "@playwright/test";
-import { type Ext, expect, launchWithExtension, MOCK, room, test } from "./fixtures";
+import { type Ext, expect, launchWithExtension, MOCK, popup, room, test } from "./fixtures";
 
 const position = (p: Page) => p.evaluate(() => document.querySelector("video")?.currentTime ?? -1);
 const playing = (p: Page) => p.evaluate(() => !document.querySelector("video")?.paused);
@@ -144,5 +144,41 @@ test("an ended room says so instead of reconnecting forever (BUG-009)", async ({
   } finally {
     await again.context.close();
     rmSync(profile, { recursive: true, force: true });
+  }
+});
+
+test("the room token never leaves the background worker (BUG-044)", async ({ ext }) => {
+  const host = await popup(ext, "Suhaas");
+  await host.getByRole("button", { name: "Create a room" }).click();
+  await expect(host.getByText("Connected")).toBeVisible();
+  const code = (await host.getByTestId("room-code").textContent()) ?? "";
+  const token = await worker(ext).evaluate(async () => {
+    const { session } = await chrome.storage.session.get("session");
+    return (session as { token: string }).token;
+  });
+  expect(token.length).toBeGreaterThan(20);
+
+  // Replies and pushed state: what a content script on a service page gets too.
+  const replied = await host.evaluate(async () => {
+    const reply: unknown = await chrome.runtime.sendMessage({ kind: "getState" });
+    return JSON.stringify(reply);
+  });
+  const pushed = await host.evaluate(
+    () =>
+      new Promise<string>((resolve) => {
+        const port = chrome.runtime.connect({ name: "popup" });
+        port.onMessage.addListener((m: unknown) => {
+          resolve(JSON.stringify(m));
+          port.disconnect();
+        });
+      }),
+  );
+  // Content scripts can read local storage: the Rejoin offer keeps only the code there.
+  const local = await worker(ext).evaluate(async () =>
+    JSON.stringify(await chrome.storage.local.get(null)),
+  );
+  for (const seen of [replied, pushed, local]) {
+    expect(seen).toContain(code); // the room is there, without its token
+    expect(seen).not.toContain(token);
   }
 });
