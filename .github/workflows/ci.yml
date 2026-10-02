@@ -21,6 +21,10 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @watchsync/extension build
+      - uses: astral-sh/setup-uv@v6
+      - name: Room service for end-to-end
+        working-directory: services/signaling
+        run: uv sync --frozen
       - name: Extension end-to-end (mock player)
         working-directory: apps/extension
         run: |
