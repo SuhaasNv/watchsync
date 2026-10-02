@@ -30,7 +30,22 @@ Scaling: environments differ only in variables. If one room-service instance is 
 - One uvicorn worker, because rooms live in memory (DEC-003). A redeploy ends every room.
 - Logs: no access log and `--log-level warning`, because WebSocket URLs carry room tokens (BUG-003).
 - The process runs as a non-root user. WebSocket frames are capped at 16 KB and request bodies at 2 KB.
-- `TRUST_PROXY=1`: rate limits key on `X-Real-IP`, which Railway's edge sets.
+- `TRUST_PROXY=1` (set in `Dockerfile.signaling`): per-client limits key on `X-Real-IP` instead of the TCP peer, which on Railway is always the edge. See "Client addresses" below.
+- Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
+
+### Client addresses
+
+The service reads `X-Real-IP` only when `TRUST_PROXY=1`; without it, a client-sent `X-Real-IP` is ignored (tested in `services/signaling/tests/test_rooms.py`). Railway's edge sets `X-Real-IP` to the client's remote address on every request it forwards (Railway docs, Networking > Specs & Limits > Technical specifications). The docs do not say in so many words that a value the client sent is replaced rather than passed through, so check it once on the dev service before relying on it, never on production:
+
+```bash
+# 31 wrong-code joins from one machine, each claiming a different address.
+for i in $(seq 1 31); do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST "$DEV_API_URL/api/v1/rooms/ZZZZZZ/join" \
+    -H "content-type: application/json" -H "X-Real-IP: 203.0.113.$i" -d '{"name":"probe"}'
+done
+```
+
+The last answer must be `429` (the edge replaced the header, so all 31 counted against your real address). If every answer is `404`, the header is client-controlled: stop and fix how the service finds client addresses before release. Checked: not yet (owner to run on dev).
 
 Service settings, set on Railway rather than in a file:
 

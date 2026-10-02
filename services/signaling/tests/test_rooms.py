@@ -492,6 +492,18 @@ def test_a_room_nobody_ever_connected_to_ends_after_two_minutes() -> None:
     assert join(used["code"]).status_code == 410
 
 
+def test_a_client_sent_real_ip_is_ignored_unless_behind_the_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only Railway's edge may name the client's address (TRUST_PROXY=1, docs/DEPLOY.md);
+    run directly, a spoofed X-Real-IP must not buy a fresh rate-limit budget."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", False)
+    monkeypatch.setattr(main, "create_limiter", main.Limiter(1, 60))
+    assert client.post("/api/v1/rooms", json={"name": "a"}).status_code == 201
+    spoofed = {"x-real-ip": "203.0.113.77"}
+    assert client.post("/api/v1/rooms", json={"name": "a"}, headers=spoofed).status_code == 429
+
+
 def test_security_headers() -> None:
     r = client.get("/j/ABC234")
     assert r.headers["x-content-type-options"] == "nosniff"
