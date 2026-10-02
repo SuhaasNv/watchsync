@@ -9,7 +9,15 @@ import {
   isServerMessage,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
-import type { AppState, Push, Reply, Request, Session, TabEvent } from "../shared/messages";
+import {
+  type AppState,
+  cleanName,
+  type Push,
+  type Reply,
+  type Request,
+  type Session,
+  type TabEvent,
+} from "../shared/messages";
 import {
   DEV_RELEASE_API,
   isUpdate,
@@ -67,7 +75,8 @@ function changed() {
 async function restore() {
   const { name } = await chrome.storage.local.get("name");
   const { session } = await chrome.storage.session.get("session");
-  state.name = typeof name === "string" ? name : null;
+  // A name saved by an older version may hold marks the service now refuses.
+  state.name = typeof name === "string" ? cleanName(name) || null : null;
   if (isRoomTicket(session)) {
     state.session = session;
     connect();
@@ -317,7 +326,7 @@ async function handleNow(req: Request): Promise<Reply> {
       case "getState":
         break;
       case "setName": {
-        const name = req.name.trim().slice(0, 30);
+        const name = cleanName(req.name);
         if (!name) throw new Error("invalid");
         state.name = name;
         await chrome.storage.local.set({ name });

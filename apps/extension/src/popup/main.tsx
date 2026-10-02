@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { ICONS, type IconName } from "../shared/icons";
 import {
   type AppState,
+  codeFrom,
   ERRORS,
   type Push,
   type Reply,
@@ -260,10 +261,9 @@ function JoinForm() {
           aria-labelledby="join-label"
           placeholder="6-character code"
           value={code}
-          maxLength={6}
           autoComplete="off"
           spellCheck={false}
-          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+          onChange={(e) => setCode(codeFrom(e.target.value))}
         />
         <button className="btn" type="submit" disabled={busy || !valid}>
           {busy ? "Joining…" : "Join room"}

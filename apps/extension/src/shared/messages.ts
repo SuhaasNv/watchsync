@@ -89,4 +89,21 @@ export function safeTitleUrl(url: string | null | undefined): string | null {
   return __TITLE_PAGES__.some((pattern) => url.startsWith(pattern.replace(/\*$/, ""))) ? url : null;
 }
 
+/** Control and invisible format characters (bidi marks, ZWJ): the Name schema refuses them. */
+const NOT_IN_NAMES = /[\p{Cc}\p{Cf}]/gu;
+
+/** A display name the room service accepts: no invisible marks, 1 to 30 characters, or "". */
+export function cleanName(raw: string): string {
+  return Array.from(raw.replace(NOT_IN_NAMES, "").trim()).slice(0, 30).join("").trim();
+}
+
+/** The room code in what someone typed or pasted: a code, a spaced code or an invite link. */
+export function codeFrom(text: string): string {
+  const fromLink = text.match(/\/j\/([A-Za-z0-9]{6})(?![A-Za-z0-9])/)?.[1];
+  return (fromLink ?? text)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+}
+
 export const send = (req: Request): Promise<Reply> => chrome.runtime.sendMessage(req);
