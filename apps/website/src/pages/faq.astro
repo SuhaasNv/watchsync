@@ -4,11 +4,27 @@ import FaqList from "../components/FaqList.astro";
 import Base from "../layouts/Base.astro";
 import { FAQ } from "../lib/faq";
 import { CONTACT_EMAIL } from "../lib/site";
+
+/** The same answers as plain text, for search results (schema.org FAQPage). */
+const plain = (html: string) =>
+  html
+    .replace(/<\/p>\s*<p>/g, " ")
+    .replace(/<[^>]+>/g, "")
+    .trim();
+const faqPage = {
+  "@type": "FAQPage",
+  mainEntity: FAQ.map((f) => ({
+    "@type": "Question",
+    name: f.q,
+    acceptedAnswer: { "@type": "Answer", text: plain(f.a) },
+  })),
+};
 ---
 
 <Base
   title="FAQ · WatchSync"
   description="Is WatchSync free? Do friends need their own accounts? Does it see your video? Answers to the questions people ask before their first movie night."
+  jsonLd={faqPage}
 >
   <div class="wrap">
     <header class="page-head">

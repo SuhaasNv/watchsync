@@ -24,6 +24,10 @@
 	root * /srv
 	encode zstd gzip
 	import security
+
+	# One address for search engines: www goes to the bare domain, path kept.
+	@www host www.watchsync.space
+	redir @www https://watchsync.space{uri} permanent
 	try_files {path} {path}/index.html {path}.html
 	file_server
 
