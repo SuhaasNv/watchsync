@@ -405,6 +405,69 @@ def test_rate_limits_use_the_edge_client_ip_when_behind_a_proxy(
     assert client.post("/api/v1/rooms", json={"name": "b"}, headers=b).status_code == 201
 
 
+def test_one_address_holds_few_rooms_nobody_joined(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-040: one client can't fill every room slot with rooms nobody uses."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main.config, "ROOMS_PER_IP", 2)
+    a = {"x-real-ip": "198.51.100.7"}
+
+    def make(headers: dict[str, str]) -> httpx.Response:
+        return client.post("/api/v1/rooms", json={"name": "a"}, headers=headers)
+
+    first = make(a).json()
+    assert make(a).status_code == 201
+    third = make(a)
+    assert third.status_code == 429 and third.headers["retry-after"] == "60"
+    assert make({"x-real-ip": "198.51.100.8"}).status_code == 201  # someone else
+    assert join(first["code"]).status_code == 201  # a friend joined: it's a real room now
+    assert make(a).status_code == 201
+    # IPv6: one line gets a whole /64, so the /64 is the client.
+    six = {"x-real-ip": "2001:db8:aa:bb::1"}
+    assert make(six).status_code == 201
+    assert make({"x-real-ip": "2001:db8:aa:bb:ffff::2"}).status_code == 201
+    assert make({"x-real-ip": "2001:db8:aa:bb:1234::3"}).status_code == 429
+    assert make({"x-real-ip": "2001:db8:aa:cc::1"}).status_code == 201
+
+
+def test_limits_key_ipv6_on_its_64_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BUG-040: per-address limits would be no limit for a client with a /64 to rotate in."""
+    monkeypatch.setattr(main.config, "TRUST_PROXY", True)
+    monkeypatch.setattr(main, "join_limiter", main.Limiter(2, 60))
+    for i in range(2):
+        r = client.post(
+            "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": f"2001:db8::{i}"}
+        )
+        assert r.status_code == 404
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "2001:db8::99"}
+    )
+    assert r.status_code == 429
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "2001:db9::1"}
+    )
+    assert r.status_code == 404
+    # An IPv4 client seen over IPv6 counts as its IPv4 address.
+    r = client.post(
+        "/api/v1/rooms/ZZZZZZ/join", json={"name": "a"}, headers={"x-real-ip": "::ffff:192.0.2.1"}
+    )
+    assert r.status_code == 404
+    assert "192.0.2.1" in main.join_limiter.hits
+
+
+def test_a_room_nobody_ever_connected_to_ends_after_two_minutes() -> None:
+    """BUG-040: unused codes free their slot soon; rooms people used keep the idle expiry."""
+    unused = create()
+    used = create()
+    with client.websocket_connect(f"/ws/rooms/{used['code']}?token={used['token']}") as ws:
+        ws.receive_json()
+        ws.send_json(msg("ROOM.LEAVE", {"keepRoom": True}))  # the browser closed
+    main.rooms.sweep(now=main.now_ms() + (main.config.UNUSED_ROOM_EXPIRY_SECONDS + 1) * 1000)
+    assert join(unused["code"]).status_code == 410
+    assert join(used["code"], "Suhaas").status_code == 201  # still waiting for a rejoin
+    main.rooms.sweep(now=main.now_ms() + (main.config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000)
+    assert join(used["code"]).status_code == 410
+
+
 def test_security_headers() -> None:
     r = client.get("/j/ABC234")
     assert r.headers["x-content-type-options"] == "nosniff"

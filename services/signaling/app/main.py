@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -53,7 +54,13 @@ TRY_LATER = {"Retry-After": "60"}
 REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
 FLOOD_LIMIT = 100
-ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409, "busy": 503}
+ERROR_STATUS = {
+    "not_found": 404,
+    "room_ended": 410,
+    "room_full": 409,
+    "busy": 503,
+    "too_many_rooms": 429,
+}
 # A player that shows its ad in a separate video pauses the film first, and the ad is seen
 # up to a poll later; a pause this recent from the same person was the ad's.
 AD_PAUSE_MS = 2000
@@ -63,10 +70,21 @@ away: dict[str, asyncio.Task[None]] = {}
 
 
 def client_ip(request: Request | WebSocket) -> str:
+    """The key per-client limits use: the client's address, or its /64 for IPv6, since one
+    home or phone line gets a whole /64 to pick addresses from (BUG-040)."""
     real = request.headers.get("x-real-ip")
-    if config.TRUST_PROXY and real:
-        return real
-    return request.client.host if request.client else "unknown"
+    host = real if config.TRUST_PROXY and real else None
+    if host is None:
+        host = request.client.host if request.client else "unknown"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network((ip, 64), strict=False))
+    return str(ip)
 
 
 @app.middleware("http")
@@ -121,7 +139,7 @@ async def create_room(request: Request) -> dict[str, str]:
     if not create_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many rooms created. Try again in a minute.", TRY_LATER)
     try:
-        return rooms.create(await read_name(request))
+        return rooms.create(await read_name(request), client_ip(request))
     except RoomError as e:
         raise HTTPException(ERROR_STATUS[e.code], e.message, TRY_LATER) from e
 
@@ -442,6 +460,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     if pending is not None:  # back within the grace period: nobody hears they were gone
         pending.cancel()
     p.connected = True
+    room.used = True
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
     arrived = "rejoined" if p.rejoined else "joined"

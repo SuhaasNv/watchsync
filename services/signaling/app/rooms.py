@@ -93,6 +93,11 @@ class Room:
     start: dict[str, Any] | None = None
     # Names of people who left, so the same name joining again counts as a rejoin.
     gone: set[str] = field(default_factory=set)
+    # Who made it (client address key), whether anyone joined it, whether anyone ever
+    # connected: unjoined rooms count against their maker, unused ones end early (BUG-040).
+    creator: str | None = None
+    joined: bool = False
+    used: bool = False
 
     def holding(self) -> list[Participant]:
         return [
@@ -128,10 +133,13 @@ class Rooms:
         self.ended: dict[str, float] = {}
 
     def sweep(self, now: float | None = None) -> None:
-        """Drop rooms that have had nobody connected for ROOM_IDLE_EXPIRY_SECONDS."""
+        """Drop rooms that have had nobody connected for ROOM_IDLE_EXPIRY_SECONDS, or that
+        nobody ever connected to for UNUSED_ROOM_EXPIRY_SECONDS."""
         now = now_ms() if now is None else now
-        limit = config.ROOM_IDLE_EXPIRY_SECONDS * 1000
+        idle = config.ROOM_IDLE_EXPIRY_SECONDS * 1000
+        unused = config.UNUSED_ROOM_EXPIRY_SECONDS * 1000
         for code, room in list(self.rooms.items()):
+            limit = idle if room.used else unused
             if room.empty_since is not None and now - room.empty_since > limit:
                 for p in room.participants.values():
                     self.tokens.pop(p.token, None)
@@ -170,11 +178,14 @@ class Rooms:
         self.tokens[p.token] = (room.code, p.id)
         return {"code": room.code, "token": p.token, "participantId": p.id}
 
-    def create(self, name: str) -> dict[str, str]:
+    def create(self, name: str, creator: str) -> dict[str, str]:
         self.sweep()
         if len(self.rooms) >= config.MAX_ROOMS:
             raise RoomError("busy", "WatchSync is busy. Try again in a few minutes.")
-        room = Room(code=self._new_code(), empty_since=now_ms())
+        mine = sum(1 for r in self.rooms.values() if r.creator == creator and not r.joined)
+        if mine >= config.ROOMS_PER_IP:
+            raise RoomError("too_many_rooms", "Too many open rooms. Try again in a few minutes.")
+        room = Room(code=self._new_code(), empty_since=now_ms(), creator=creator)
         self.rooms[room.code] = room
         return self._add(room, name)
 
@@ -185,7 +196,9 @@ class Rooms:
             if code in self.ended:
                 raise RoomError("room_ended", "This room has ended.")
             raise RoomError("not_found", "No room has that code.")
-        return self._add(room, name)
+        ticket = self._add(room, name)
+        room.joined = True
+        return ticket
 
     def leave(self, room: Room, p: Participant, end_if_empty: bool = True) -> None:
         """Remove someone for good: their token stops working. The last one out ends the room,

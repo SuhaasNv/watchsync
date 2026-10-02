@@ -12,6 +12,10 @@ PROTOCOL_SCHEMA = Path(
     os.environ.get("PROTOCOL_SCHEMA", ROOT / "packages/protocol/schema/protocol.schema.json")
 )
 ROOM_IDLE_EXPIRY_SECONDS = int(os.environ.get("ROOM_IDLE_EXPIRY_SECONDS", "900"))
+# A room nobody ever connected to is a code nobody uses; it ends sooner (BUG-040).
+UNUSED_ROOM_EXPIRY_SECONDS = int(os.environ.get("UNUSED_ROOM_EXPIRY_SECONDS", "120"))
+# Live rooms one client address (IPv6: its /64) may hold that nobody else has joined (BUG-040).
+ROOMS_PER_IP = int(os.environ.get("ROOMS_PER_IP", "3"))
 # Someone whose connection closed and who hasn't come back within this long has left (their
 # browser closed); shorter drops, like a Wi-Fi change, stay silent (BUG-018).
 AWAY_GRACE_SECONDS = float(os.environ.get("AWAY_GRACE_SECONDS", "60"))
