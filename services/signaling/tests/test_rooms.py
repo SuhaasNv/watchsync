@@ -795,6 +795,45 @@ def test_start_together_waits_for_ready_then_sets_one_start_moment() -> None:
         hcm.__exit__(None, None, None)
 
 
+def test_room_stops_waiting_for_someone_who_closes_the_show() -> None:
+    # BUG-050: Asha's ad held the room; she closed the show, her tab never said "ad over",
+    # and the room stayed paused for everyone else until she disconnected.
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 42)
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "pause"
+        room = main.rooms.rooms[host["code"]]
+        assert room.held
+        presence(gws, None)  # closes the show mid-ad
+        resumed = next_of(hws, "PLAYBACK.STATE")["payload"]
+        assert resumed["action"] == "play" and resumed["playback"]["status"] == "playing"
+        assert not room.held and room.participants[guest["participantId"]].hold is None
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_start_together_stops_waiting_for_someone_who_leaves_the_title() -> None:
+    # BUG-050: the 3-2-1 kept waiting for a friend who had left the title.
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        hws.send_json(msg("START.REQUEST", {"position": 0, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        hws.send_json(msg("START.READY", {}))
+        assert next_of(hws, "START.STATE")["payload"]["notReady"] == ["Asha"]
+        presence(gws, None)  # Asha closes the show before she's ready
+        assert next_of(hws, "START.STATE")["payload"]["phase"] == "go"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
 def test_start_anyway_skips_who_isnt_ready() -> None:
     host = create()
     guest = join(host["code"]).json()

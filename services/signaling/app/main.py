@@ -229,7 +229,7 @@ async def end_away_namesake(room: Room, new_id: str) -> None:
         room.gone.discard(x.name)
         p.rejoined = True
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": x.public(), "event": "left"})
-        await release_if_clear(room, x)
+        await recheck_waits(room, x)
 
 
 async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:
@@ -271,6 +271,11 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         p.title_name = media["titleName"] if media else None
         p.media = media
         p.watched |= media is not None
+        # Off the room's title or watching on their own: the room can't be waiting for this
+        # person's ad or loading any more, and their tab can't say so once closed (BUG-050).
+        if p.hold and (p.title_id != room_title or not p.following):
+            p.hold = None
+            p.ad_left = None
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
         # Netflix shows the title text only with its controls, so the first report can come
         # without a name; fill it in from a later report of the same title (BUG-025).
@@ -316,11 +321,15 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
                 else None
             )
             how = "next" if straight else "new"
+            # The old title's wait doesn't carry over to the new one (BUG-050).
+            room.held = False
+            room.skip_hold.clear()
             change = {"media": media, "byId": mover.id, "byName": mover.name, "how": how}
             await broadcast(room, "ROOM.MEDIA", change)
             # A Start together for the old title must not start the new one at its position.
             if room.start is not None:
                 await cancel_start(room)
+        await recheck_waits(room, p)
     elif msg["type"] == "PLAYBACK.UPDATE":
         action = payload["action"]
         if room.held and action == "play":
@@ -430,6 +439,13 @@ async def hold_update(
         await release_if_clear(room, p)
 
 
+async def recheck_waits(room: Room, by: Participant) -> None:
+    """Someone changed title, stopped following, left or dropped: stop waiting for them, in an
+    ad or loading wait and in a Start together (BUG-050)."""
+    await release_if_clear(room, by)
+    await start_progress(room)
+
+
 async def release_if_clear(room: Room, by: Participant) -> None:
     """Resume everyone together once nobody is being waited for."""
     if room.held and not room.holding() and room.playback is not None:
@@ -497,7 +513,7 @@ async def leave_after_grace(room: Room, p: Participant) -> None:
         return
     rooms.leave(room, p, end_if_empty=False)
     await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "left"})
-    await release_if_clear(room, p)
+    await recheck_waits(room, p)
 
 
 def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
@@ -573,7 +589,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
                 rooms.leave(room, p, end_if_empty=not msg["payload"].get("keepRoom", False))
                 event = {"participant": p.public() | {"connected": False}, "event": "left"}
                 await broadcast(room, "ROOM.PARTICIPANT", event, skip=p.id)
-                await release_if_clear(room, p)
+                await recheck_waits(room, p)
                 await ws.close(code=status.WS_1000_NORMAL_CLOSURE)
                 break
             await handle(room, p, msg)
@@ -588,7 +604,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
             if not left:
                 gone = {"participant": p.public(), "event": "updated"}
                 await broadcast(room, "ROOM.PARTICIPANT", gone)
-                await release_if_clear(room, p)
+                await recheck_waits(room, p)
                 away[p.id] = asyncio.create_task(leave_after_grace(room, p))
             if not any(x.connected for x in room.participants.values()):
                 room.empty_since = now_ms()
