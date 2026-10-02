@@ -225,7 +225,31 @@ test("the 404 page is served for unknown paths", async ({ page }) => {
 test("no inline scripts or styles, for the site's Content-Security-Policy", async ({ request }) => {
   for (const path of PAGES) {
     const html = await (await request.get(path)).text();
-    expect(html.match(/<script(?![^>]*\bsrc=)[^>]*>/g), path).toBeNull();
+    // JSON-LD is data the browser never runs, so the CSP allows it; any other inline script fails.
+    expect(
+      html.match(/<script(?![^>]*\bsrc=)(?![^>]*type="application\/ld\+json")[^>]*>/g),
+      path,
+    ).toBeNull();
     expect(html.match(/<style[\s>]|\sstyle="|\son[a-z]+="/g), path).toBeNull();
   }
+});
+
+test("search engines get one address per page and structured data", async ({ page }) => {
+  for (const path of ["/", "/faq/", "/install/"]) {
+    await page.goto(path);
+    const canonical = await page.locator('link[rel="canonical"]').getAttribute("href");
+    expect(new URL(canonical ?? "").pathname).toBe(path);
+  }
+  await page.goto("/nope/");
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
+
+  const ld = async (path: string) => {
+    await page.goto(path);
+    const text = await page.locator('script[type="application/ld+json"]').textContent();
+    return JSON.parse(text ?? "{}") as { "@type": string; mainEntity?: unknown[] };
+  };
+  expect((await ld("/"))["@type"]).toBe("SoftwareApplication");
+  const faq = await ld("/faq/");
+  expect(faq["@type"]).toBe("FAQPage");
+  expect(faq.mainEntity?.length).toBeGreaterThan(5);
 });
