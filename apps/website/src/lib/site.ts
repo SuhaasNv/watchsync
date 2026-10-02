@@ -2,7 +2,7 @@
 
 export const REPO_URL = "https://github.com/SuhaasNv/watchsync";
 export const RELEASES_URL = `${REPO_URL}/releases`;
-/** "dev" on the testing site (dev.watchsync.space, DEC-026), "prod" on watchsync.space. */
+/** "dev" on the testing site (DEC-026), "prod" on watchsync.space. */
 export const CHANNEL: "dev" | "prod" = import.meta.env.PUBLIC_CHANNEL === "dev" ? "dev" : "prod";
 /** Dev builds live in one rolling pre-release; the public site serves the latest release. */
 export const DOWNLOAD_URL =
