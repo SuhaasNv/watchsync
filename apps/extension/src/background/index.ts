@@ -1,4 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
+
+import type { Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -7,7 +9,7 @@ import {
   isServerMessage,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
-import type { AppState, Push, Reply, Request, Session } from "../shared/messages";
+import type { AppState, Push, Reply, Request, Session, TabEvent } from "../shared/messages";
 
 const API = __API_URL__;
 
@@ -25,6 +27,14 @@ let socket: WebSocket | null = null;
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 const samples: ClockSample[] = [];
 const ports = new Set<chrome.runtime.Port>();
+// ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
+let presence: { service: Service; media: Media | null } = { service: "none", media: null };
+let presencePort: chrome.runtime.Port | null = null;
+let tabGone: ReturnType<typeof setTimeout> | undefined;
+
+function sendPresence() {
+  sendServer(envelope("PRESENCE.UPDATE", { ...presence, following: state.following }));
+}
 
 function push(msg: Push) {
   for (const p of ports) p.postMessage(msg);
@@ -99,6 +109,7 @@ function connect() {
     const ping = () => sendServer(envelope("SYS.PING", { t1: Date.now() }));
     ping();
     pingTimer = setInterval(ping, 20_000);
+    sendPresence();
   };
   ws.onclose = () => {
     if (socket !== ws) return;
@@ -201,6 +212,24 @@ chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
 chrome.runtime.onConnect.addListener((port) => {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   ports.add(port);
-  port.onDisconnect.addListener(() => ports.delete(port));
+  port.onDisconnect.addListener(() => {
+    ports.delete(port);
+    if (port !== presencePort) return;
+    presencePort = null;
+    // A page load (next episode, Open) drops the port for a moment; only report the
+    // title as closed if no tab reports again soon, so the room keeps following us.
+    tabGone = setTimeout(() => {
+      presence = { service: "none", media: null };
+      sendPresence();
+    }, 3000);
+  });
+  if (port.name === "tab")
+    port.onMessage.addListener((e: TabEvent) => {
+      if (e.kind !== "presence") return;
+      clearTimeout(tabGone);
+      presencePort = port;
+      presence = { service: e.service, media: e.media };
+      sendPresence();
+    });
   ready.then(() => port.postMessage({ kind: "state", state } satisfies Push));
 });
