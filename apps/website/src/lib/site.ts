@@ -12,7 +12,7 @@ export const DOWNLOAD_URL =
 export const RELEASES_API = "https://api.github.com/repos/SuhaasNv/watchsync/releases?per_page=20";
 
 /** Shown until (or instead of, when GitHub can't be reached) the live release label. */
-export const FALLBACK_VERSION = CHANNEL === "dev" ? "Dev build" : "v0.1.0";
+export const FALLBACK_VERSION = CHANNEL === "dev" ? "Dev build" : "v0.1.1";
 
 export const OPERATOR = "Suhaas Nv";
 export const CONTACT_EMAIL = "suhaasnvs@gmail.com";
