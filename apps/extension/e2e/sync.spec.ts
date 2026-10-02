@@ -167,3 +167,71 @@ test("the pill shows who is here, folds away, and stays in full screen", async (
     await friend.context.close();
   }
 });
+
+test("Pause together right after a page loads still pauses everyone", async ({ ext }) => {
+  const { friend, hostTab } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await expect.poll(() => playing(tab)).toBe(true);
+    // Inside the first seconds after a load, where autoplay is ignored (BUG-004): the press
+    // is still the person's own and must not be undone.
+    const region = tab.getByRole("region", { name: "WatchSync room" });
+    await region.getByRole("button", { name: "Pause together" }).click();
+    await tab.waitForTimeout(4000);
+    expect(await playing(tab)).toBe(false);
+    expect(await playing(hostTab)).toBe(false);
+    await expect(region.getByRole("button", { name: "Start together" })).toBeVisible();
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("Sync everyone brings the room to my exact spot without pausing", async ({ ext }) => {
+  const { friend, hostTab } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await expect.poll(() => playing(tab)).toBe(true);
+    await tab.waitForTimeout(3500); // past the arrival window (BUG-004)
+    // Half a second apart: under the drift tolerance, so nothing corrects it by itself.
+    await tab.evaluate(() => {
+      const v = document.querySelector("video");
+      if (v) v.currentTime += 0.6;
+    });
+    await hostTab
+      .getByRole("region", { name: "WatchSync room" })
+      .getByRole("button", { name: "Sync everyone" })
+      .click();
+    await expect(tab.getByText("Suhaas synced everyone")).toBeVisible();
+    await expect.poll(() => gap(tab, hostTab)).toBeLessThan(0.2);
+    expect(await playing(tab)).toBe(true);
+    expect(await playing(hostTab)).toBe(true);
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("closing the show tells the others, and nobody is offered a title no one watches", async ({
+  ext,
+}) => {
+  const { friend, hostTab, host } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await expect.poll(() => playing(tab)).toBe(true);
+    await tab.close(); // Asha closes the show but stays in the room
+    await expect(hostTab.getByText("Asha closed the show")).toBeVisible({ timeout: 8000 });
+
+    // Suhaas closes it too: the room remembers ep1, but nobody is watching it.
+    await hostTab.close();
+    const fpopPage = await friend.context.newPage();
+    await fpopPage.goto(`chrome-extension://${friend.extensionId}/popup.html`);
+    await expect(fpopPage.getByRole("heading", { name: "In this room (2)" })).toBeVisible();
+    await fpopPage.waitForTimeout(4000); // the closed tab reports "nothing open" after 3 s
+    await expect(fpopPage.getByRole("button", { name: /^Open / })).toHaveCount(0);
+    await expect(host.getByRole("button", { name: /^Open / })).toHaveCount(0);
+  } finally {
+    await friend.context.close();
+  }
+});

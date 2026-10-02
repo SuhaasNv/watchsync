@@ -57,6 +57,8 @@ function reconcile(roomBefore: Media | null) {
   const media = roomMedia;
   const step = align(roomBefore, media, mine, room.following);
   if (step.kind === "none") return clearPrompt("align");
+  // Nobody is on the room's title any more (they closed it): nothing to offer.
+  if (step.kind !== "follow" && !friendOn(media)) return clearPrompt("align");
   lastBefore = roomBefore;
   unnamed = !nameOf(media);
   const title = nameOf(media) ?? "a title";
@@ -109,7 +111,7 @@ function reconcile(roomBefore: Media | null) {
   );
 }
 
-const NOTICE = { play: "pressed play", pause: "paused" } as const;
+const NOTICE = { play: "pressed play", pause: "paused", sync: "synced everyone" } as const;
 
 function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
@@ -121,7 +123,7 @@ function onPush(m: Push) {
     if (holdReason) return; // my own buffering or ad; I catch up when it ends
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
     const before = provider.getState()?.position ?? 0;
-    apply(provider, playback, serverNow).catch((e: unknown) =>
+    apply(provider, playback, serverNow, action === "sync").catch((e: unknown) =>
       toast(e instanceof Error ? e.message : "We couldn't control the player here.", 6000, {
         icon: "alert",
         tone: "bad",
@@ -159,6 +161,7 @@ function onPush(m: Push) {
     return;
   }
   if (m.kind !== "state") return;
+  noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
   room = m.state;
@@ -179,6 +182,22 @@ function onPush(m: Push) {
     reconcile(before);
   } else if (unnamed && roomMedia && nameOf(roomMedia)) {
     reconcile(lastBefore); // the name arrived after the prompt: say it (BUG-025)
+  }
+}
+
+/**
+ * "Maya closed the show": someone still in the room who was on the room's title now has
+ * nothing open (closed the tab or went back to browsing). Compared state to state, because
+ * the background sends the new state before the participant message.
+ */
+function noticeClosedShows(before: AppState | null, after: AppState) {
+  const roomTitle = roomMedia?.titleId;
+  const me = after.session?.participantId;
+  if (!before?.session || !roomTitle) return;
+  for (const p of after.participants) {
+    const was = before.participants.find((x) => x.id === p.id);
+    if (p.id !== me && p.connected && was?.titleId === roomTitle && p.titleId === null)
+      toast(`${p.name} closed the show`, 4000, { who: p.name, icon: "leave" });
   }
 }
 
@@ -268,9 +287,43 @@ function drawPill() {
         ? startTogether
         : null,
     playing: provider?.getState()?.playing === true,
-    // A pause in this tab's player is a person's pause: the room follows it (US-021).
-    onPause: () => void provider?.pause().catch(() => {}),
+    onPause: pauseTogether,
+    onSyncAll: syncEveryone,
   });
+}
+
+/** Everyone jumps to exactly where I am, without pausing or counting down (owner, 2 Oct). */
+function syncEveryone() {
+  const st = provider?.getState();
+  if (!provider || !st || !mine || !room?.following) return;
+  post({
+    kind: "playback",
+    action: "sync",
+    status: st.playing ? "playing" : "paused",
+    position: st.position,
+    rate: st.rate,
+    titleId: mine.titleId,
+  });
+  toast("Everyone is synced to you", 2500, { icon: "sync", tone: "ok" });
+}
+
+/**
+ * The pill's Pause together is always the person's own action. Sent to the room directly:
+ * a pause in the first seconds after a page load would otherwise read as autoplay noise
+ * (BUG-004) and the room would start the video again.
+ */
+function pauseTogether() {
+  const st = provider?.getState();
+  if (!provider || !st || !mine || !room?.following) return;
+  post({
+    kind: "playback",
+    action: "pause",
+    status: "paused",
+    position: st.position,
+    rate: st.rate,
+    titleId: mine.titleId,
+  });
+  provider.pause().catch(() => {});
 }
 // Media events don't bubble; catch them on the way down so the pill flips Start/Pause.
 document.addEventListener("play", () => drawPill(), true);

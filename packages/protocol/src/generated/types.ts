@@ -28,7 +28,7 @@ export type PresenceUpdate = Envelope & {
 export type PlaybackUpdate = Envelope & {
   type?: "PLAYBACK.UPDATE";
   payload?: {
-    action: "play" | "pause" | "seek";
+    action: "play" | "pause" | "seek" | "sync";
     status: "playing" | "paused";
     position: Seconds;
     rate: Rate;
@@ -119,7 +119,7 @@ export type PlaybackState = Envelope & {
   type?: "PLAYBACK.STATE";
   payload?: {
     playback: Playback;
-    action: "play" | "pause" | "seek";
+    action: "play" | "pause" | "seek" | "sync";
     byId: string;
     byName: Name;
     serverTime: number;

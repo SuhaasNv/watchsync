@@ -395,6 +395,12 @@ function OpenTitle({ state, me }: { state: AppState; me: string }) {
   const url = safeTitleUrl(media?.titleUrl);
   const self = state.participants.find((p) => p.id === me);
   if (!media || !url || self?.titleId === media.titleId) return null;
+  // Only offer a title someone is watching now: after everyone closes it, the room still
+  // remembers it, and "Open the room's title" alone in a room made no sense (owner, 2 Oct).
+  const watched = state.participants.some(
+    (p) => p.id !== me && p.connected && p.titleId === media.titleId,
+  );
+  if (!watched) return null;
   return (
     <button className="btn primary" type="button" onClick={() => void chrome.tabs.create({ url })}>
       <Icon name="title" />

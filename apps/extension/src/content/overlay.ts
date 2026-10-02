@@ -284,6 +284,8 @@ export interface PillModel {
   /** This tab's player is playing: the start button becomes Pause together. */
   playing: boolean;
   onPause: () => void;
+  /** Sync everyone: jump the room to my exact position, no pause or countdown. */
+  onSyncAll: () => void;
 }
 
 const pill = document.createElement("div");
@@ -405,6 +407,14 @@ export function renderPill(model: PillModel | null) {
             }),
       ]
     : [];
-  pill.replaceChildren(faces, sep, toggle, ...together, fold);
+  const syncAll = model.onStart
+    ? [
+        button("Sync everyone", model.onSyncAll, {
+          icon: "sync",
+          hint: "Bring everyone to exactly where you are, without pausing",
+        }),
+      ]
+    : [];
+  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, fold);
   wake();
 }
