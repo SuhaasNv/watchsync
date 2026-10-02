@@ -28,6 +28,8 @@ class Participant:
     title_name: str | None = None
     following: bool = True
     connected: bool = False
+    hold: str | None = None  # "buffering" or "ad": the room waits for this person
+    ad_left: float | None = None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -38,6 +40,8 @@ class Participant:
             "titleName": self.title_name,
             "following": self.following,
             "connected": self.connected,
+            "hold": self.hold,
+            "adLeft": self.ad_left,
         }
 
 
@@ -48,6 +52,27 @@ class Room:
     media: dict[str, Any] | None = None
     playback: dict[str, Any] | None = None
     empty_since: float | None = None
+    # Nobody gets left behind (UC-042): paused for someone's buffering or ad.
+    held: bool = False
+    # People the others chose to watch without; their hold no longer pauses the room.
+    skip_hold: set[str] = field(default_factory=set)
+    # Start together in progress: who asked, where, and who is ready.
+    start: dict[str, Any] | None = None
+
+    def holding(self) -> list[Participant]:
+        return [
+            x
+            for x in self.participants.values()
+            if x.hold and x.connected and x.following and x.id not in self.skip_hold
+        ]
+
+    def eligible(self, title_id: str | None) -> list[Participant]:
+        """Who a Start together waits for: connected, following, on the title."""
+        return [
+            x
+            for x in self.participants.values()
+            if x.connected and x.following and x.title_id == title_id
+        ]
 
     def snapshot(self, you: str) -> dict[str, Any]:
         return {

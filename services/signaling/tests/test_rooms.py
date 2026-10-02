@@ -351,3 +351,150 @@ def test_a_first_jump_keeps_the_senders_play_state() -> None:
         next_of(ws, "SYS.PONG")
     playback = main.rooms.rooms[host["code"]].playback
     assert playback is not None and playback["status"] == "playing"
+
+
+def msg(type_: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"id": type_, "type": type_, "timestamp": 1, "payload": payload}
+
+
+def play(ws: Any, position: float = 10) -> None:
+    ws.send_json(
+        msg(
+            "PLAYBACK.UPDATE",
+            {
+                "action": "play",
+                "status": "playing",
+                "position": position,
+                "rate": 1,
+                "titleId": "1",
+            },
+        )
+    )
+
+
+def hold(ws: Any, reason: str | None, position: float = 42) -> None:
+    ws.send_json(msg("HOLD.UPDATE", {"reason": reason, "position": position, "adLeft": None}))
+
+
+def two_on_title(host: dict[str, str], guest: dict[str, str]) -> tuple[Any, Any, Any, Any]:
+    """Opens both sockets with both people on title "1"; returns the two context managers."""
+    url = f"/ws/rooms/{host['code']}?token="
+    hcm = client.websocket_connect(url + host["token"])
+    hws = hcm.__enter__()
+    hws.receive_json()
+    gcm = client.websocket_connect(url + guest["token"])
+    gws = gcm.__enter__()
+    gws.receive_json()
+    presence(hws, "1")
+    next_of(hws, "ROOM.MEDIA")
+    presence(gws, "1")
+    next_of(gws, "ROOM.PARTICIPANT")
+    return hcm, hws, gcm, gws
+
+
+def test_room_waits_for_someone_buffering_then_resumes_together() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "buffering", 42)
+        next_of(gws, "ROOM.PARTICIPANT")
+        paused = next_of(hws, "PLAYBACK.STATE")["payload"]
+        assert paused["action"] == "pause" and paused["byName"] == "Asha"
+        assert paused["playback"]["position"] == 42
+        room = main.rooms.rooms[host["code"]]
+        assert room.held and room.participants[guest["participantId"]].hold == "buffering"
+
+        hold(gws, None)
+        resumed = next_of(gws, "PLAYBACK.STATE")["payload"]
+        assert resumed["action"] == "play" and resumed["playback"]["status"] == "playing"
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert not room.held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_play_while_waiting_goes_on_without_them() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "ad", 42)
+        next_of(gws, "ROOM.PARTICIPANT")
+        next_of(hws, "PLAYBACK.STATE")
+        play(hws, 42)  # "Watch without Asha"
+        hws.send_json(msg("SYS.PING", {"t1": 1}))
+        next_of(hws, "SYS.PONG")
+        room = main.rooms.rooms[host["code"]]
+        assert not room.held and guest["participantId"] in room.skip_hold
+        hold(gws, "ad", 50)  # still on the ad: no new pause for the others
+        hws.send_json(msg("SYS.PING", {"t1": 2}))
+        assert next_of(hws, "SYS.PONG")["payload"]["t1"] == 2
+        assert not room.held
+        hold(gws, None)
+        next_of(gws, "ROOM.PARTICIPANT")
+        assert guest["participantId"] not in room.skip_hold
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_someone_leaving_mid_wait_releases_the_room() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "buffering")
+        next_of(gws, "ROOM.PARTICIPANT")
+        next_of(hws, "PLAYBACK.STATE")
+        gws.send_json(msg("ROOM.LEAVE", {}))
+        assert next_of(hws, "PLAYBACK.STATE")["payload"]["action"] == "play"
+        assert not main.rooms.rooms[host["code"]].held
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_start_together_waits_for_ready_then_sets_one_start_moment() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        hws.send_json(msg("START.REQUEST", {"position": 0, "titleId": "1"}))
+        prep = next_of(gws, "START.STATE")["payload"]
+        assert prep["phase"] == "preparing" and sorted(prep["notReady"]) == ["Asha", "Suhaas"]
+        next_of(hws, "START.STATE")
+        hws.send_json(msg("START.READY", {}))
+        assert next_of(hws, "START.STATE")["payload"]["notReady"] == ["Asha"]
+        next_of(gws, "START.STATE")
+        before = main.now_ms()
+        gws.send_json(msg("START.READY", {}))
+        go = next_of(gws, "START.STATE")["payload"]
+        assert go["phase"] == "go" and go["startAt"] >= before + 2900
+        playback = main.rooms.rooms[host["code"]].playback
+        assert playback is not None and playback["status"] == "playing"
+        assert playback["updatedAt"] == go["startAt"]
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_start_anyway_skips_who_isnt_ready() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        hws.send_json(msg("START.REQUEST", {"position": 0, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        hws.send_json(msg("START.FORCE", {}))
+        assert next_of(hws, "START.STATE")["payload"]["phase"] == "go"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)

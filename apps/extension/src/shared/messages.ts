@@ -53,7 +53,11 @@ export type TabEvent =
       position: number;
       rate: number;
       titleId: string | null;
-    };
+    }
+  | { kind: "hold"; reason: "buffering" | "ad" | null; position: number; adLeft: number | null }
+  | { kind: "start"; position: number; titleId: string | null }
+  | { kind: "startReady" }
+  | { kind: "startForce" };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {

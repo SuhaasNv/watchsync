@@ -22,7 +22,20 @@ export interface StreamingProvider {
   play(): Promise<void>;
   pause(): Promise<void>;
   seek(seconds: number): Promise<void>;
+  /** Playing but starved of data right now (the player shows a spinner). */
+  stalled(): boolean;
+  /** An ad is showing; `left` is the seconds remaining when the page shows it. */
+  ad(): { left: number | null } | null;
 }
+
+/** "Ad 0:20", "Ad · 1:05 left" → seconds; null when there's no time on the page. */
+export function adSeconds(text: string | null | undefined): number | null {
+  const m = text?.match(/(\d+):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** HAVE_FUTURE_DATA: below it, a playing video can't advance. */
+const isStalled = (v: HTMLVideoElement | null) => Boolean(v && !v.paused && v.readyState < 3);
 
 /** The largest <video> with data: players keep extra elements for trailers and previews. */
 export function mainVideo(doc: Document = document): HTMLVideoElement | null {
@@ -94,6 +107,9 @@ function videoProvider(service: Service, media: () => Media | null): StreamingPr
       const v = mainVideo();
       if (v) v.currentTime = s;
     },
+    stalled: () => isStalled(mainVideo()),
+    // ponytail: no ad marker known for this service yet; each adapter adds its own.
+    ad: () => null,
   };
 }
 
@@ -153,7 +169,18 @@ function netflixProvider(): StreamingProvider {
 
 export function providerFor(host: string): StreamingProvider | null {
   if (host === "www.netflix.com") return netflixProvider();
-  if (__MOCK__ && host === "localhost:4173")
-    return videoProvider("mock", () => mockMedia(new URL(location.href), document));
+  if (__MOCK__ && host === "localhost:4173") {
+    // The mock player stands in for a service in tests: [data-ad] is its ad marker, and
+    // data-buffering on <body> stands in for a starved player.
+    const base = videoProvider("mock", () => mockMedia(new URL(location.href), document));
+    return {
+      ...base,
+      stalled: () => document.body.dataset.buffering === "1" || base.stalled(),
+      ad: () => {
+        const el = document.querySelector("[data-ad]");
+        return el ? { left: adSeconds(el.textContent) } : null;
+      },
+    };
+  }
   return null;
 }

@@ -60,18 +60,26 @@ const NOTICE = { play: "pressed play", pause: "paused" } as const;
 
 function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
-    const { playback, action, byName } = m.message.payload;
+    const { playback, action, byId, byName } = m.message.payload;
     if (!provider || !mine || playback.titleId !== mine.titleId) return;
     if (!room?.following) return; // watching on my own (US-027)
+    if (holdReason) return; // my own buffering or ad; I catch up when it ends
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
     const before = provider.getState()?.position ?? 0;
     apply(provider, playback, serverNow).catch((e: unknown) =>
       toast(e instanceof Error ? e.message : "WatchSync couldn't control the player"),
     );
+    const holder = room.participants.find((p) => p.id === byId && p.hold);
+    if (holder && action === "pause") return; // the wait card explains it (drawWait)
+    if (action === "play" && waitShownAt) return; // drawWait says "Back together"
     if (action !== "seek") return toast(`${byName} ${NOTICE[action]}`, 3000);
     const to = expectedPosition(playback, serverNow);
     if (Math.abs(to - before) < 1) return; // already there; nothing visibly moved
     toast(`${byName} ${to > before ? "skipped ahead" : "went back"} to ${clock(to)}`, 4000);
+    return;
+  }
+  if (m.kind === "server" && m.message.type === "START.STATE") {
+    onStart(m.message.payload);
     return;
   }
   if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
@@ -86,6 +94,7 @@ function onPush(m: Push) {
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
   drawPill();
+  drawWait();
   offerRejoin();
   const next = room.session ? room.media : null;
   if (next?.titleId !== roomMedia?.titleId) {
@@ -112,13 +121,17 @@ function drawPill() {
         : p.connected && p.following && p.titleId === roomTitle;
     const state = !p.connected
       ? "away"
-      : !p.following
-        ? "watching on their own"
-        : p.titleId !== roomTitle
-          ? "on another title"
-          : synced
-            ? "in sync"
-            : "catching up";
+      : p.hold === "ad"
+        ? "on an ad"
+        : p.hold === "buffering"
+          ? "loading"
+          : !p.following
+            ? "watching on their own"
+            : p.titleId !== roomTitle
+              ? "on another title"
+              : synced
+                ? "in sync"
+                : "catching up";
     const name = p.id === me ? `${p.name} (you)` : p.name;
     return { initial: p.name.slice(0, 1).toUpperCase(), label: `${name}, ${state}`, synced };
   });
@@ -127,6 +140,10 @@ function drawPill() {
     following: room.following,
     onOwn: () => follow(false),
     onSync: () => follow(true),
+    onStart:
+      room.following && mine.titleId === roomTitle && room.participants.length > 1
+        ? startTogether
+        : null,
   });
 }
 
@@ -156,6 +173,7 @@ function checkDrift() {
   const local = provider.getState();
   const v = provider.video();
   if (!local || !v || v.seeking || isEcho() || Date.now() < nextCorrection) return;
+  if (holdReason || startPhase) return; // waiting rooms and countdowns aren't drift
   if (local.playing !== (playback.status === "playing")) return;
   const expected = expectedPosition(playback, Date.now() + room.clockOffset);
   const action = decide(local.position, expected, DEFAULT_SYNC);
@@ -167,6 +185,185 @@ function checkDrift() {
   }
   const n = Math.round(Math.abs(local.position - expected));
   showBehind(`You're ${n} seconds ${local.position < expected ? "behind" : "ahead"}`);
+}
+
+// ---- Nobody gets left behind (UC-042, the flagship) ----
+
+// Offer "Watch without" after 90 s (4 s in test builds, so e2e runs stay short).
+const WAIT_CHOICE_MS = __MOCK__ ? 4000 : 90_000;
+let holdReason: "buffering" | "ad" | null = null;
+let heldAdLeft: number | null = null;
+let stallSince = 0;
+let cleanSince = 0;
+let lastGood = 0;
+let waitShownAt = 0;
+let waitKey = "";
+
+/**
+ * Four times a second: report when this player starts or stops buffering (over 1 s) or
+ * showing an ad, so the room can wait for it. Buffering ends after 1 s of clean playback.
+ */
+function checkHold() {
+  if (!provider || !room?.session || !room.following || !mine) return setHold(null);
+  const now = Date.now();
+  const ad = provider.ad();
+  const stalled = provider.stalled();
+  let next = holdReason;
+  if (ad) next = "ad";
+  else if (stalled) {
+    stallSince ||= now;
+    cleanSince = 0;
+    if (now - stallSince > 1000) next = "buffering";
+  } else {
+    stallSince = 0;
+    if (holdReason === "ad") next = null;
+    if (holdReason === "buffering") {
+      cleanSince ||= now;
+      if (provider.getState()?.playing && now - cleanSince >= 1000) next = null;
+    }
+  }
+  if (next === null && !stalled) lastGood = provider.getState()?.position ?? lastGood;
+  setHold(next, ad?.left ?? null);
+}
+
+function setHold(reason: "buffering" | "ad" | null, adLeft: number | null = null) {
+  // Ad time is sent in 5 s steps: enough for "about 0:20 left" without chatter.
+  const left = adLeft === null ? null : Math.ceil(adLeft / 5) * 5;
+  if (reason === holdReason && left === heldAdLeft) return;
+  const ended = holdReason !== null && reason === null;
+  holdReason = reason;
+  heldAdLeft = left;
+  stallSince = cleanSince = 0;
+  post({ kind: "hold", reason, position: lastGood, adLeft: left });
+  if (ended) setTimeout(() => catchUp(), 300); // rejoin wherever the room is now
+}
+
+/** The card on everyone else's screen while the room waits (US-102, US-103, US-104). */
+function drawWait() {
+  const me = room?.session?.participantId;
+  const waiting =
+    room?.following && room.playback?.status === "paused"
+      ? room.participants.filter((p) => p.id !== me && p.hold && p.connected)
+      : [];
+  const who = waiting[0];
+  if (!who) {
+    if (waitShownAt) {
+      clearPrompt("wait");
+      toast("Back together", 3000);
+      waitShownAt = 0;
+      waitKey = "";
+    }
+    return;
+  }
+  waitShownAt ||= Date.now();
+  const left = who.adLeft ? ` · about ${clock(who.adLeft)} left` : "";
+  const text =
+    who.hold === "ad" ? `${who.name} is on an ad${left}` : `Waiting for ${who.name} to load`;
+  const late = Date.now() - waitShownAt > WAIT_CHOICE_MS;
+  const key = late ? "wait-late" : "wait";
+  if (key !== waitKey) clearPrompt(waitKey);
+  waitKey = key;
+  prompt(
+    text,
+    late
+      ? [
+          { label: "Keep waiting", run: () => (waitShownAt = Date.now()) },
+          { label: `Watch without ${who.name}`, primary: true, run: () => goOn() },
+        ]
+      : [],
+    key,
+  );
+}
+
+/** "Watch without B": play for everyone but whoever the room is waiting for (DEC-017). */
+function goOn() {
+  if (!provider || !mine || !room?.playback) return;
+  const position = expectedPosition(room.playback, Date.now() + room.clockOffset);
+  post({
+    kind: "playback",
+    action: "play",
+    status: "playing",
+    position,
+    rate: 1,
+    titleId: mine.titleId,
+  });
+  hold(1500);
+  provider.play().catch(() => {});
+  clearPrompt(waitKey);
+  waitShownAt = 0;
+  waitKey = "";
+}
+
+// ---- Start together (US-105) ----
+
+let startPhase: "preparing" | "go" | null = null;
+let readySent = false;
+let countdown: ReturnType<typeof setInterval> | undefined;
+
+function startTogether() {
+  const at = provider?.getState()?.position ?? 0;
+  if (mine) post({ kind: "start", position: at, titleId: mine.titleId });
+}
+
+function onStart(s: {
+  phase: "preparing" | "go" | "cancelled";
+  byName: string;
+  position: number;
+  titleId: string | null;
+  notReady: string[];
+  startAt: number | null;
+}) {
+  if (!provider || !mine || s.titleId !== mine.titleId || !room?.following) return;
+  clearInterval(countdown);
+  if (s.phase === "cancelled") {
+    startPhase = null;
+    return clearPrompt("start");
+  }
+  if (s.phase === "preparing") {
+    if (startPhase !== "preparing") {
+      startPhase = "preparing";
+      readySent = false;
+      hold(1500);
+      provider.pause().catch(() => {});
+      seekQuietly(provider, s.position).catch(() => {});
+      sendReadyWhenLoaded();
+    }
+    const others = s.notReady.filter((n) => n !== room?.name);
+    const text = others.length
+      ? `Getting ready to start together · waiting for ${others.join(", ")}`
+      : "Getting ready to start together";
+    return prompt(
+      text,
+      [{ label: "Start anyway", run: () => post({ kind: "startForce" }) }],
+      "start",
+    );
+  }
+  // go: count down to one shared server moment, then everyone plays.
+  startPhase = "go";
+  const startLocal = (s.startAt ?? 0) - (room?.clockOffset ?? 0);
+  const tick = () => {
+    const n = Math.ceil((startLocal - Date.now()) / 1000);
+    if (n > 0) return prompt(`Starting together in ${n}`, [], "start");
+    clearInterval(countdown);
+    clearPrompt("start");
+    startPhase = null;
+    hold(1500);
+    provider?.play().catch(() => {});
+  };
+  tick();
+  countdown = setInterval(tick, 100);
+}
+
+/** Tells the room this player has the frame at the start position and can play at once. */
+function sendReadyWhenLoaded(tries = 100) {
+  const v = provider?.video();
+  if (startPhase !== "preparing" || readySent) return;
+  if (v && !v.seeking && v.readyState >= 3) {
+    readySent = true;
+    post({ kind: "startReady" });
+    return;
+  }
+  if (tries > 0) setTimeout(() => sendReadyWhenLoaded(tries - 1), 100);
 }
 
 let rejoinOffered = false;
@@ -235,9 +432,14 @@ if (provider) {
   connect();
   listen(provider, (action, playing, position, rate) => {
     const status = playing ? "playing" : "paused";
+    if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions
     if (room?.session && room.following && mine)
       post({ kind: "playback", action, status, position, rate, titleId: mine.titleId });
   });
   setInterval(poll, 1000);
   setInterval(checkDrift, 1000);
+  setInterval(() => {
+    checkHold();
+    drawWait();
+  }, 250);
 }

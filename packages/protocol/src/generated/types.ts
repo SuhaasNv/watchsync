@@ -42,7 +42,40 @@ export type Leave = Envelope & {
   type?: "ROOM.LEAVE";
   payload?: {};
 };
-export type ClientMessage = PresenceUpdate | PlaybackUpdate | Ping | Leave;
+/**
+ * This player is buffering or showing an ad (or no longer is); the room waits for it.
+ */
+export type HoldUpdate = Envelope & {
+  type?: "HOLD.UPDATE";
+  payload?: {
+    reason: "buffering" | "ad" | null;
+    position: Seconds;
+    adLeft: number | null;
+  };
+};
+/**
+ * Start together from this position: ready check, then 3-2-1.
+ */
+export type StartRequest = Envelope & {
+  type?: "START.REQUEST";
+  payload?: {
+    position: Seconds;
+    titleId: TitleId;
+  };
+};
+export type StartReady = Envelope & {
+  type?: "START.READY";
+  payload?: {};
+};
+/**
+ * Start anyway, without the people who aren't ready.
+ */
+export type StartForce = Envelope & {
+  type?: "START.FORCE";
+  payload?: {};
+};
+export type ClientMessage =
+  PresenceUpdate | PlaybackUpdate | Ping | Leave | HoldUpdate | StartRequest | StartReady | StartForce;
 /**
  * Full snapshot sent on connect and reconnect.
  */
@@ -99,7 +132,34 @@ export type ErrorMessage = Envelope & {
     message: string;
   };
 };
-export type ServerMessage = RoomState | ParticipantChanged | MediaChanged | PlaybackState | Pong | ErrorMessage;
+/**
+ * Start together: preparing (pause and get ready), go (play at startAt, server ms), or cancelled.
+ */
+export type StartState = Envelope & {
+  type?: "START.STATE";
+  payload?: {
+    phase: "preparing" | "go" | "cancelled";
+    byName: Name;
+    position: Seconds;
+    titleId: TitleId;
+    /**
+     * @maxItems 8
+     */
+    notReady:
+      | []
+      | [Name]
+      | [Name, Name]
+      | [Name, Name, Name]
+      | [Name, Name, Name, Name]
+      | [Name, Name, Name, Name, Name]
+      | [Name, Name, Name, Name, Name, Name]
+      | [Name, Name, Name, Name, Name, Name, Name]
+      | [Name, Name, Name, Name, Name, Name, Name, Name];
+    startAt: number | null;
+  };
+};
+export type ServerMessage =
+  RoomState | ParticipantChanged | MediaChanged | PlaybackState | Pong | ErrorMessage | StartState;
 
 /**
  * Single source of truth for every message between the extension and the room service (DEC-006). Edit this file, then run `pnpm gen:protocol`.
@@ -122,6 +182,10 @@ export interface ProtocolRoot {
   PlaybackUpdate?: PlaybackUpdate;
   Ping?: Ping;
   Leave?: Leave;
+  HoldUpdate?: HoldUpdate;
+  StartRequest?: StartRequest;
+  StartReady?: StartReady;
+  StartForce?: StartForce;
   ClientMessage?: ClientMessage;
   RoomState?: RoomState;
   ParticipantChanged?: ParticipantChanged;
@@ -129,6 +193,7 @@ export interface ProtocolRoot {
   PlaybackState?: PlaybackState;
   Pong?: Pong;
   ErrorMessage?: ErrorMessage;
+  StartState?: StartState;
   ServerMessage?: ServerMessage;
 }
 /**
@@ -158,6 +223,14 @@ export interface Participant {
   titleName: string | null;
   following: boolean;
   connected: boolean;
+  /**
+   * Why the room is waiting for this person, if it is.
+   */
+  hold: "buffering" | "ad" | null;
+  /**
+   * Seconds of ad left, when the page shows it.
+   */
+  adLeft: number | null;
 }
 export interface JoinRoomRequest {
   name: Name;

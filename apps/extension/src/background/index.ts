@@ -179,6 +179,15 @@ function onServer(msg: AnyServerMessage) {
     case "PLAYBACK.STATE":
       state.playback = msg.payload.playback;
       break;
+    case "START.STATE": {
+      // Mirror the room's clock: paused while getting ready, playing from startAt on go.
+      const { phase, position, titleId, startAt } = msg.payload;
+      if (phase === "cancelled") break;
+      const status = phase === "go" ? "playing" : "paused";
+      const updatedAt = startAt ?? Date.now() + state.clockOffset;
+      state.playback = { status, position, rate: 1, updatedAt, titleId };
+      break;
+    }
     case "SYS.PONG": {
       samples.push(clockSample(msg.payload.t1, msg.payload.serverTime, Date.now()));
       if (samples.length > 10) samples.shift();
@@ -298,6 +307,14 @@ chrome.runtime.onConnect.addListener((port) => {
         const { kind: _, ...update } = e;
         return sendServer(envelope("PLAYBACK.UPDATE", update));
       }
+      if (e.kind === "hold") {
+        const { kind: _, ...hold } = e;
+        return sendServer(envelope("HOLD.UPDATE", hold));
+      }
+      if (e.kind === "start")
+        return sendServer(envelope("START.REQUEST", { position: e.position, titleId: e.titleId }));
+      if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
+      if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
       clearTimeout(tabGone);
       presencePort = port;
       presence = { service: e.service, media: e.media };

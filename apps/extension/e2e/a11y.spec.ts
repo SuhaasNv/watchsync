@@ -73,3 +73,35 @@ test("the popup works by keyboard alone", async ({ ext }) => {
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Copy code" })).toBeFocused();
 });
+
+test("flagship: wait card and countdown", async ({ ext }) => {
+  const { hostTab, friend } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await tab.waitForTimeout(3200);
+    await hostTab.evaluate(() => {
+      const v = document.querySelector("video");
+      if (v) v.currentTime = 20;
+    });
+    await hostTab.waitForTimeout(1600);
+    await tab.evaluate(() => {
+      document.body.dataset.buffering = "1";
+    });
+    await expect(hostTab.getByText("Waiting for Asha to load")).toBeVisible();
+    await audit(hostTab, "watchsync-overlay");
+    await expect(hostTab.getByRole("button", { name: "Watch without Asha" })).toBeVisible({
+      timeout: 8000,
+    });
+    await audit(hostTab, "watchsync-overlay");
+    await tab.evaluate(() => {
+      delete document.body.dataset.buffering;
+    });
+    await expect(hostTab.getByText("Back together")).toBeVisible({ timeout: 5000 });
+    await hostTab.getByRole("button", { name: "Start together" }).click();
+    await expect(tab.getByText(/Starting together in|Getting ready/)).toBeVisible();
+    await audit(tab, "watchsync-overlay");
+  } finally {
+    await friend.context.close();
+  }
+});
