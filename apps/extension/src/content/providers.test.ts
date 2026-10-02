@@ -4,11 +4,12 @@ import { align } from "./align";
 import { clock } from "./playback";
 import {
   hotstarMedia,
+  longestVideo,
   mainVideo,
   netflixMedia,
   primeAd,
   primeMedia,
-  primeVideo,
+  separateAd,
 } from "./providers";
 
 // Shape of Netflix's title overlay from the UC-002 desk research, not yet captured from a
@@ -106,9 +107,9 @@ test("prime picks the film, not the detail page's trailer", () => {
     Object.defineProperty(v, "readyState", { value: 4 });
     Object.defineProperty(v, "duration", { value: duration, configurable: true });
   }
-  expect(primeVideo(d)?.id).toBe("film");
+  expect(longestVideo(d)?.id).toBe("film");
   Object.defineProperty(film, "duration", { value: 90 });
-  expect(primeVideo(d)).toBeNull();
+  expect(longestVideo(d)).toBeNull();
 });
 
 test("prime ad timer gives the time left", () => {
@@ -132,4 +133,21 @@ test("jiohotstar reads the content ID and a clean title", () => {
     titleUrl: "https://www.jiohotstar.com/in/shows/panchayat/1260123456/watch",
   });
   expect(hotstarMedia(new URL("https://www.jiohotstar.com/in/home"), d)).toBeNull();
+});
+
+test("an ad in its own short video counts as an ad only while the film waits (BUG-020)", () => {
+  const d = doc("<video id=film></video><video id=ad></video>");
+  const [film, ad] = [...d.querySelectorAll("video")];
+  const set = (v: Element | undefined, props: Record<string, number | boolean>) => {
+    if (!v) throw new Error("missing video");
+    for (const [k, value] of Object.entries(props))
+      Object.defineProperty(v, k, { value, configurable: true });
+  };
+  set(film, { readyState: 4, duration: 6000, paused: true, clientWidth: 1280 });
+  set(ad, { readyState: 4, duration: 30, currentTime: 12, paused: false, clientWidth: 1280 });
+  expect(separateAd(d)).toEqual({ left: 18 });
+  set(film, { paused: false });
+  expect(separateAd(d)).toBeNull(); // film playing: a short video is a preview, not an ad
+  set(film, { duration: 100, paused: true });
+  expect(separateAd(d)).toBeNull(); // no film loaded (detail page trailer)
 });
