@@ -158,3 +158,26 @@ test("closing the room's title clears Now watching quickly (BUG-026)", async ({ 
     await friend.context.close();
   }
 });
+
+test("a friend on the service's browse page shows as on it, without hiding a playing tab (BUG-049)", async ({
+  ext,
+}) => {
+  const { host, friend } = await room(ext);
+  try {
+    const asha = host.locator("li", { hasText: "Asha" });
+    const browse = await friend.context.newPage();
+    await browse.goto(`${MOCK}/browse`);
+    await expect(asha.getByText("Test player", { exact: true })).toBeVisible({ timeout: 8000 });
+
+    const watch = await friend.context.newPage();
+    await watch.goto(`${MOCK}/watch/ep1`);
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible({ timeout: 5000 });
+    // Another browse tab says "no title" after 5 s; the playing tab still counts.
+    const other = await friend.context.newPage();
+    await other.goto(`${MOCK}/browse`);
+    await other.waitForTimeout(6500);
+    await expect(asha.getByText("Test player · Demo Show, E1")).toBeVisible();
+  } finally {
+    await friend.context.close();
+  }
+});

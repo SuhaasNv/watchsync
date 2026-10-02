@@ -512,9 +512,14 @@ chrome.runtime.onConnect.addListener((port) => {
         return sendServer(envelope("START.REQUEST", { position: e.position, titleId: e.titleId }));
       if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
+      const tabId = port.sender?.tab?.id;
+      // A browse page in another tab mustn't hide the tab still playing a title; that
+      // tab's close is reported by tabs.onRemoved (BUG-049).
+      if (!e.media && presence.media && presenceTabId !== undefined && tabId !== presenceTabId)
+        return;
       clearTimeout(tabGone);
       presencePort = port;
-      presenceTabId = port.sender?.tab?.id;
+      presenceTabId = tabId;
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
