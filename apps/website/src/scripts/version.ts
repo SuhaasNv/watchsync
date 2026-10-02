@@ -1,10 +1,12 @@
 import { versionLabel } from "../lib/releases";
+import { CHANNEL } from "../lib/site";
 import { fetchReleases } from "./github";
 
 /** Fills every [data-version] with the newest published release; keeps the fallback otherwise. */
 export function showLatestVersion() {
   const slots = document.querySelectorAll<HTMLElement>("[data-version]");
-  if (!slots.length) return;
+  // The dev site's download is the rolling dev build, not a numbered release.
+  if (!slots.length || CHANNEL === "dev") return;
   fetchReleases()
     .then((releases) => {
       const latest = releases[0];

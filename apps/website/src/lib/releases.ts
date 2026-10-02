@@ -50,7 +50,8 @@ function parseRelease(value: unknown): Release | null {
   if (!isRecord(value) || value.draft === true) return null;
   const tag = str(value.tag_name);
   const url = safeGithubUrl(value.html_url);
-  if (!tag || !url) return null;
+  // The rolling dev build (DEC-026) is for testers, not a release with notes.
+  if (!tag || !url || tag === "dev-latest") return null;
   const assets = Array.isArray(value.assets)
     ? value.assets.map(parseAsset).filter((a): a is ReleaseAsset => a !== null)
     : [];

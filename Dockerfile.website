@@ -14,6 +14,10 @@ COPY apps/website/package.json ./apps/website/package.json
 RUN pnpm install --frozen-lockfile --filter "@watchsync/website..."
 
 COPY apps/website ./apps/website
+# Railway passes service variables to declared build args: the site's own URL (canonical links,
+# sitemap) and its channel, "dev" for dev.watchsync.space (DEC-026).
+ARG PUBLIC_SITE_URL
+ARG PUBLIC_CHANNEL
 RUN pnpm --filter @watchsync/website build
 
 FROM caddy:2-alpine

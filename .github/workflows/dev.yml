@@ -1,0 +1,59 @@
+name: Dev build
+
+# Every push to dev that passes CI refreshes the "WatchSync Dev" zip testers download
+# (DEC-026): one rolling pre-release, tag dev-latest, pointed at the commit it was built from.
+# The extension's update check compares that commit with its own. Production never reads it:
+# /releases/latest skips pre-releases.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [dev]
+    types: [completed]
+
+concurrency:
+  group: dev-build
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # replace the dev-latest release and its tag
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      WATCHSYNC_API: ${{ vars.DEV_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.event.workflow_run.head_sha }}" }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Pack WatchSync Dev
+        run: |
+          if [ -z "$WATCHSYNC_API" ]; then
+            echo "::error::Set the repository variable DEV_API_URL to the dev room service URL."
+            exit 1
+          fi
+          pnpm --filter @watchsync/extension zip:dev
+          unzip -p apps/extension/watchsync-extension-dev.zip manifest.json | node -e '
+            const m = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            if (m.name !== "WatchSync Dev") throw new Error("not a dev build: " + m.name);
+            if (m.host_permissions.some((p) => p.includes("localhost"))) throw new Error("localhost in a dev build");
+            console.log(m.name + " " + m.version_name + ", hosts " + m.host_permissions.join(" "));'
+
+      - name: Replace the dev-latest pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="${SHA:0:7}"
+          gh release delete dev-latest --cleanup-tag --yes > /dev/null 2>&1 || true
+          gh release create dev-latest apps/extension/watchsync-extension-dev.zip \
+            --prerelease --latest=false --target "$SHA" \
+            --title "WatchSync Dev ($short)" \
+            --notes "Testing build from the dev branch at $short. It talks to the dev room service, which sleeps when idle, so the first room can take a few seconds. For everyday use, install WatchSync from https://watchsync.space."
