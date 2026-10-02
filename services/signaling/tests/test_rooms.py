@@ -145,7 +145,7 @@ def presence(ws: Any, title_id: str | None) -> None:
         {
             "service": "netflix",
             "titleId": title_id,
-            "titleName": f"Dark {title_id}",
+            "titleName": f"Dark, E{title_id}",
             "titleUrl": f"https://www.netflix.com/watch/{title_id}",
         }
         if title_id
@@ -658,6 +658,45 @@ def test_next_episode_is_marked_next_and_own_watchers_never_move_the_room() -> N
         next_of(gws, "ROOM.PARTICIPANT")
         media = main.rooms.rooms[host["code"]].media
         assert media is not None and media["titleId"] == "2"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_show_names_tell_next_episode_from_another_title() -> None:
+    def m(service: str, title_id: str, name: str | None) -> dict[str, Any]:
+        return {"service": service, "titleId": title_id, "titleName": name, "titleUrl": None}
+
+    assert main.show(m("netflix", "1", "Dark, S1:E3, Past and Present")) == "dark"
+    assert main.show(m("jiohotstar", "2", "Panchayat S3 E2")) == "panchayat"
+    assert main.show(m("prime", "ABC:Season 1, Ep. 3", "The Boys")) == "ABC"
+    assert main.show(m("netflix", "3", None)) is None
+
+
+def test_autoplay_into_another_film_asks_instead_of_moving_everyone() -> None:
+    """BUG-019: a straight move to a different show is a new title, not the next episode."""
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)  # both on "1", named "Dark, E1"
+    try:
+        presence(hws, "2")  # "Dark, E2": same show, straight on
+        assert next_of(hws, "ROOM.MEDIA")["payload"]["how"] == "next"
+        hws.send_json(
+            msg(
+                "PRESENCE.UPDATE",
+                {
+                    "service": "netflix",
+                    "following": True,
+                    "media": {
+                        "service": "netflix",
+                        "titleId": "77",
+                        "titleName": "Another Film",
+                        "titleUrl": "https://www.netflix.com/watch/77",
+                    },
+                },
+            )
+        )
+        assert next_of(hws, "ROOM.MEDIA")["payload"]["how"] == "new"
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)

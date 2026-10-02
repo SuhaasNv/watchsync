@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -180,8 +181,12 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
     elif msg["type"] == "PRESENCE.UPDATE":
         media = payload["media"]
         room_title = room.media["titleId"] if room.media else None
-        # Straight from the room's title to another one: the next episode.
-        straight = room_title is not None and p.title_id == room_title
+        # Straight from the room's title to another one of the same show: the next episode.
+        # A different show (say, a film the service autoplays after the credits) is a new
+        # title, so friends are asked (BUG-019). Unknown names count as the same show.
+        shows = (show(media), show(room.media)) if media and room.media else (None, None)
+        same_show = None in shows or shows[0] == shows[1]
+        straight = room_title is not None and p.title_id == room_title and same_show
         # Came from the room's title, maybe through the service's browse page (BUG-014).
         was_with_room = room_title is not None and p.last_title_id == room_title
         p.service = payload["service"]
@@ -246,6 +251,18 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await start_progress(room)
     elif msg["type"] == "START.FORCE" and room.start is not None:
         await start_go(room)
+
+
+def show(media: dict[str, Any]) -> str | None:
+    """The show a title belongs to, from its name: "Dark, S1:E3, …" or "Panchayat S3 E2"
+    give "dark" and "panchayat". Prime episodes share a detail ID before the colon."""
+    if media["service"] == "prime":
+        return str(media["titleId"]).split(":")[0]
+    name = media.get("titleName")
+    if not name:
+        return None
+    base = re.split(r",|\s+S(?:eason)?\s*\d+", name, maxsplit=1, flags=re.IGNORECASE)[0]
+    return base.strip().lower() or None
 
 
 def set_playback(room: Room, status_: str, position: float, at: float) -> dict[str, Any]:
