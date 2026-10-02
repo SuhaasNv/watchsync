@@ -80,3 +80,26 @@ test("after a browser restart, reopening a title offers to rejoin the room", asy
     rmSync(profile, { recursive: true, force: true });
   }
 });
+
+test("an ended room says so instead of reconnecting forever (BUG-009)", async ({ ext }) => {
+  const profile = mkdtempSync(path.join(tmpdir(), "watchsync-friend-"));
+  const { host, friend } = await room(ext, profile);
+  await friend.context.close(); // the friend quits Chrome
+  await host.getByRole("button", { name: "Leave room" }).click(); // the host leaves too
+  await host.waitForTimeout(9000); // the room ends 8 s after it empties (test server)
+
+  const again = await launchWithExtension(profile);
+  try {
+    const pop = await again.context.newPage();
+    await pop.goto(`chrome-extension://${again.extensionId}/popup.html`);
+    await pop.getByRole("button", { name: /Rejoin room/ }).click();
+    await expect(pop.getByText("This room is no longer available")).toBeVisible({
+      timeout: 8000,
+    });
+    await expect(pop.getByText("Reconnecting…")).toHaveCount(0);
+    await expect(pop.getByRole("button", { name: "Create a room" })).toBeVisible();
+  } finally {
+    await again.context.close();
+    rmSync(profile, { recursive: true, force: true });
+  }
+});

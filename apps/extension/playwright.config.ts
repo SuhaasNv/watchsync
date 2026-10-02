@@ -9,9 +9,11 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   // The room service the built extension talks to (API http://localhost:8000).
   webServer: {
-    // The suite creates many rooms from one IP, so it runs with high rate limits;
-    // the limits themselves are covered by the service's pytest suite.
-    command: "CREATE_PER_MINUTE=1000 JOIN_PER_MINUTE=1000 uv run uvicorn app.main:app --port 8000",
+    // The suite creates many rooms from one IP, so it runs with high rate limits (pytest
+    // covers the limits), and rooms end 8 s after the last person leaves so the "room
+    // ended" path can be tested in a real browser.
+    command:
+      "CREATE_PER_MINUTE=1000 JOIN_PER_MINUTE=1000 ROOM_IDLE_EXPIRY_SECONDS=8 uv run uvicorn app.main:app --port 8000",
     cwd: "../../services/signaling",
     url: "http://localhost:8000/health",
     // Always a fresh server, so a stale one from earlier never hides a change.
