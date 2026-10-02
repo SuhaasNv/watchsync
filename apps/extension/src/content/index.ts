@@ -2,7 +2,7 @@
 // keeps it on the room's title.
 import type { Media } from "@watchsync/protocol";
 import { expectedPosition } from "@watchsync/sync-engine";
-import type { AppState, Push, TabEvent } from "../shared/messages";
+import { type AppState, type Push, send, type TabEvent } from "../shared/messages";
 import { align } from "./align";
 import { clearPrompt, prompt, toast } from "./overlay";
 import { apply, clock, listen } from "./playback";
@@ -69,14 +69,48 @@ function onPush(m: Push) {
     toast(`${byName} ${to > before ? "skipped ahead" : "went back"} to ${clock(to)}`, 4000);
     return;
   }
+  if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
+    const { participant, event } = m.message.payload;
+    if (event === "left") toast(`${participant.name} left`);
+    return;
+  }
   if (m.kind !== "state") return;
+  const wasConnected = room?.connection === "connected";
   room = m.state;
+  if (room.connection === "connected" && !wasConnected) catchUp();
+  offerRejoin();
   const next = room.session ? room.media : null;
   if (next?.titleId !== roomMedia?.titleId) {
     const before = roomMedia;
     roomMedia = next;
     reconcile(before);
   }
+}
+
+let rejoinOffered = false;
+
+/** After a browser restart, offer the last room on a title page (US-034). */
+function offerRejoin() {
+  if (rejoinOffered || !room || room.session || !room.lastRoom || !mine) return;
+  rejoinOffered = true;
+  prompt(`Rejoin room ${room.lastRoom}?`, [
+    { label: "Not now", run: () => void send({ kind: "forgetRoom" }) },
+    { label: "Rejoin", primary: true, run: () => void send({ kind: "rejoin" }) },
+  ]);
+}
+
+/**
+ * Lands this player at the room's position when we (re)connect or arrive on the room's
+ * title. The player may still be loading, so try for a few seconds.
+ */
+function catchUp(tries = 5) {
+  const playback = room?.playback;
+  if (!provider || !playback || !mine || playback.titleId !== mine.titleId) return;
+  if (!provider.getState()) {
+    if (tries > 0) setTimeout(() => catchUp(tries - 1), 1000);
+    return;
+  }
+  apply(provider, playback, Date.now() + (room?.clockOffset ?? 0)).catch(() => {});
 }
 
 function connect() {
@@ -102,6 +136,8 @@ function poll() {
   clearPrompt();
   clearTimeout(settle);
   settle = setTimeout(() => reconcile(roomMedia), 2000);
+  catchUp();
+  offerRejoin();
 }
 let settle: ReturnType<typeof setTimeout> | undefined;
 

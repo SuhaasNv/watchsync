@@ -43,11 +43,11 @@ async function serveMockPlayer(context: BrowserContext) {
 }
 
 /** A Chromium profile with the built extension loaded. Each test gets its own. */
-export async function launchWithExtension(): Promise<{
+export async function launchWithExtension(userDataDir = ""): Promise<{
   context: BrowserContext;
   extensionId: string;
 }> {
-  const context = await chromium.launchPersistentContext("", {
+  const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
   });
@@ -78,7 +78,7 @@ export async function popup(ext: Ext, name: string) {
 }
 
 /** Host creates a room on ep1; friend joins by code. Returns both popups and a friend context. */
-export async function room(ext: Ext) {
+export async function room(ext: Ext, friendProfile = "") {
   const host = await popup(ext, "Suhaas");
   await host.getByRole("button", { name: "Create a room" }).click();
   const code = (await host.getByTestId("room-code").textContent()) ?? "";
@@ -86,7 +86,7 @@ export async function room(ext: Ext) {
   await hostTab.goto(`${MOCK}/watch/ep1`);
   await expect(host.getByText("Test player · Demo Show, E1")).toBeVisible();
 
-  const friend = await launchWithExtension();
+  const friend = await launchWithExtension(friendProfile);
   const fpop = await popup(friend, "Asha");
   await fpop.getByRole("textbox", { name: "Or join a friend's room" }).fill(code);
   await fpop.getByRole("button", { name: "Join", exact: true }).click();

@@ -19,6 +19,10 @@ export interface AppState {
   following: boolean;
   /** server clock minus local clock, ms */
   clockOffset: number;
+  /** A room we can go back to after the browser restarted (US-034). */
+  lastRoom: string | null;
+  /** Why we're no longer in a room, shown once in the popup. */
+  notice: string | null;
 }
 
 /** One-shot requests to the background (chrome.runtime.sendMessage). */
@@ -28,6 +32,8 @@ export type Request =
   | { kind: "create" }
   | { kind: "join"; code: string }
   | { kind: "leave" }
+  | { kind: "rejoin" }
+  | { kind: "forgetRoom" }
   | { kind: "follow"; following: boolean };
 
 export type Reply = { ok: true; state: AppState } | { ok: false; error: string; state: AppState };
@@ -54,7 +60,7 @@ export const ERRORS: Record<string, string> = {
   rate_limited: "Too many tries. Wait a minute and try again.",
   invalid: "Enter a name of 1 to 30 characters.",
   not_found: "We can't find that room. Check the code with your friend.",
-  expired: "This room has ended. Ask your friend for a new code.",
+  expired: "This room is no longer available. Ask your friend for a new code.",
   full: "This room is full.",
 };
 

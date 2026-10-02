@@ -120,7 +120,8 @@ function HomeScreen({ state }: { state: AppState }) {
         >
           {busy ? "Creating room…" : "Create a room"}
         </button>
-        <ErrorLine error={error} />
+        <ErrorLine error={error ?? state.notice} />
+        {state.lastRoom && <RejoinRow code={state.lastRoom} />}
         <JoinForm />
         <span className="grow" />
         <p className="hint center">
@@ -131,6 +132,28 @@ function HomeScreen({ state }: { state: AppState }) {
         </p>
       </div>
     </>
+  );
+}
+
+function RejoinRow({ code }: { code: string }) {
+  const { busy, error, run } = useAction();
+  return (
+    <div className="field">
+      <div className="row">
+        <button
+          className="btn grow"
+          type="button"
+          disabled={busy}
+          onClick={() => run({ kind: "rejoin" })}
+        >
+          Rejoin room {code}
+        </button>
+        <button className="btn" type="button" onClick={() => run({ kind: "forgetRoom" })}>
+          Forget
+        </button>
+      </div>
+      <ErrorLine error={error} />
+    </div>
   );
 }
 
@@ -196,12 +219,12 @@ function CopyButton({ text, label, primary }: { text: string; label: string; pri
 function RoomScreen({ state }: { state: AppState }) {
   const s = state.session;
   if (!s) return null;
-  const status =
-    state.connection === "connected"
-      ? "Connected"
-      : state.connection === "idle"
-        ? "Offline"
-        : "Connecting…";
+  const status = {
+    connected: "Connected",
+    connecting: "Connecting…",
+    reconnecting: "Reconnecting…",
+    idle: "Offline",
+  }[state.connection];
   return (
     <>
       <Header right={<span className={`badge ${state.connection}`}>{status}</span>} />
@@ -233,6 +256,10 @@ function RoomScreen({ state }: { state: AppState }) {
             </li>
           ))}
         </ul>
+        <span className="grow" />
+        <button className="btn danger" type="button" onClick={() => send({ kind: "leave" })}>
+          Leave room
+        </button>
       </div>
     </>
   );
