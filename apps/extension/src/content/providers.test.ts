@@ -61,6 +61,14 @@ test("align follows the room to the next episode only for someone who was with i
   expect(align(ep("1"), ep("2"), ep("7"), true).kind).toBe("prompt");
   expect(align(null, ep("2"), null, true).kind).toBe("prompt");
   expect(align(ep("1"), ep("2"), ep("2"), true).kind).toBe("none");
+  // The room moved to another service (Netflix to Prime Video): ask, never navigate away.
+  const prime: Media = {
+    service: "prime",
+    titleId: "B0ABC12345",
+    titleName: "Vaarasudu",
+    titleUrl: "https://www.amazon.in/gp/video/detail/B0ABC12345",
+  };
+  expect(align(ep("1"), prime, ep("1"), true)).toEqual({ kind: "prompt", url: prime.titleUrl });
   expect(align(null, { ...ep("2"), titleUrl: "https://evil.example/" }, null, true).kind).toBe(
     "none",
   );
