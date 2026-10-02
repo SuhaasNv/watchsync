@@ -32,6 +32,8 @@ class Participant:
     connected: bool = False
     hold: str | None = None  # "buffering" or "ad": the room waits for this person
     ad_left: float | None = None
+    # Came back after leaving or closing the browser: the room hears "rejoined" once.
+    rejoined: bool = False
 
     def public(self) -> dict[str, Any]:
         return {
@@ -60,6 +62,8 @@ class Room:
     skip_hold: set[str] = field(default_factory=set)
     # Start together in progress: who asked, where, and who is ready.
     start: dict[str, Any] | None = None
+    # Names of people who left, so the same name joining again counts as a rejoin.
+    gone: set[str] = field(default_factory=set)
 
     def holding(self) -> list[Participant]:
         return [
@@ -115,9 +119,24 @@ class Rooms:
                 return code
 
     def _add(self, room: Room, name: str) -> dict[str, str]:
-        if len(room.participants) >= config.MAX_PARTICIPANTS:
+        # Someone of this name whose browser closed is coming back: take their place (and
+        # their id, so everyone's list swaps the row instead of showing them twice).
+        stale = next(
+            (x for x in room.participants.values() if x.name == name and not x.connected), None
+        )
+        if len(room.participants) - (stale is not None) >= config.MAX_PARTICIPANTS:
             raise RoomError("room_full", "This room is full.")
-        p = Participant(id=secrets.token_hex(8), name=name, token=secrets.token_urlsafe(32))
+        if stale is not None:
+            room.participants.pop(stale.id)
+            self.tokens.pop(stale.token, None)
+            room.skip_hold.discard(stale.id)
+        p = Participant(
+            id=stale.id if stale else secrets.token_hex(8),
+            name=name,
+            token=secrets.token_urlsafe(32),
+            rejoined=stale is not None or name in room.gone,
+        )
+        room.gone.discard(name)
         room.participants[p.id] = p
         self.tokens[p.token] = (room.code, p.id)
         return {"code": room.code, "token": p.token, "participantId": p.id}
@@ -139,11 +158,14 @@ class Rooms:
             raise RoomError("not_found", "No room has that code.")
         return self._add(room, name)
 
-    def leave(self, room: Room, p: Participant) -> None:
-        """Remove someone for good: their token stops working. The last one out ends the room."""
+    def leave(self, room: Room, p: Participant, end_if_empty: bool = True) -> None:
+        """Remove someone for good: their token stops working. The last one out ends the room,
+        unless end_if_empty is off: then the room waits, empty, for a rejoin until it expires."""
         room.participants.pop(p.id, None)
         self.tokens.pop(p.token, None)
-        if not room.participants:
+        room.skip_hold.discard(p.id)
+        room.gone.add(p.name)
+        if not room.participants and end_if_empty:
             del self.rooms[room.code]
             self.ended[room.code] = now_ms()
 

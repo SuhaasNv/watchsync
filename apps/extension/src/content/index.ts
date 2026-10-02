@@ -158,6 +158,8 @@ function onPush(m: Push) {
     const { participant, event } = m.message.payload;
     if (event === "left")
       toast(`${participant.name} left`, 4000, { who: participant.name, icon: "leave" });
+    if (event === "rejoined")
+      toast(`${participant.name} rejoined`, 4000, { who: participant.name, icon: "rejoin" });
     return;
   }
   if (m.kind !== "state") return;

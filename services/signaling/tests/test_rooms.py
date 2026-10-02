@@ -1,4 +1,6 @@
 import re
+import time
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -739,3 +741,134 @@ def test_autoplay_into_another_film_asks_instead_of_moving_everyone() -> None:
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)
+
+
+# ---- Closing the browser leaves the room; coming back says "rejoined" ----
+
+
+@pytest.fixture
+def live(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """One event loop for every socket, so the grace timer outlives the socket that started it."""
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 0.3)
+    with TestClient(main.app) as c:
+        yield c
+
+
+def refused(c: TestClient, url: str) -> bool:
+    try:
+        with c.websocket_connect(url) as ws:
+            ws.receive_json()
+    except WebSocketDisconnect as e:
+        return e.code == 1008
+    return False
+
+
+def closed(ws: Any) -> None:
+    """Reads until the server closes the socket, so its handler has finished."""
+    with pytest.raises(WebSocketDisconnect):
+        while True:
+            ws.receive_json()
+
+
+def test_a_closed_browser_leaves_after_the_grace_period(live: TestClient) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+            next_of(hws, "ROOM.PARTICIPANT")  # joined
+        # The browser closed without a ROOM.LEAVE: away at once, gone after the grace period.
+        away = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+        assert away["event"] == "updated" and away["participant"]["connected"] is False
+        left = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+        assert left["event"] == "left" and left["participant"]["name"] == "Asha"
+        assert [p.name for p in main.rooms.rooms[host["code"]].participants.values()] == ["Suhaas"]
+    assert refused(live, url + guest["token"])
+
+
+def test_a_short_drop_within_the_grace_period_stays_silent(live: TestClient) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:  # back on Wi-Fi
+            gws.receive_json()
+            time.sleep(0.6)  # twice the grace period
+            hws.send_json(msg("SYS.PING", {"t1": 1}))
+            events = []
+            while (m := hws.receive_json())["type"] != "SYS.PONG":
+                if m["type"] == "ROOM.PARTICIPANT":
+                    events.append(m["payload"]["event"])
+            assert "left" not in events and events[-1] == "joined"
+            assert len(main.rooms.rooms[host["code"]].participants) == 2
+
+
+def test_the_last_one_out_by_closing_keeps_the_room_until_it_expires(live: TestClient) -> None:
+    host = create()
+    with live.websocket_connect(f"/ws/rooms/{host['code']}?token={host['token']}") as ws:
+        ws.receive_json()
+    time.sleep(0.6)
+    room = main.rooms.rooms[host["code"]]
+    assert room.participants == {}  # left after the grace period, but the room waits
+    again = join(host["code"], "Suhaas")
+    assert again.status_code == 201
+    assert room.participants[again.json()["participantId"]].rejoined
+    main.rooms.sweep(now=main.now_ms() + (main.config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000)
+    assert join(host["code"]).status_code == 410
+
+
+def test_rejoining_under_the_same_name_replaces_the_away_row(
+    live: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    monkeypatch.setattr(main.config, "AWAY_GRACE_SECONDS", 30)  # away, not gone, at the rejoin
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+        next_of(hws, "ROOM.PARTICIPANT")  # joined
+        next_of(hws, "ROOM.PARTICIPANT")  # away
+        back = join(host["code"], "Asha").json()
+        assert back["participantId"] == guest["participantId"]  # same row, new token
+        assert refused(live, url + guest["token"])
+        with live.websocket_connect(url + back["token"]) as gws:
+            gws.receive_json()
+            came = next_of(hws, "ROOM.PARTICIPANT")["payload"]
+            assert came["event"] == "rejoined" and came["participant"]["connected"]
+            names = [p.name for p in main.rooms.rooms[host["code"]].participants.values()]
+            assert sorted(names) == ["Asha", "Suhaas"]
+        # Someone connected is never replaced, and another name is someone new.
+        other = join(host["code"], "Suhaas").json()
+        assert other["participantId"] != host["participantId"]
+        assert not main.rooms.rooms[host["code"]].participants[other["participantId"]].rejoined
+
+
+def test_leaving_then_joining_again_is_a_rejoin_and_keep_room_keeps_it(live: TestClient) -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    url = f"/ws/rooms/{host['code']}?token="
+    with live.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        with live.websocket_connect(url + guest["token"]) as gws:
+            gws.receive_json()
+            gws.send_json(msg("ROOM.LEAVE", {}))
+            closed(gws)
+        assert next_of(hws, "ROOM.PARTICIPANT")["payload"]["event"] == "joined"
+        assert next_of(hws, "ROOM.PARTICIPANT")["payload"]["event"] == "left"
+        back = join(host["code"], "Asha").json()
+        with live.websocket_connect(url + back["token"]) as gws:
+            gws.receive_json()
+            assert next_of(hws, "ROOM.PARTICIPANT")["payload"]["event"] == "rejoined"
+            gws.send_json(msg("ROOM.LEAVE", {}))
+            closed(gws)
+        hws.send_json(msg("ROOM.LEAVE", {"keepRoom": True}))  # the last window closed
+        closed(hws)
+    # The last one out kept the room: they can come back until it expires.
+    assert join(host["code"], "Suhaas").status_code == 201

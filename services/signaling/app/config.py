@@ -12,6 +12,9 @@ PROTOCOL_SCHEMA = Path(
     os.environ.get("PROTOCOL_SCHEMA", ROOT / "packages/protocol/schema/protocol.schema.json")
 )
 ROOM_IDLE_EXPIRY_SECONDS = int(os.environ.get("ROOM_IDLE_EXPIRY_SECONDS", "900"))
+# Someone whose connection closed and who hasn't come back within this long has left (their
+# browser closed); shorter drops, like a Wi-Fi change, stay silent (BUG-018).
+AWAY_GRACE_SECONDS = float(os.environ.get("AWAY_GRACE_SECONDS", "60"))
 MAX_PARTICIPANTS = int(os.environ.get("MAX_PARTICIPANTS", "8"))
 # Per client IP, per minute.
 CREATE_PER_MINUTE = int(os.environ.get("CREATE_PER_MINUTE", "10"))

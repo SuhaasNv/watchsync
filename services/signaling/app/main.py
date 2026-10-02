@@ -55,6 +55,8 @@ FLOODED = 4001  # too many messages for too long; the extension reconnects with 
 FLOOD_LIMIT = 100
 ERROR_STATUS = {"not_found": 404, "room_ended": 410, "room_full": 409, "busy": 503}
 sockets: dict[str, WebSocket] = {}
+# Per participant id: the pending "left" for someone whose connection closed.
+away: dict[str, asyncio.Task[None]] = {}
 
 
 def client_ip(request: Request | WebSocket) -> str:
@@ -370,6 +372,24 @@ async def cancel_start(room: Room) -> None:
     await broadcast(room, "START.STATE", state)
 
 
+async def leave_after_grace(room: Room, p: Participant) -> None:
+    """Their browser closed (no ROOM.LEAVE arrived): after the grace period, they've left.
+    The room stays, even empty, until the idle expiry, so they can rejoin."""
+    await asyncio.sleep(config.AWAY_GRACE_SECONDS)
+    if away.get(p.id) is asyncio.current_task():
+        del away[p.id]
+    # Still away, and not replaced by a rejoin under the same name (same id, new object).
+    if (
+        p.connected
+        or rooms.rooms.get(room.code) is not room
+        or room.participants.get(p.id) is not p
+    ):
+        return
+    rooms.leave(room, p, end_if_empty=False)
+    await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "left"})
+    await release_if_clear(room, p)
+
+
 def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
     start = room.start or {}
     return {
@@ -401,11 +421,16 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     sockets[p.id] = ws
     if old is not None:  # the same person reconnected (network change, restart): newest wins
         await old.close(code=REPLACED)
+    pending = away.pop(p.id, None)
+    if pending is not None:  # back within the grace period: nobody hears they were gone
+        pending.cancel()
     p.connected = True
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
+    arrived = "rejoined" if p.rejoined else "joined"
+    p.rejoined = False
     await broadcast(
-        room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "joined"}, skip=p.id
+        room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": arrived}, skip=p.id
     )
     left = False
     dropped = 0
@@ -434,7 +459,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
                 continue
             if msg["type"] == "ROOM.LEAVE":
                 left = True
-                rooms.leave(room, p)
+                rooms.leave(room, p, end_if_empty=not msg["payload"].get("keepRoom", False))
                 event = {"participant": p.public() | {"connected": False}, "event": "left"}
                 await broadcast(room, "ROOM.PARTICIPANT", event, skip=p.id)
                 await release_if_clear(room, p)
@@ -450,8 +475,9 @@ async def room_socket(ws: WebSocket, code: str) -> None:
             p.connected = False
             p.hold = None  # don't keep the room waiting for someone who's gone
             if not left:
-                away = {"participant": p.public(), "event": "updated"}
-                await broadcast(room, "ROOM.PARTICIPANT", away)
+                gone = {"participant": p.public(), "event": "updated"}
+                await broadcast(room, "ROOM.PARTICIPANT", gone)
                 await release_if_clear(room, p)
+                away[p.id] = asyncio.create_task(leave_after_grace(room, p))
             if not any(x.connected for x in room.participants.values()):
                 room.empty_since = now_ms()
