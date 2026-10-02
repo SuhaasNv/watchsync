@@ -56,7 +56,11 @@ writeFileSync("dist/manifest.json", JSON.stringify(manifest, null, 2));
 const common = {
   bundle: true,
   target: "chrome120",
-  define: { __API_URL__: JSON.stringify(api), __MOCK__: String(mock) },
+  define: {
+    __API_URL__: JSON.stringify(api),
+    __MOCK__: String(mock),
+    __TITLE_PAGES__: JSON.stringify(serviceMatches),
+  },
   logLevel: "warning",
   minify: !watch,
   sourcemap: watch ? "inline" : false,

@@ -48,4 +48,28 @@ export type TabEvent =
       titleId: string | null;
     };
 
+/** Plain messages for background error codes, shared by the popup and the invite page. */
+export const ERRORS: Record<string, string> = {
+  unreachable: "We couldn't reach WatchSync. Check your connection and try again.",
+  rate_limited: "Too many tries. Wait a minute and try again.",
+  invalid: "Enter a name of 1 to 30 characters.",
+  not_found: "We can't find that room. Check the code with your friend.",
+  expired: "This room has ended. Ask your friend for a new code.",
+  full: "This room is full.",
+};
+
+export const SERVICE_LABEL: Record<Service, string> = {
+  netflix: "Netflix",
+  prime: "Prime Video",
+  jiohotstar: "JioHotstar",
+  mock: "Test player",
+  none: "",
+};
+
+/** A room's titleUrl comes from another person; only follow it to a supported service page. */
+export function safeTitleUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return __TITLE_PAGES__.some((pattern) => url.startsWith(pattern.replace(/\*$/, ""))) ? url : null;
+}
+
 export const send = (req: Request): Promise<Reply> => chrome.runtime.sendMessage(req);
