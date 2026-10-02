@@ -6,6 +6,9 @@ import { expect, MOCK, room, test } from "./fixtures";
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function audit(page: Page, include?: string) {
+  // Audit the settled state: with reduced motion, entrance fades end at once, so contrast
+  // is measured on the finished screen rather than mid-fade.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const builder = new AxeBuilder({ page }).withTags(WCAG);
   const { violations } = await (include ? builder.include(include) : builder).analyze();
   const summary = violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(", ")}`);
@@ -42,10 +45,13 @@ test("invite page, with and without the extension", async ({ ext, page }) => {
 });
 
 test("on-page prompt and notices", async ({ ext }) => {
-  const { hostTab, friend } = await room(ext);
+  const { host, hostTab, friend, fpop } = await room(ext);
   try {
+    await audit(host); // the popup's room with people in it
     const tab = await friend.context.newPage();
     await tab.goto(`${MOCK}/watch/film`);
+    await expect(fpop.getByRole("button", { name: "Open Demo Show, E1" })).toBeVisible();
+    await audit(fpop); // a friend on another title
     await expect(tab.getByText("Open it?")).toBeVisible({ timeout: 5000 });
     await audit(tab, "watchsync-overlay");
 

@@ -44,6 +44,7 @@ test("a dropped connection reconnects by itself and stays in sync", async ({ ext
     });
     await expect(fpop.getByText("Reconnecting…")).toBeVisible();
     await expect(fpop.getByText("Connected")).toBeVisible({ timeout: 5000 });
+    await expect(tab.getByText("Back with the room")).toBeVisible(); // the page said so too
 
     // Sync still works after the reconnect.
     await hostTab.evaluate(() => {

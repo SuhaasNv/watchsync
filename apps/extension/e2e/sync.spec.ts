@@ -43,35 +43,55 @@ test("small drift is corrected silently", async ({ ext }) => {
   }
 });
 
-test("large drift asks, and Sync snaps back", async ({ ext }) => {
+/** Puts the friend's tab 9 s ahead of the room without it counting as the friend's jump. */
+async function landAhead(hostTab: Page, tab: Page) {
+  await tab.goto(`${MOCK}/watch/ep1`);
+  await expect.poll(() => playing(tab)).toBe(true);
+  await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
+  await hostTab.evaluate(() => {
+    const v = document.querySelector("video");
+    if (v) v.currentTime = 10;
+  });
+  await expect.poll(() => gap(tab, hostTab)).toBeLessThan(1);
+  await hostTab.waitForTimeout(1600);
+
+  // The friend lands 9 s ahead right after applying the host's play, inside the echo
+  // window, so it counts as drift rather than as the friend's own jump.
+  await hostTab.evaluate(() => document.querySelector("video")?.pause());
+  await expect.poll(() => playing(tab)).toBe(false);
+  await hostTab.waitForTimeout(1600);
+  await hostTab.evaluate(() => document.querySelector("video")?.play());
+  await expect.poll(() => playing(tab), { intervals: [50] }).toBe(true);
+  await tab.evaluate(() => {
+    const v = document.querySelector("video");
+    if (v) v.currentTime += 9;
+  });
+  await expect(tab.getByText(/You're \d+ seconds ahead of Suhaas/)).toBeVisible({ timeout: 4000 });
+}
+
+test("large drift asks, and Catch up snaps back", async ({ ext }) => {
   const { hostTab, friend } = await room(ext);
   try {
     const tab = await friend.context.newPage();
-    await tab.goto(`${MOCK}/watch/ep1`);
-    await expect.poll(() => playing(tab)).toBe(true);
-    await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
-    await hostTab.evaluate(() => {
-      const v = document.querySelector("video");
-      if (v) v.currentTime = 10;
-    });
-    await expect.poll(() => gap(tab, hostTab)).toBeLessThan(1);
-    await hostTab.waitForTimeout(1600);
-
-    // The friend lands 9 s ahead right after applying the host's play, inside the echo
-    // window, so it counts as drift rather than as the friend's own jump.
-    await hostTab.evaluate(() => document.querySelector("video")?.pause());
-    await expect.poll(() => playing(tab)).toBe(false);
-    await hostTab.waitForTimeout(1600);
-    await hostTab.evaluate(() => document.querySelector("video")?.play());
-    await expect.poll(() => playing(tab), { intervals: [50] }).toBe(true);
-    await tab.evaluate(() => {
-      const v = document.querySelector("video");
-      if (v) v.currentTime += 9;
-    });
-    await expect(tab.getByText(/You're \d+ seconds ahead/)).toBeVisible({ timeout: 4000 });
-    await tab.getByRole("button", { name: "Sync", exact: true }).click();
+    await landAhead(hostTab, tab);
+    await tab.getByRole("button", { name: "Catch up" }).click();
     await expect.poll(() => gap(tab, hostTab)).toBeLessThan(1);
     await expect(tab.getByText(/seconds ahead/)).toHaveCount(0);
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("Stay here keeps my position and stops asking", async ({ ext }) => {
+  const { hostTab, friend } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await landAhead(hostTab, tab);
+    await tab.getByRole("button", { name: "Stay here" }).click();
+    await expect(tab.getByText(/seconds ahead/)).toHaveCount(0);
+    await tab.waitForTimeout(2500); // drift is checked every second: it must not come back
+    await expect(tab.getByText(/seconds ahead/)).toHaveCount(0);
+    expect(await gap(tab, hostTab)).toBeGreaterThan(5);
   } finally {
     await friend.context.close();
   }
@@ -119,8 +139,8 @@ test("the pill shows who is here, moves, and stays in full screen", async ({ ext
     await expect(region.getByRole("img", { name: "Suhaas, in sync" })).toBeVisible();
     await expect(region.getByRole("img", { name: "Asha (you), in sync" })).toBeVisible();
 
-    await region.getByRole("button", { name: "Move left" }).click();
-    await expect(region.getByRole("button", { name: "Move right" })).toBeVisible();
+    await region.getByRole("button", { name: "Move to the left side" }).click();
+    await expect(region.getByRole("button", { name: "Move to the right side" })).toBeVisible();
     const box = await region.boundingBox();
     expect(box?.x).toBeLessThan(100);
 
