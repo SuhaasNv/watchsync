@@ -25,11 +25,22 @@ export function listen(
     const v = provider.video();
     if (e.target !== v || !v || isEcho()) return;
     if (!Number.isFinite(v.duration)) return; // live: not synced (UC-010)
-    const action: Action = e.type === "play" ? "play" : "pause";
+    // Scrubbing, arrow keys, 10-second skips and Skip intro all end in "seeked".
+    const action: Action = e.type === "seeked" ? "seek" : e.type === "play" ? "play" : "pause";
     onUser(action, clamp(v.currentTime, 0, 86_400), clamp(v.playbackRate, 0.25, 4));
   };
   document.addEventListener("play", handler, true);
   document.addEventListener("pause", handler, true);
+  document.addEventListener("seeked", handler, true);
+}
+
+/** 2530 → "42:10", 3723 → "1:02:03". */
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60));
+  const ss = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${mm.padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
 }
 
 /** Brings this player to the room's playback. `serverNow` is the server clock in ms. */
