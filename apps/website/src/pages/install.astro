@@ -1,7 +1,6 @@
 ---
 import DownloadButton from "../components/DownloadButton.astro";
 import Steps from "../components/install/Steps.astro";
-import Trust from "../components/Trust.astro";
 import Base from "../layouts/Base.astro";
 import { CONTACT_EMAIL } from "../lib/site";
 
@@ -123,10 +122,6 @@ const tabs = [
         </li>
       </ol>
     </section>
-
-    <div class="trust-wrap">
-      <Trust variant="panel" />
-    </div>
   </div>
 </Base>
 
@@ -281,9 +276,6 @@ const tabs = [
     color: var(--acc);
     font-family: var(--display);
     font-weight: 600;
-  }
-  .trust-wrap {
-    margin-top: clamp(40px, 10vw, 140px);
   }
   @media (max-width: 760px) {
     .issues {
