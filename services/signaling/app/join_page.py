@@ -207,7 +207,7 @@ def not_found() -> str:
 
 
 PRIVACY = """  <h1>Privacy notice</h1>
-  <p>Last updated: 2 October 2026</p>
+  <p>Last updated: 3 October 2026</p>
   <p>WatchSync is a browser extension that keeps friends' video players in step. It is run by
     Suhaas Nv. Questions, requests and complaints about your data:
     <a href="mailto:suhaasnvs@gmail.com">suhaasnvs@gmail.com</a>.</p>
@@ -219,6 +219,8 @@ PRIVACY = """  <h1>Privacy notice</h1>
       name, and its link, so your room can line everyone up on the same title.</li>
     <li>Your player's state: playing or paused, position, speed, and whether it is loading or
       showing an ad, to keep everyone in step and let the room wait for you.</li>
+    <li>The chat messages you send in a room, so the people in your room can read them.</li>
+    <li>The reactions you send, shown to your room for a moment and never stored.</li>
     <li>Your IP address, held in memory only to stop abuse (rate limits).</li>
   </ul>
   <h2>What WatchSync does not collect</h2>
@@ -228,6 +230,9 @@ PRIVACY = """  <h1>Privacy notice</h1>
   <p>The people in your room see your name, which service and title you have open, and whether
     you are in sync, loading or on an ad. The room service runs on Railway in the United
     States. Nobody else receives your data, and it is never sold.</p>
+  <p>Chat messages pass through the room service on their way to your room. People who join the
+    room later can read the earlier messages. Chat is encrypted on its way to and from the room
+    service, but it is not end-to-end encrypted.</p>
   <p>Once a day the extension asks GitHub whether a newer version of WatchSync is out. GitHub
     sees that request like any visit to a web page, including your IP address; nothing about
     you or your room is sent with it.</p>
@@ -235,8 +240,12 @@ PRIVACY = """  <h1>Privacy notice</h1>
   <ul>
     <li>Rooms live in the service's memory only. When you leave a room, your entry is deleted
       at once.</li>
-    <li>A room is deleted about 15 minutes after the last person leaves. Every restart of the
-      service deletes all rooms.</li>
+    <li>A room ends and is deleted about 15 minutes after the last person leaves. When the
+      service restarts, a room comes back as its people reconnect, using the token each of them
+      already holds; its chat does not come back.</li>
+    <li>Chat messages are held in the service's memory only while the room exists, the last 200
+      per room. They are never written to logs, and are deleted when the room ends or the
+      service restarts.</li>
     <li>Codes of ended rooms (no personal data) are kept for 24 hours, so a late friend learns
       the room ended.</li>
     <li>On your computer, Chrome keeps your name, and your last room for up to 24 hours so you

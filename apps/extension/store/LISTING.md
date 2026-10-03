@@ -37,9 +37,10 @@ Also
 - Small drift is corrected quietly; a big gap offers a Sync button.
 - Watch on your own at any time without leaving the room.
 - Reconnects by itself after a network drop.
+- Chat with your room beside the player, and send reactions. Alt+Shift+W (Control+Shift+W on a Mac) opens and closes the chat; you can change it at chrome://extensions/shortcuts.
 
 Privacy
-WatchSync shares your name, the room, and whether you are playing or paused and where. It never reads the picture, records anything, or touches your streaming account. There is no sign-up and no tracking. Privacy notice: https://watchsync.space/privacy/
+WatchSync shares your name, the room, whether you are playing or paused and where, and the chat messages and reactions you send. Chat is kept in the room service's memory only while the room exists. It never reads the picture, records anything, or touches your streaming account. There is no sign-up and no tracking. Privacy notice: https://watchsync.space/privacy/
 
 WatchSync is not affiliated with Netflix, Amazon or JioStar. You need your own subscription to each service.
 
@@ -55,22 +56,25 @@ WatchSync is not affiliated with Netflix, Amazon or JioStar. You need your own s
 ## Privacy practices
 
 **Single purpose:**
-Keep the user's video playback in sync with friends watching the same title on supported streaming sites (Netflix, Prime Video, JioHotstar).
+Keep the user's video playback in sync with friends watching the same title on supported streaming sites (Netflix, Prime Video, JioHotstar), with a chat and reactions for the people in that room while they watch.
 
 **Permission justifications:**
 - `scripting`: when WatchSync is installed or updated, adds its player sync to Netflix, Prime Video and JioHotstar tabs that are already open, so people don't have to reload them. It runs only WatchSync's own packaged scripts, only on those sites.
 - `storage`: remembers the user's chosen display name and the room they are in, so the popup and a restarted browser can rejoin the room.
 - Host permission for the WatchSync room service (`https://join.watchsync.space/*`): connects to the room so play, pause and position reach the other people in it, and lets invite links (`/j/CODE`) open the room in the extension.
-- Content scripts on `https://www.netflix.com/*`, `https://www.primevideo.com/*`, `https://www.amazon.*/gp/video/*`, `https://www.jiohotstar.com/*` and `https://www.hotstar.com/*`: read whether the video is playing, its position and the title being watched, apply play, pause and seek from the room, and show the small in-page notices. Nothing else on these pages is read.
+- Content scripts on `https://www.netflix.com/*`, `https://www.primevideo.com/*`, `https://www.amazon.*/gp/video/*`, `https://www.jiohotstar.com/*` and `https://www.hotstar.com/*`: read whether the video is playing, its position and the title being watched, apply play, pause and seek from the room, and show the small in-page notices and the chat panel (an extension page in a frame, so the site can't read what is typed). Nothing else on these pages is read.
+
+**Keyboard shortcut** (`commands`, not a permission): "Open or close WatchSync chat", suggested Alt+Shift+W (Control+Shift+W on a Mac). No new permissions in v0.2.
 
 **Remote code:** No. All code ships in the package.
 
 **Data usage** (what is collected and sent):
 - Personally identifiable information: the display name the user types (not a real-name requirement). Used only to show who is in the room.
 - Website content: the title name and position of the video being watched, sent to the room the user joined so friends see the same title. Not stored after the room ends.
-- Not collected: health, financial, authentication, personal communications, location, web history, user activity beyond playback state.
+- Personal communications: the chat messages the user sends in a room, sent to the room service so the other people in that room can read them. Held in memory only while the room exists (the last 200 messages), never logged, deleted when the room ends. Reactions are shown to the room and never stored.
+- Not collected: health, financial, authentication, location, web history, user activity beyond playback state.
 
-Certify: data is not sold to third parties, not used or transferred for purposes unrelated to the single purpose, not used for creditworthiness or lending.
+Certify: data, including chat messages, is not sold to third parties, not used or transferred for purposes unrelated to the single purpose, not used for creditworthiness or lending.
 
 **Privacy policy URL:** https://watchsync.space/privacy/
 
