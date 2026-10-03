@@ -1,10 +1,26 @@
 import json
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 
 from app import config, main
+
+
+@pytest.fixture(autouse=True, scope="module")
+def one_loop(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Every socket's handler on one event loop. Otherwise each socket gets its own, and a
+    message one handler sends to another person's socket crosses loops: its wake-up can be
+    lost and the test hangs, more often the longer validation takes. Uses the test module's
+    own `client`."""
+    client = getattr(request.module, "client", None)
+    if not isinstance(client, TestClient):
+        yield
+        return
+    with client:
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +35,7 @@ def fresh_limiters(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "connect_limiter", main.Limiter(10_000, 60))
     monkeypatch.setattr(main, "message_limiter", main.Limiter(config.MESSAGES_PER_10S, 10))
     monkeypatch.setattr(main, "chat_limiter", main.Limiter(config.CHAT_PER_5S, 5))
+    monkeypatch.setattr(main, "room_chat_limiter", main.Limiter(config.CHAT_ROOM_PER_10S, 10))
 
 
 @pytest.fixture(autouse=True)

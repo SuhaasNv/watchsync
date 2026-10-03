@@ -84,3 +84,11 @@ test("a name needs a letter, number or emoji; the message says what to do", () =
   expect(nameProblem("😀")).toBeNull();
   expect(nameProblem("<b>Sam</b>")).toBeNull(); // shown as text, never HTML
 });
+
+test("nobody can be called WatchSync, the room service refuses it too", () => {
+  const wide = (c: string) => String.fromCodePoint((c.codePointAt(0) ?? 0) + 0xfee0);
+  const fullwidth = Array.from("WatchSync", wide).join("");
+  for (const name of ["WatchSync", "watchsync", " WATCH SYNC ", fullwidth])
+    expect(nameProblem(name), name).toBe("Choose another name.");
+  expect(nameProblem("WatchSync fan")).toBeNull();
+});

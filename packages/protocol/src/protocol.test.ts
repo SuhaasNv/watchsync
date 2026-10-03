@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import cases from "./chat-text-cases.json";
 import { type ClientMessageOf, envelope, isClientMessage, isServerMessage } from "./index";
 
 describe("protocol validators", () => {
@@ -111,10 +112,11 @@ describe("chat messages (UC-014)", () => {
     id: "1",
     type: "CHAT.SEND",
     timestamp: 1,
-    payload: { text: "hi", movieTime: 2530, titleId: "80057281", ...payload },
+    payload: { text: "hi", movieTime: 2530, titleId: "80057281", clientId: "c-1", ...payload },
   });
   const relayed = (payload: Record<string, unknown> = {}) => ({
     id: "a1b2c3d4e5f60708",
+    clientId: "c-1",
     fromId: "p1",
     name: "Maya",
     text: "hi",
@@ -130,11 +132,20 @@ describe("chat messages (UC-014)", () => {
       text: "hi",
       movieTime: 2530.4,
       titleId: "80057281",
+      clientId: crypto.randomUUID(),
     });
     expect(isClientMessage(m)).toBe(true);
     expect(isClientMessage(chat({ movieTime: null, titleId: null }))).toBe(true);
-    // Script-like text is only data: it is accepted and later rendered as text.
-    expect(isClientMessage(chat({ text: "<img src=x onerror=alert(1)> https://x.y" }))).toBe(true);
+  });
+
+  // The same list the room service's tests read (services/signaling/tests/test_chat.py).
+  it.each(cases.accepted)("accepts %j", (text) => {
+    expect(isClientMessage(chat({ text }))).toBe(true);
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ text })))).toBe(true);
+  });
+  it.each(cases.refused)("refuses %j", (text) => {
+    expect(isClientMessage(chat({ text }))).toBe(false);
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ text })))).toBe(false);
   });
 
   it("counts length in code points, so 500 emoji fit and 501 don't", () => {
@@ -143,29 +154,15 @@ describe("chat messages (UC-014)", () => {
     expect(isClientMessage(chat({ text: "😀".repeat(501) }))).toBe(false);
     expect(isClientMessage(chat({ text: "x".repeat(500) }))).toBe(true);
     expect(isClientMessage(chat({ text: "x".repeat(501) }))).toBe(false);
-    expect(isClientMessage(chat({ text: "" }))).toBe(false);
   });
 
-  it("refuses control characters, newlines included", () => {
-    for (const c of ["\u0000", "\n", "\r", "\t", "\u001b", "\u007f", "\u0085", "\u009f"])
-      expect(isClientMessage(chat({ text: `a${c}b` })), JSON.stringify(c)).toBe(false);
-    expect(isClientMessage(chat({ text: "a b" }))).toBe(true); // a no-break space is text
-    expect(isClientMessage(chat({ text: "hi\n" }))).toBe(false); // a final newline too
-  });
-
-  it("refuses the invisible characters names refuse, so nobody can hide or flip text", () => {
-    const hidden = [
-      ["​", "‏", "⁠", "﻿"], // zero-width
-      ["‪", "‮", "⁦", "⁩"], // direction
-      [" ", " "], // line and paragraph separators
-      ["\u{e0000}", "\u{e0041}", "\u{e007f}"], // tags
-    ].flat();
-    for (const c of hidden)
-      expect(isClientMessage(chat({ text: `a${c}b` })), JSON.stringify(c)).toBe(false);
-    // Neighbours of each range stay allowed.
-    expect(isClientMessage(chat({ text: "a\u{e0080}b" }))).toBe(true);
-    expect(isClientMessage(chat({ text: "a‧b c⁰" }))).toBe(true);
-    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ text: "a‮b" })))).toBe(false);
+  it("needs a client id of 1 to 64 safe characters", () => {
+    expect(isClientMessage(chat({ clientId: "x".repeat(64) }))).toBe(true);
+    for (const clientId of ["", "x".repeat(65), "a b", "a/b", 7, null])
+      expect(isClientMessage(chat({ clientId })), JSON.stringify(clientId)).toBe(false);
+    const { clientId: _, ...missing } = chat({}).payload;
+    expect(isClientMessage({ ...chat({}), payload: missing })).toBe(false);
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ clientId: "a b" })))).toBe(false);
   });
 
   it("refuses wrong types, missing and extra fields", () => {
@@ -181,7 +178,6 @@ describe("chat messages (UC-014)", () => {
   it("accepts the server's chat messages and refuses malformed ones", () => {
     expect(isServerMessage(server("CHAT.MESSAGE", relayed()))).toBe(true);
     expect(isServerMessage(server("CHAT.MESSAGE", relayed({ movieTime: null })))).toBe(true);
-    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ text: "" })))).toBe(false);
     expect(isServerMessage(server("CHAT.MESSAGE", relayed({ name: "x".repeat(31) })))).toBe(false);
     const { serverTime: _, ...noTime } = relayed();
     expect(isServerMessage(server("CHAT.MESSAGE", noTime))).toBe(false);
@@ -192,7 +188,11 @@ describe("chat messages (UC-014)", () => {
     expect(isServerMessage(server("CHAT.HISTORY", { messages: over }))).toBe(false);
     for (const reason of ["too_long", "rate_limited", "invalid"])
       expect(isServerMessage(server("CHAT.REJECTED", { reason, text: "hi" }))).toBe(true);
-    expect(isServerMessage(server("CHAT.REJECTED", { reason: "nope", text: "hi" }))).toBe(false);
+    const rejected = (p: Record<string, unknown>) =>
+      isServerMessage(server("CHAT.REJECTED", { reason: "invalid", text: "hi", ...p }));
+    expect(rejected({ clientId: "c-1" })).toBe(true);
+    expect(rejected({ reason: "nope" })).toBe(false);
+    expect(rejected({ text: "x".repeat(501) })).toBe(false); // the echo is cut to 500
     // A chat message is never a client message, and a client's send never a server one.
     expect(isClientMessage(server("CHAT.MESSAGE", relayed()))).toBe(false);
     expect(isServerMessage(chat({}))).toBe(false);

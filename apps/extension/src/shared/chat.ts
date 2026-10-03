@@ -1,5 +1,5 @@
 // The background's copy of the room's chat (UC-014): what a tab that opens is shown, and the
-// unread count. Memory only: chat text is never written to chrome.storage (DEC-032).
+// unread count. Text stays in memory only: chrome.storage never holds it (DEC-032).
 import {
   type AnyServerMessage,
   type ChatMessagePayload,
@@ -10,28 +10,65 @@ import {
 
 /** As many as the room keeps (the service's CHAT_HISTORY). */
 export const CHAT_KEEP = 200;
+/** A send whose own copy hasn't come back by then didn't arrive: the tab says "Not sent". */
+export const CHAT_CONFIRM_MS = 5000;
 
 export interface Chat {
   /** Oldest first. */
   messages: ChatMessagePayload[];
-  /** Messages from other people since the chat was last opened (US-044). */
+  /** Messages from other people after the last one this person has seen (US-044). */
   unread: number;
+  /**
+   * Id of the last message this person has seen: null until the room's first history sets it
+   * (earlier messages never count); "" when there was none, so everything after counts.
+   */
+  lastSeen: string | null;
 }
 
+export const NO_CHAT: Chat = { messages: [], unread: 0, lastSeen: null };
+
 /**
- * The chat after a server message. CHAT.HISTORY replaces the list and never counts as unread
- * (earlier messages on a join, reload or reconnect); CHAT.MESSAGE adds one, and one unread
- * unless we sent it (`you` is our participant id).
+ * The chat after a server message. CHAT.HISTORY replaces the list: the first one (a join)
+ * marks everything in it as seen; later ones (a reconnect, or a worker restart with the stored
+ * last-seen id) count other people's messages after the last seen one. CHAT.MESSAGE adds one,
+ * and one unread unless we sent it; a message already here (a retry's echo) changes nothing.
  */
 export function chatAfter(chat: Chat, msg: AnyServerMessage, you: string | null): Chat {
-  if (msg.type === "CHAT.HISTORY")
-    return { ...chat, messages: msg.payload.messages.slice(-CHAT_KEEP) };
-  if (msg.type !== "CHAT.MESSAGE") return chat;
+  if (msg.type === "CHAT.HISTORY") {
+    const messages = msg.payload.messages.slice(-CHAT_KEEP);
+    if (chat.lastSeen === null)
+      return { messages, unread: chat.unread, lastSeen: messages.at(-1)?.id ?? "" };
+    // Not found (none seen yet, or pushed out of the history): every message here is newer.
+    const newer = messages.slice(messages.findIndex((m) => m.id === chat.lastSeen) + 1);
+    return { ...chat, messages, unread: newer.filter((m) => m.fromId !== you).length };
+  }
+  if (msg.type !== "CHAT.MESSAGE" || chat.messages.some((m) => m.id === msg.payload.id))
+    return chat;
   return {
+    ...chat,
     messages: [...chat.messages, msg.payload].slice(-CHAT_KEEP),
     unread: chat.unread + (msg.payload.fromId === you ? 0 : 1),
   };
 }
+
+/** The chat was opened: everything in it is seen. */
+export function chatOpened(chat: Chat): Chat {
+  return { ...chat, unread: 0, lastSeen: chat.messages.at(-1)?.id ?? chat.lastSeen ?? "" };
+}
+
+/** The unread count as the collapsed button shows it. */
+export const unreadLabel = (unread: number): string => (unread > 9 ? "9+" : String(unread));
+
+/** Line breaks as the room keeps them (\n), and tabs as spaces, before validating. */
+export const normalizeChatText = (text: string): string =>
+  text.replace(/\r\n?/g, "\n").replace(/\t/g, " ");
+
+/**
+ * The movie time a message carries: the tab's position, or null when the protocol can't take
+ * it (a live stream reports Infinity, an ad a strange value). It never stops a message.
+ */
+export const safeMovieTime = (t: number | null): number | null =>
+  t !== null && Number.isFinite(t) && t >= 0 && t <= 86_400 ? t : null;
 
 const isChatMessage = (item: unknown): item is ChatMessagePayload =>
   isServerMessage({ id: "h", type: "CHAT.MESSAGE", timestamp: 0, payload: item });

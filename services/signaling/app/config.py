@@ -36,10 +36,13 @@ FAILED_JOINS_PER_MINUTE = int(os.environ.get("FAILED_JOINS_PER_MINUTE", "100"))
 MESSAGES_PER_10S = int(os.environ.get("MESSAGES_PER_10S", "60"))
 # Chat (US-043): characters per message (code points), messages per person per 5 seconds, and
 # messages a room keeps for people who join later (DEC-032). The protocol caps the first at 500
-# and the last at 200; set those lower, never higher.
-CHAT_MAX_CHARS = int(os.environ.get("CHAT_MAX_CHARS", "500"))
+# and the last at 200 (higher would make every CHAT.HISTORY invalid), so larger values are cut.
+CHAT_MAX_CHARS = min(500, int(os.environ.get("CHAT_MAX_CHARS", "500")))
 CHAT_PER_5S = int(os.environ.get("CHAT_PER_5S", "5"))
-CHAT_HISTORY = int(os.environ.get("CHAT_HISTORY", "200"))
+CHAT_HISTORY = min(200, int(os.environ.get("CHAT_HISTORY", "200")))
+# Messages per room per 10 seconds, everyone together: several people (or one person's many
+# tickets) can't flush a room's history in seconds.
+CHAT_ROOM_PER_10S = int(os.environ.get("CHAT_ROOM_PER_10S", "20"))
 # Bytes of chat (as sent, JSON) kept per room and in all rooms together; past either, the oldest
 # messages go first. Bounds memory and what each join is sent.
 CHAT_ROOM_BYTES = int(os.environ.get("CHAT_ROOM_BYTES", str(64 * 1024)))

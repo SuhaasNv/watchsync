@@ -56,8 +56,8 @@ export type Reply = { ok: true; state: AppState } | { ok: false; error: string; 
 
 /**
  * Background → popup and content scripts, over a long-lived port. Chat arrives as server
- * messages: CHAT.HISTORY (replaces the list; also replayed to a tab when it connects),
- * CHAT.MESSAGE and CHAT.REJECTED.
+ * messages: CHAT.HISTORY (replaces the list; also replayed to a tab when it connects, once the
+ * room's history is known), CHAT.MESSAGE, and CHAT.REJECTED (only to the tab that sent it).
  */
 export type Push =
   | { kind: "state"; state: AppState }
@@ -72,8 +72,12 @@ export type Push =
   | { kind: "chatFrameReady"; frame: string }
   /** The chat frame with this pass lost its connection (to its tab's port only). */
   | { kind: "chatFrameLost"; frame: string }
-  /** This tab's chat message never left (not connected, or invalid): show "Not sent". */
-  | { kind: "chatFailed"; text: string };
+  /**
+   * This tab's chat message didn't reach the room: show "Not sent" and keep the text.
+   * offline: not connected, or no echo within 5 s (Retry can work); invalid: the text can't
+   * be sent as it is (no Retry).
+   */
+  | { kind: "chatFailed"; reason: "offline" | "invalid"; text: string; clientId: string };
 
 /**
  * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first
@@ -110,9 +114,19 @@ export type TabEvent =
   | { kind: "startForce" }
   /** The tab came back into view: if the connection is down, try it again now. */
   | { kind: "retryNow" }
-  /** Send a chat message marked with this tab's movie time (null: no title open). */
-  | { kind: "chat"; text: string; movieTime: number | null; titleId: string | null }
-  /** The chat was opened: clear the unread count. */
+  /**
+   * Send a chat message marked with this tab's movie time (null: no title open). clientId is
+   * the tab's id for this message (crypto.randomUUID()), the same on Retry, so the room never
+   * keeps it twice.
+   */
+  | {
+      kind: "chat";
+      text: string;
+      movieTime: number | null;
+      titleId: string | null;
+      clientId: string;
+    }
+  /** The chat was opened: everything in it is seen, and the unread count clears. */
   | { kind: "chatOpened" };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
@@ -190,8 +204,16 @@ export function nameProblem(raw: string): string | null {
   if (!name) return "Enter your name.";
   if (!/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name))
     return "Use at least one letter or number.";
+  if (isReservedName(name)) return "Choose another name.";
   return null;
 }
+
+/**
+ * The product's own name, in any case, width or spacing (compared after NFKC), so nobody can
+ * pose as WatchSync. The room service refuses the same names (app/protocol.py).
+ */
+export const isReservedName = (name: string): boolean =>
+  name.normalize("NFKC").toLowerCase().replace(/\s/g, "") === "watchsync";
 
 /** The room code in what someone typed or pasted: a code, a spaced code or an invite link. */
 export function codeFrom(text: string): string {

@@ -15,15 +15,6 @@ from app.protocol import is_server_message
 client = TestClient(main.app)
 
 
-@pytest.fixture(autouse=True, scope="module")
-def one_loop() -> Iterator[None]:
-    """Every socket's handler on one event loop. Otherwise each socket gets its own, and a
-    message one handler sends to another person's socket crosses loops: its wake-up can be
-    lost and the test hangs, more often the longer validation takes."""
-    with client:
-        yield
-
-
 def create(name: str = "Suhaas") -> dict[str, str]:
     r = client.post("/api/v1/rooms", json={"name": name})
     assert r.status_code == 201, r.text
@@ -41,6 +32,28 @@ def test_create_rejects_bad_names() -> None:
     assert client.post("/api/v1/rooms", json={"name": ""}).status_code == 422
     assert client.post("/api/v1/rooms", json={"name": "x" * 31}).status_code == 422
     assert client.post("/api/v1/rooms", json={"name": "a", "extra": 1}).status_code == 422
+
+
+def test_nobody_can_be_called_watchsync() -> None:
+    """The product's own name is reserved, in any case, width or spacing (after NFKC), on
+    create and join alike; the extension's name check refuses it too."""
+    fullwidth = "".join(chr(ord(c) + 0xFEE0) for c in "WatchSync")
+    host = create()
+    for name in ("WatchSync", "watchsync", " WATCH SYNC ", fullwidth):
+        r = client.post("/api/v1/rooms", json={"name": name})
+        assert r.status_code == 422 and r.json()["detail"] == "Choose another name.", name
+        assert join(host["code"], name).status_code == 422, name
+    assert create("WatchSync fan")  # only the name itself
+    # The same name twice stays allowed (DEC-029): people are told apart by id.
+    assert join(host["code"], "Suhaas").status_code == 201
+
+
+def test_a_name_with_a_final_newline_is_refused() -> None:
+    """Python's `$` matches before a final newline; the service reads the Name pattern over
+    the whole name, as browsers do, and refuses control characters."""
+    for body in (b'{"name":"Maya\\n"}', b'{"name":"Ma\\nya"}', b'{"name":"Maya\\u0085"}'):
+        r = client.post("/api/v1/rooms", content=body, headers={"content-type": "application/json"})
+        assert r.status_code == 422, body
 
 
 def test_create_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:

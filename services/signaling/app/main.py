@@ -25,6 +25,8 @@ from .protocol import (
     is_client_message,
     is_create_request,
     is_join_request,
+    is_name,
+    is_reserved_name,
     is_server_message,
     message,
     now_ms,
@@ -76,7 +78,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await asyncio.sleep(60)
             rooms.sweep()
             limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
-            for limiter in (*limiters, failed_join_limiter, chat_limiter):
+            for limiter in (*limiters, failed_join_limiter, chat_limiter, room_chat_limiter):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
@@ -147,6 +149,8 @@ connect_limiter = Limiter(config.CONNECTS_PER_MINUTE, 60)
 failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
 # Per participant, not per connection: reconnecting doesn't buy a fresh budget (US-043).
 chat_limiter = Limiter(config.CHAT_PER_5S, 5)
+# Per room, everyone together (keyed by room code).
+room_chat_limiter = Limiter(config.CHAT_ROOM_PER_10S, 10)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
@@ -231,8 +235,12 @@ async def read_body(request: Request, valid: Callable[[Any], bool]) -> dict[str,
 
 
 def name_in(body: dict[str, Any]) -> str:
-    name: str = body["name"].strip()
-    return name or "Guest"
+    raw: str = body["name"]
+    if is_reserved_name(raw):
+        raise HTTPException(422, "Choose another name.")
+    if not is_name(raw):  # the schema's pattern, read over the whole name as browsers do
+        raise HTTPException(422, "A name of 1 to 30 characters is required.")
+    return raw.strip() or "Guest"
 
 
 def reject_constant(name: str) -> None:
@@ -507,20 +515,23 @@ async def restore_room(
 
 async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None:
     """Relay a chat message to everyone, the sender too (their copy confirms delivery), and
-    keep it for people who join later. Never log the text (DEC-032). A refusal echoes the
-    text to the sender only, so their box can keep it."""
+    keep it for people who join later. Never log the text (DEC-032). A refusal goes to the
+    sender only, so their box can keep the text. A retry of a message the room already has
+    (same clientId from the same person) is answered to the sender only, never kept twice."""
     text: str = payload["text"]
-    if not is_chat_text(text):  # whitespace or invisible only, or a control character
-        await send(p, "CHAT.REJECTED", {"reason": "invalid", "text": text})
-        return
+    client_id: str = payload["clientId"]
+    if not is_chat_text(text):  # nothing visible, or a character the extension refuses
+        return await reject(p, "invalid", text, client_id)
     if len(text) > config.CHAT_MAX_CHARS:  # code points, as the protocol counts
-        await send(p, "CHAT.REJECTED", {"reason": "too_long", "text": text})
-        return
-    if not chat_limiter.allow(p.id):
-        await send(p, "CHAT.REJECTED", {"reason": "rate_limited", "text": text})
-        return
+        return await reject(p, "too_long", text, client_id)
+    kept = next((m for m in room.chat if m["fromId"] == p.id and m["clientId"] == client_id), None)
+    if kept is not None:
+        return await send(p, "CHAT.MESSAGE", kept)
+    if not chat_limiter.allow(p.id) or not room_chat_limiter.allow(room.code):
+        return await reject(p, "rate_limited", text, client_id)
     chat = {
         "id": secrets.token_hex(8),
+        "clientId": client_id,
         "fromId": p.id,
         "name": p.name,
         "text": text,
@@ -531,20 +542,36 @@ async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None
     # Never keep or relay what clients would refuse: one bad item would cost every later
     # joiner the whole history.
     if not is_server_message(message("CHAT.MESSAGE", chat)):
-        await send(p, "CHAT.REJECTED", {"reason": "invalid", "text": text})
-        return
+        return await reject(p, "invalid", text, client_id)
     rooms.keep_chat(room, chat)
     await broadcast(room, "CHAT.MESSAGE", chat)
 
 
-def overlong_chat(msg: Any) -> str | None:
-    """The text of a chat message refused only for being too long, so the sender hears why
-    and keeps it; anything else malformed is just an invalid message."""
+async def reject(p: Participant, reason: str, text: str, client_id: str | None) -> None:
+    """CHAT.REJECTED to the sender: at most the first 500 characters of their text back (a
+    16 KB send isn't echoed in full), and their clientId so the right tab hears it."""
+    refused: dict[str, Any] = {"reason": reason, "text": text[:500]}
+    if client_id is not None:
+        refused["clientId"] = client_id
+    await send(p, "CHAT.REJECTED", refused)
+
+
+CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def overlong_chat(msg: Any) -> tuple[str, str | None] | None:
+    """The text and clientId (if well formed) of a chat message refused only for being too
+    long, so the sender hears why and keeps it; anything else malformed is just invalid."""
     if not isinstance(msg, dict) or msg.get("type") != "CHAT.SEND":
         return None
     payload = msg.get("payload")
-    text = payload.get("text") if isinstance(payload, dict) else None
-    return text if isinstance(text, str) and len(text) > config.CHAT_MAX_CHARS else None
+    if not isinstance(payload, dict):
+        return None
+    text, client_id = payload.get("text"), payload.get("clientId")
+    if not isinstance(text, str) or len(text) <= config.CHAT_MAX_CHARS:
+        return None
+    ok = isinstance(client_id, str) and CLIENT_ID.fullmatch(client_id) is not None
+    return text, client_id if ok else None
 
 
 def show(media: dict[str, Any]) -> str | None:
@@ -796,8 +823,8 @@ async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, i
                 )
                 continue
             if not is_client_message(msg):
-                if (text := overlong_chat(msg)) is not None:
-                    await send(p, "CHAT.REJECTED", {"reason": "too_long", "text": text})
+                if (overlong := overlong_chat(msg)) is not None:
+                    await reject(p, "too_long", *overlong)
                     continue
                 await send(
                     p, "SYS.ERROR", {"code": "invalid_message", "message": "Unknown message."}

@@ -12,9 +12,13 @@ export type Seconds = number;
 export type Rate = number;
 export type TitleId = string | null;
 /**
- * A chat message: 1 to 500 characters (code points, as names are counted). As in names, no control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.
+ * A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.
  */
 export type ChatText = string;
+/**
+ * The sender's own id for one chat message, the same on every retry, so the room never keeps it twice and the sender can match the echo.
+ */
+export type ClientId = string;
 /**
  * Client tells the room what it has open and whether it follows the room.
  */
@@ -109,6 +113,7 @@ export type ChatSend = Envelope & {
     text: ChatText;
     movieTime: Seconds | null;
     titleId: TitleId;
+    clientId: ClientId;
   };
 };
 export type ClientMessage =
@@ -231,13 +236,14 @@ export type ChatHistory = Envelope & {
   };
 };
 /**
- * The sender's message was not sent; text echoes it so the box can keep it.
+ * The sender's message was not sent; text echoes its first 500 characters so the box can keep it, and clientId (when the send had a valid one) says which send.
  */
 export type ChatRejected = Envelope & {
   type?: "CHAT.REJECTED";
   payload?: {
     reason: "too_long" | "rate_limited" | "invalid";
     text: string;
+    clientId?: ClientId;
   };
 };
 export type ServerMessage =
@@ -263,6 +269,7 @@ export interface ProtocolRoot {
   Rate?: Rate;
   TitleId?: TitleId;
   ChatText?: ChatText;
+  ClientId?: ClientId;
   ChatMessagePayload?: ChatMessagePayload;
   Media?: Media;
   Playback?: Playback;
@@ -299,6 +306,7 @@ export interface ProtocolRoot {
  */
 export interface ChatMessagePayload {
   id: string;
+  clientId: ClientId;
   fromId: string;
   name: Name;
   text: ChatText;

@@ -21,19 +21,25 @@
     "Rate": { "type": "number", "minimum": 0.25, "maximum": 4 },
     "TitleId": { "type": ["string", "null"], "maxLength": 200 },
     "ChatText": {
-      "description": "A chat message: 1 to 500 characters (code points, as names are counted). As in names, no control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.",
+      "description": "A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.",
       "type": "string",
       "minLength": 1,
       "maxLength": 500,
-      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF󠀀-󠁿]+$"
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*(?:\\n[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*){0,10}$"
+    },
+    "ClientId": {
+      "description": "The sender's own id for one chat message, the same on every retry, so the room never keeps it twice and the sender can match the echo.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
     },
     "ChatMessagePayload": {
       "description": "One chat message as the room service relays and keeps it (US-042). movieTime is the sender's player position when they sent it; serverTime is server ms.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "fromId", "name", "text", "movieTime", "titleId", "serverTime"],
+      "required": ["id", "clientId", "fromId", "name", "text", "movieTime", "titleId", "serverTime"],
       "properties": {
         "id": { "type": "string", "maxLength": 64 },
+        "clientId": { "$ref": "#/$defs/ClientId" },
         "fromId": { "type": "string" },
         "name": { "$ref": "#/$defs/Name" },
         "text": { "$ref": "#/$defs/ChatText" },
@@ -275,11 +281,12 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["text", "movieTime", "titleId"],
+          "required": ["text", "movieTime", "titleId", "clientId"],
           "properties": {
             "text": { "$ref": "#/$defs/ChatText" },
             "movieTime": { "anyOf": [{ "$ref": "#/$defs/Seconds" }, { "type": "null" }] },
-            "titleId": { "$ref": "#/$defs/TitleId" }
+            "titleId": { "$ref": "#/$defs/TitleId" },
+            "clientId": { "$ref": "#/$defs/ClientId" }
           }
         }
       }
@@ -463,7 +470,7 @@
       }
     },
     "ChatRejected": {
-      "description": "The sender's message was not sent; text echoes it so the box can keep it.",
+      "description": "The sender's message was not sent; text echoes its first 500 characters so the box can keep it, and clientId (when the send had a valid one) says which send.",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "type": "object",
       "properties": {
@@ -474,7 +481,8 @@
           "required": ["reason", "text"],
           "properties": {
             "reason": { "type": "string", "enum": ["too_long", "rate_limited", "invalid"] },
-            "text": { "type": "string" }
+            "text": { "type": "string", "maxLength": 500 },
+            "clientId": { "$ref": "#/$defs/ClientId" }
           }
         }
       }

@@ -1,0 +1,41 @@
+{
+  "description": "Chat text both validators must agree on: protocol.test.ts (ajv) and services/signaling/tests/test_chat.py (jsonschema plus the room service's whole-text check).",
+  "accepted": [
+    "hi",
+    "<img src=x onerror=alert(1)> https://x.y",
+    "hi\n",
+    "a\nb",
+    "a\nb\nb\nb\nb\nb\nb\nb\nb\nb\nb",
+    "a\u00A0b",
+    "a\uDB40\uDC80b",
+    "a‧b\u202Fc⁰",
+    "👍🏽"
+  ],
+  "refused": [
+    "",
+    "a\rb",
+    "a\r\nb",
+    "a\tb",
+    "a\u0000b",
+    "a\u001bb",
+    "a\u007fb",
+    "a\u0085b",
+    "a\u009fb",
+    "a\u200Bb",
+    "a\u200Db",
+    "a\u200Fb",
+    "a\u2060b",
+    "a\uFEFFb",
+    "a\u202Ab",
+    "a\u202Eb",
+    "a\u2066b",
+    "a\u2069b",
+    "a\u2028b",
+    "a\u2029b",
+    "a\uDB40\uDC00b",
+    "a\uDB40\uDC41b",
+    "a\uDB40\uDC7Fb",
+    "a\nb\nb\nb\nb\nb\nb\nb\nb\nb\nb\nb",
+    "a\na\na\na\na\na\na\na\na\na\na\n"
+  ]
+}

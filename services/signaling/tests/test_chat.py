@@ -1,7 +1,7 @@
 """Chat (UC-014): relay, history, limits, membership and privacy (US-042, US-043, US-110).
 
-Every socket's handler runs on one event loop (as in test_rooms.py), and the helpers still
-wait for the sender's handler to finish (a ping answered) before reading another socket.
+Every socket's handler runs on one event loop (conftest.py), and the helpers still wait for
+the sender's handler to finish (a ping answered) before reading another socket.
 """
 
 import contextlib
@@ -10,6 +10,7 @@ import logging
 import socket
 import threading
 import time
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -26,12 +27,8 @@ from app.rooms import Room, Rooms, chat_size
 
 client = TestClient(main.app)
 SEES_CHAT_HISTORY = True  # conftest.py: these tests read it
-
-
-@pytest.fixture(autouse=True, scope="module")
-def one_loop() -> Iterator[None]:
-    with client:
-        yield
+# Shared with packages/protocol/src/protocol.test.ts, so both validators agree.
+CASES = json.loads((config.ROOT / "packages/protocol/src/chat-text-cases.json").read_text())
 
 
 def create(name: str = "Maya") -> dict[str, str]:
@@ -79,10 +76,21 @@ def send(ws: Any, type_: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
     return until_pong(ws)
 
 
+def chat_send(
+    text: str, movie_time: float | None = 2530, title_id: str | None = "1", client_id: str = ""
+) -> dict[str, Any]:
+    client_id = client_id or uuid.uuid4().hex
+    return {"text": text, "movieTime": movie_time, "titleId": title_id, "clientId": client_id}
+
+
 def say(
-    ws: Any, text: str, movie_time: float | None = 2530, title_id: str | None = "1"
+    ws: Any,
+    text: str,
+    movie_time: float | None = 2530,
+    title_id: str | None = "1",
+    client_id: str = "",
 ) -> list[dict[str, Any]]:
-    return send(ws, "CHAT.SEND", {"text": text, "movieTime": movie_time, "titleId": title_id})
+    return send(ws, "CHAT.SEND", chat_send(text, movie_time, title_id, client_id))
 
 
 def chats(got: list[dict[str, Any]]) -> list[str]:
@@ -90,7 +98,9 @@ def chats(got: list[dict[str, Any]]) -> list[str]:
 
 
 def refusal(got: list[dict[str, Any]]) -> dict[str, Any]:
+    """The one CHAT.REJECTED in got, without its clientId (which it always carries here)."""
     (refused,) = [m["payload"] for m in got if m["type"] == "CHAT.REJECTED"]
+    assert refused.pop("clientId")
     return refused
 
 
@@ -154,11 +164,12 @@ def test_people_who_join_later_or_reconnect_get_earlier_messages_in_order() -> N
 def test_history_keeps_only_the_most_recent_messages(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.CHAT_HISTORY == 200
     monkeypatch.setattr(main, "chat_limiter", main.Limiter(10_000, 5))
+    monkeypatch.setattr(main, "room_chat_limiter", main.Limiter(10_000, 10))
     monkeypatch.setattr(main, "message_limiter", main.Limiter(10_000, 10))
     host = create()
     with connected(host) as (ws, _):
         for i in range(205):
-            ws.send_json(msg("CHAT.SEND", {"text": f"m{i}", "movieTime": None, "titleId": None}))
+            ws.send_json(msg("CHAT.SEND", chat_send(f"m{i}")))
         assert len(chats(until_pong(ws))) == 205
     with connected(host) as (_, history):
         assert len(history) == 200
@@ -245,7 +256,8 @@ def test_length_is_counted_in_code_points() -> None:
     guest = join(host["code"])
     with connected(host) as (hws, _), connected(guest) as (gws, _):
         assert chats(say(hws, "😀" * 500)) == ["😀" * 500]  # 1000 UTF-16 units: fits
-        assert refusal(say(hws, "😀" * 501)) == {"reason": "too_long", "text": "😀" * 501}
+        # The echo is the first 500 characters.
+        assert refusal(say(hws, "😀" * 501)) == {"reason": "too_long", "text": "😀" * 500}
         assert refusal(say(hws, "x" * 501))["reason"] == "too_long"
         # Neither long one reached anyone or the history.
         assert chats(until_pong(gws)) == ["😀" * 500]
@@ -259,51 +271,62 @@ def test_a_lower_length_limit_comes_from_config(monkeypatch: pytest.MonkeyPatch)
         assert refusal(say(ws, "x" * 11)) == {"reason": "too_long", "text": "x" * 11}
 
 
-def test_whitespace_only_is_refused() -> None:
+def test_text_with_nothing_visible_is_refused() -> None:
     host = create()
+    nbsp, ideographic, acute, ring = chr(0xA0), chr(0x3000), chr(0x301), chr(0x20DD)
+    hangul_filler, braille_blank, half_filler = chr(0x3164), chr(0x2800), chr(0xFFA0)
     with connected(host) as (ws, _):
-        for text in (" ", "   ", " 　"):
-            assert refusal(say(ws, text)) == {"reason": "invalid", "text": text}
-        # Nothing visible: combining marks on their own.
-        for text in ("́́", " ⃝ "):
-            assert refusal(say(ws, text)) == {"reason": "invalid", "text": text}
+        nothing = [
+            " ",
+            "   ",
+            "\n\n",
+            nbsp + ideographic,
+            acute * 2,  # combining marks on their own
+            f" {ring} ",
+            hangul_filler,
+            braille_blank * 3,
+            f"{half_filler} {chr(0x115F)}{chr(0x1160)}",
+        ]
+        for text in nothing:
+            assert refusal(say(ws, text)) == {"reason": "invalid", "text": text}, ascii(text)
         assert list(main.rooms.rooms[host["code"]].chat) == []
 
 
-def test_a_final_newline_is_refused_and_never_poisons_the_history() -> None:
-    """Python's `$` matches before a final newline, so the schema alone lets "hi\\n" through
-    here while the extension's validator refuses it: kept, it would make every later joiner's
-    CHAT.HISTORY invalid as a whole."""
+def test_long_runs_of_combining_marks_are_refused() -> None:
+    acute = chr(0x301)
+    with connected(create()) as (ws, _):
+        assert chats(say(ws, "e" + acute * 8)) == ["e" + acute * 8]
+        assert refusal(say(ws, "e" + acute * 9))["reason"] == "invalid"
+        assert chats(say(ws, ("e" + acute * 8) * 3)) == [("e" + acute * 8) * 3]
+
+
+def test_line_breaks_are_kept_up_to_ten() -> None:
     host = create()
     with connected(host) as (ws, _):
-        assert refusal(say(ws, "hi\n")) == {"reason": "invalid", "text": "hi\n"}
-        say(ws, "fine")
+        ten = "a" + "\nb" * 10
+        assert chats(say(ws, "line one\nline two")) == ["line one\nline two"]
+        assert chats(say(ws, ten)) == [ten]
+        assert chats(say(ws, "hi\n")) == ["hi\n"]
+        # Eleven, the last one final: Python's `$` matches before a final newline, so the
+        # schema search alone would let this through while the extension refuses it, and one
+        # such message kept would make every later joiner's CHAT.HISTORY invalid.
+        trap = "a" + "\na" * 10 + "\n"
+        assert is_client_message(msg("CHAT.SEND", chat_send(trap)))  # the search's blind spot
+        assert refusal(say(ws, trap)) == {"reason": "invalid", "text": trap}
     with connected(join(host["code"])) as (_, history):
-        assert [m["text"] for m in history] == ["fine"]
+        assert [m["text"] for m in history] == ["line one\nline two", ten, "hi\n"]
 
 
-# The same cases as packages/protocol/src/protocol.test.ts: the room service and the extension
-# accept and refuse the same text.
-REFUSED = [
-    "hi\n",
-    "a\nb",
-    "a\tb",
-    "a\u0085b",
-    "a\u009fb",
-    *(f"a{c}b" for c in "​‏⁠﻿‪‮⁦⁩  "),
-    *(f"a{c}b" for c in ("\U000e0000", "\U000e0041", "\U000e007f")),
-    "",
-    "x" * 501,
-    "😀" * 501,
-]
-ACCEPTED = ["hi", "a b", "a\U000e0080b", "a‧b c⁰", "😀" * 500, "<b>x</b>"]
-
-
-@pytest.mark.parametrize("text", REFUSED + ACCEPTED)
-def test_the_service_and_the_extension_agree_on_chat_text(text: str) -> None:
-    payload = {"text": text, "movieTime": None, "titleId": None}
-    accepted = is_client_message(msg("CHAT.SEND", payload)) and is_chat_text(text)
-    assert accepted == (text in ACCEPTED), ascii(text)
+@pytest.mark.parametrize(
+    "text, accepted",
+    [(t, True) for t in CASES["accepted"]]
+    + [(t, False) for t in CASES["refused"]]
+    + [("x" * 500, True), ("x" * 501, False), (chr(0x1F600) * 500, True)]
+    + [(chr(0x1F600) * 501, False)],
+)
+def test_the_service_and_the_extension_agree_on_chat_text(text: str, accepted: bool) -> None:
+    sendable = is_client_message(msg("CHAT.SEND", chat_send(text))) and is_chat_text(text)
+    assert sendable == accepted, ascii(text)
 
 
 def test_nothing_clients_would_refuse_is_kept_or_sent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -362,15 +385,19 @@ def test_all_rooms_together_keep_at_most_the_total_budget(
 def test_malformed_chat_gets_invalid_message_and_the_socket_stays_open() -> None:
     host = create()
     with connected(host) as (ws, _):
+        ok = chat_send("hi", 1)
         bad = [
-            {"text": "a\nb", "movieTime": 1, "titleId": "1"},  # control character
-            {"text": "a\u0000b", "movieTime": 1, "titleId": "1"},
-            {"text": "", "movieTime": 1, "titleId": "1"},
-            {"text": 5, "movieTime": 1, "titleId": "1"},
-            {"text": "hi", "movieTime": -1, "titleId": "1"},
-            {"text": "hi", "movieTime": "42:10", "titleId": "1"},
-            {"text": "hi", "titleId": "1"},
-            {"text": "hi", "movieTime": 1, "titleId": "1", "fromId": "someone-else"},
+            ok | {"text": "a\tb"},  # control character (the background turns tabs to spaces)
+            ok | {"text": "a\x00b"},
+            ok | {"text": ""},
+            ok | {"text": 5},
+            ok | {"movieTime": -1},
+            ok | {"movieTime": "42:10"},
+            {k: v for k, v in ok.items() if k != "movieTime"},
+            {k: v for k, v in ok.items() if k != "clientId"},
+            ok | {"clientId": "a b"},
+            ok | {"clientId": "x" * 65},
+            ok | {"fromId": "someone-else"},
         ]
         for payload in bad:
             got = send(ws, "CHAT.SEND", payload)
@@ -379,6 +406,58 @@ def test_malformed_chat_gets_invalid_message_and_the_socket_stays_open() -> None
             ], payload
         assert chats(say(ws, "still here")) == ["still here"]
         assert [m["text"] for m in main.rooms.rooms[host["code"]].chat] == ["still here"]
+
+
+def test_a_retry_is_never_kept_twice() -> None:
+    """The same clientId from the same person: the room answers the sender with the message
+    it already has, and nobody else hears it again."""
+    host = create()
+    guest = join(host["code"])
+    with connected(host) as (hws, _), connected(guest) as (gws, _):
+        until_pong(hws)  # the guest's arrival
+        first = [m["payload"] for m in say(hws, "hi", client_id="c-1")]
+        again = [m["payload"] for m in say(hws, "hi", client_id="c-1")]
+        assert again == first and first[0]["clientId"] == "c-1"
+        assert chats(until_pong(gws)) == ["hi"]  # once
+        # A retry doesn't spend the rate limit; another person's same clientId is theirs.
+        for _ in range(5):
+            say(hws, "hi", client_id="c-1")
+        assert chats(say(hws, "next")) == ["next"]
+        assert chats(say(gws, "mine", client_id="c-1")) == ["next", "mine"]
+    texts = [m["text"] for m in main.rooms.rooms[host["code"]].chat]
+    assert texts == ["hi", "next", "mine"]
+
+
+def test_a_room_has_a_chat_budget_on_top_of_each_person(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Several people (or one person's many tickets) can't flush the history in seconds."""
+    assert config.CHAT_ROOM_PER_10S == 20
+    monkeypatch.setattr(main, "room_chat_limiter", main.Limiter(6, 10))
+    host = create()
+    tickets = [host] + [join(host["code"], f"P{i}") for i in range(3)]
+    with contextlib.ExitStack() as stack:
+        sockets = [stack.enter_context(connected(t))[0] for t in tickets]
+        for ws in sockets:
+            for _ in range(2):
+                say(ws, "spam")  # 8 sends, 2 each: within everyone's own limit
+        assert len(main.rooms.rooms[host["code"]].chat) == 6
+        assert refusal(say(sockets[0], "more"))["reason"] == "rate_limited"
+
+
+def test_a_refusal_echoes_at_most_500_characters_to_the_sender_only() -> None:
+    host = create()
+    guest = join(host["code"])
+    with connected(host) as (hws, _), connected(guest) as (gws, _):
+        huge = "x" * 5000
+        until_pong(hws)  # the guest's arrival
+        got = say(hws, huge, client_id="big")
+        assert [m["payload"] for m in got] == [
+            {"reason": "too_long", "text": "x" * 500, "clientId": "big"}
+        ]
+        assert until_pong(gws) == []
+        # A malformed clientId can't be echoed; the refusal still comes.
+        hws.send_json(msg("CHAT.SEND", chat_send(huge) | {"clientId": "not ok"}))
+        (refused,) = [m["payload"] for m in until_pong(hws)]
+        assert refused == {"reason": "too_long", "text": "x" * 500}
 
 
 def test_only_members_can_chat() -> None:
@@ -394,9 +473,7 @@ def test_only_members_can_chat() -> None:
         for token in ("forged", other["token"], guest["token"]):
             url = f"/ws/rooms/{host['code']}?token={token}"
             with client.websocket_connect(url) as ws:
-                ws.send_json(
-                    msg("CHAT.SEND", {"text": "let me in", "movieTime": None, "titleId": None})
-                )
+                ws.send_json(msg("CHAT.SEND", chat_send("let me in")))
                 closed(ws)
         assert chats(until_pong(hws)) == []
     assert list(main.rooms.rooms[host["code"]].chat) == []
@@ -468,6 +545,8 @@ def test_chat_text_is_never_logged_by_the_real_server_at_debug(
     the end, shows the text. Run the real server at debug and read everything it logs."""
     caplog.set_level(logging.DEBUG)
     port = free_port()
+    names = ("uvicorn.error", "uvicorn.access", "uvicorn.asgi")
+    levels = {name: logging.getLogger(name).level for name in names}  # uvicorn sets them
     server = uvicorn.Server(
         uvicorn.Config(main.app, port=port, log_level="debug", log_config=None, ws=ws_impl)
     )
@@ -484,16 +563,19 @@ def test_chat_text_is_never_logged_by_the_real_server_at_debug(
         with ws_connect(url) as ws:
             assert json.loads(ws.recv(timeout=5))["type"] == "ROOM.STATE"
             assert json.loads(ws.recv(timeout=5))["type"] == "CHAT.HISTORY"
+            # The text last in each frame, where a shortened frame line would show it.
             for text, answer in (
                 ("hi-secret", "CHAT.MESSAGE"),
-                ("x" * 500 + "-tail-secret", "CHAT.REJECTED"),
+                ("no-secret" + "e" + chr(0x301) * 9, "CHAT.REJECTED"),
             ):
-                chat = {"text": text, "movieTime": 1, "titleId": "1"}
-                ws.send(json.dumps(msg("CHAT.SEND", chat)))
+                payload = {k: v for k, v in chat_send(text).items() if k != "text"}
+                ws.send(json.dumps(msg("CHAT.SEND", payload | {"text": text})))
                 assert json.loads(ws.recv(timeout=5))["type"] == answer
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+        for name, level in levels.items():
+            logging.getLogger(name).setLevel(level)
     # Everything but this test's own client library.
     server_logs = [r for r in caplog.records if r.name != "websockets.client"]
     # Captured: the socket's own lines are there, only the frames are not.
