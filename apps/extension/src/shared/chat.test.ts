@@ -14,6 +14,7 @@ import {
   chatAfter,
   chatOpened,
   isChatText,
+  isTypedText,
   NO_CHAT,
   normalizeChatText,
   safeMovieTime,
@@ -133,6 +134,23 @@ describe("the pre-send check agrees with the room service (shared cases)", () =>
   it.each([...cases.refused, ...cases.serverRefused])("refuses %j", (text) =>
     expect(sendable(text)).toBe(false),
   );
+});
+
+describe("text a page hands the message box (BUG-073)", () => {
+  it("is a few typed characters, nothing else", () => {
+    expect(isTypedText("a")).toBe(true);
+    expect(isTypedText(" ")).toBe(true);
+    expect(isTypedText("😀")).toBe(true);
+    expect(isTypedText("x".repeat(500))).toBe(true);
+    expect(isTypedText("x".repeat(501))).toBe(false);
+    expect(isTypedText("😀".repeat(501))).toBe(false);
+    expect(isTypedText("")).toBe(false);
+    expect(isTypedText("a\nb")).toBe(false);
+    expect(isTypedText("\u0000")).toBe(false);
+    expect(isTypedText(7)).toBe(false);
+    expect(isTypedText(null)).toBe(false);
+    expect(isTypedText({ text: "a" })).toBe(false);
+  });
 });
 
 describe("what a tab sends", () => {

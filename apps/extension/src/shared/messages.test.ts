@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { cleanName, codeFrom, nameProblem, safeTitleUrl } from "./messages";
+import { cleanName, codeFrom, isSidebarEvent, nameProblem, safeTitleUrl } from "./messages";
+
+test("the chat frame's typing signal is on or off and nothing else (BUG-073)", () => {
+  expect(isSidebarEvent({ kind: "typing", on: true })).toBe(true);
+  expect(isSidebarEvent({ kind: "typing", on: false })).toBe(true);
+  expect(isSidebarEvent({ kind: "typing" })).toBe(false);
+  expect(isSidebarEvent({ kind: "typing", on: "yes" })).toBe(false);
+});
 
 test("invites only redirect to supported service pages", () => {
   expect(safeTitleUrl("https://www.netflix.com/watch/80057281")).toBe(

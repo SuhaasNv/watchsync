@@ -40,11 +40,13 @@ import { reactionsBesideChat, retireReactions, showReaction, showReactions } fro
 import {
   chatFrameLost,
   chatFrameReady,
+  chatTyping,
   closeSidebar,
   focusFallback,
   isChatOff,
   isSidebarOpen,
   onChatOff,
+  onChatType,
   onSidebarChange,
   openSidebar,
   renewFrame,
@@ -310,6 +312,7 @@ function onPush(m: Push) {
   }
   if (m.kind === "openSidebar") return openSidebar(); // the popup's Open chat
   if (m.kind === "closeSidebar") return closeSidebar(); // Esc or close inside the chat frame
+  if (m.kind === "chatTyping") return chatTyping(m.on);
   if (m.kind === "chatFrameReady") return chatFrameReady(m.frame);
   if (m.kind === "chatFrameLost") return chatFrameLost(m.frame);
   if (m.kind !== "state") return;
@@ -465,6 +468,8 @@ function drawPill() {
     chatOff: isChatOff(),
   });
 }
+// Keys the page got while it held focus from the message box go on to the chat frame (BUG-073).
+onChatType((text) => post({ kind: "chatType", text }));
 onSidebarChange((open) => {
   drawPill();
   noticesBesideSidebar(open);
