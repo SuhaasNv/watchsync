@@ -93,7 +93,7 @@ root.innerHTML = `<style>
   .face[data-mark="synced"]::after { content: "✓"; background: #5ed8c3; }
   .face[data-mark="wait"]::after { content: "…"; background: #ff9f4a; line-height: 9px; }
   /* Dev builds only: the live gap to the room's clock. Fixed width so it never shifts the pill. */
-  .drift { box-sizing: border-box; min-width: 6.5em; padding: 0 6px; text-align: center;
+  .drift { box-sizing: border-box; min-width: 15em; padding: 0 6px; text-align: center;
     white-space: nowrap; color: #8fa1a2; font: 11px/18px ui-monospace, SFMono-Regular, Menlo, monospace;
     font-variant-numeric: tabular-nums; }
   .sep { width: 1px; height: 20px; background: rgba(214, 236, 240, 0.14); margin: 0 2px; }
@@ -478,9 +478,11 @@ let driftShown = false;
 
 /**
  * Dev builds only: shows your gap to the room's clock in ms ("+37 ms" ahead, "−12 ms" behind) in
- * the pill; null hides it. Updates the text in place, so it is safe to call several times a second.
+ * the pill, and how far off this browser's estimate of that clock can be ("clock ±18 ms", half the
+ * best ping round trip) when known; null hides it. Updates the text in place, so it is safe to
+ * call several times a second.
  */
-export function showDrift(ms: number | null) {
+export function showDrift(ms: number | null, clockMs: number | null = null) {
   if (__CHANNEL__ !== "dev") return;
   driftShown = ms !== null;
   if (ms === null) {
@@ -491,12 +493,14 @@ export function showDrift(ms: number | null) {
     driftText = document.createTextNode("");
     driftTag = document.createElement("span");
     driftTag.className = "drift";
-    driftTag.title = "Your gap to the room's clock (dev build only)";
+    driftTag.title =
+      "Your gap to the room's clock, and how far off this browser's estimate of it can be (dev build only)";
     driftTag.setAttribute("aria-hidden", "true");
     driftTag.append(driftText);
   }
   const rounded = Math.round(Math.abs(ms));
-  const text = Math.abs(ms) < 5 ? "±0 ms" : `${ms > 0 ? "+" : "\u2212"}${rounded} ms`;
+  const gap = Math.abs(ms) < 5 ? "±0 ms" : `${ms > 0 ? "+" : "\u2212"}${rounded} ms`;
+  const text = clockMs === null ? gap : `${gap} · clock ±${Math.round(clockMs)} ms`;
   if (driftText.data !== text) driftText.data = text;
   // Not when folded; renderPill adds it back when the pill is unfolded.
   if (!driftTag.isConnected && pill.isConnected && !collapsed) {

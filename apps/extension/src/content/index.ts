@@ -1120,7 +1120,8 @@ if (provider) {
   );
   stops.push(startNudging(provider, nudgeView));
   // Dev builds only: the live gap to the room's clock in the pill, for testing on real services.
-  if (__CHANNEL__ === "dev") timers.push(setInterval(() => showDrift(nudgeDriftMs()), 250));
+  if (__CHANNEL__ === "dev")
+    timers.push(setInterval(() => showDrift(nudgeDriftMs(), room?.clockUncertainty ?? null), 250));
   timers.push(
     setInterval(poll, 1000),
     // Not while a move of mine is still waiting to be sent: the room's clock is the old one
