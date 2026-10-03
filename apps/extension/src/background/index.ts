@@ -31,7 +31,7 @@ import {
   RELEASES_API,
   type UpdateCheck,
 } from "../shared/update";
-import { ChatFrames } from "./chat-frames";
+import { ChatFrames, wantsServerMessage } from "./chat-frames";
 import { injectOpenTabs } from "./inject";
 import { restoreMessage } from "./restore";
 import { RESTARTING, Retry } from "./retry";
@@ -329,7 +329,9 @@ function onServer(msg: AnyServerMessage) {
     }
   }
   changed();
-  push({ kind: "server", message: msg });
+  // Chat goes only to the chat frames, never to a service page's content script (DEC-042).
+  for (const p of ports)
+    if (wantsServerMessage(p.name, msg.type)) p.postMessage({ kind: "server", message: msg });
 }
 
 function reset() {
@@ -576,9 +578,17 @@ function admitChatFrame(port: chrome.runtime.Port) {
   const hello = (e: unknown) => {
     clearTimeout(silent);
     port.onMessage.removeListener(hello);
-    if (!chatFrames.admit(port.sender, e)) return port.disconnect();
+    const frame = chatFrames.admit(port.sender, e);
+    if (!frame) return port.disconnect();
+    const tabId = port.sender?.tab?.id;
     ports.add(port);
-    port.onDisconnect.addListener(() => ports.delete(port));
+    toTab(tabId, { kind: "chatFrameReady", frame });
+    // Gone without the content script removing it (the page pointed the frame elsewhere):
+    // tell the tab at once, so it puts the real frame back. Its own removals it ignores.
+    port.onDisconnect.addListener(() => {
+      ports.delete(port);
+      toTab(tabId, { kind: "chatFrameLost", frame });
+    });
     // Its close goes only to the content script of the tab it sits in.
     port.onMessage.addListener((m: unknown) => {
       if (isSidebarEvent(m) && m.kind === "close")

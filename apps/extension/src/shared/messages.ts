@@ -61,7 +61,11 @@ export type Push =
   /** The chat shortcut was pressed in this tab (to its port only). */
   | { kind: "toggleSidebar" }
   /** The chat panel in this tab asked to close: Esc or its close button (to its port only). */
-  | { kind: "closeSidebar" };
+  | { kind: "closeSidebar" }
+  /** The chat frame with this pass connected (to its tab's port only). */
+  | { kind: "chatFrameReady"; frame: string }
+  /** The chat frame with this pass lost its connection (to its tab's port only). */
+  | { kind: "chatFrameLost"; frame: string };
 
 /**
  * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first

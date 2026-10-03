@@ -14,10 +14,11 @@ beforeEach(async () => {
   previous?.retireSidebar(); // the last test's copy: off the page, its listeners gone
   document.body.innerHTML = `<button id="page">Page control</button>`;
   vi.useFakeTimers();
+  let issued = 0;
   vi.stubGlobal("chrome", {
     runtime: {
       getURL: (path: string) => `chrome-extension://abc/${path}`,
-      sendMessage: () => Promise.resolve({ nonce: "nonce-123456" }),
+      sendMessage: () => Promise.resolve({ nonce: nonceN(++issued) }),
     },
     storage: { local: { get: () => Promise.resolve({}), set: () => Promise.resolve() } },
   });
@@ -46,6 +47,10 @@ const root = (): ShadowRoot => {
   if (!shadow) throw new Error("no shadow root");
   return shadow;
 };
+/** The background's passes, numbered in the order it gives them. */
+const nonceN = (n: number) => `nonce-${String(n).padStart(6, "0")}`;
+/** The pass in the frame's address. */
+const frameNonce = () => frame()?.src.split("#")[1] ?? null;
 const hosts = () => document.querySelectorAll("watchsync-sidebar").length;
 const panel = () => {
   const p = root().querySelector<HTMLElement>("[role=region]");
@@ -98,6 +103,98 @@ describe("the frame's pass and its place on the page", () => {
     expect(root().querySelectorAll("iframe").length).toBe(1);
   });
 
+  test("a late reply to an older request for a pass is dropped", async () => {
+    const replies: ((v: { nonce: string }) => void)[] = [];
+    vi.stubGlobal("chrome", {
+      runtime: {
+        getURL: (p: string) => `chrome-extension://abc/${p}`,
+        sendMessage: () => new Promise((resolve) => replies.push(resolve)),
+      },
+      storage: { local: { get: () => Promise.resolve({}), set: () => Promise.resolve() } },
+    });
+    s.showSidebar(true);
+    s.openSidebar(); // asks for pass 1
+    s.closeSidebar();
+    s.openSidebar(); // asks for pass 2
+    replies[1]?.({ nonce: nonceN(2) }); // the newer reply first
+    await settle();
+    replies[0]?.({ nonce: nonceN(1) }); // then the older one, late
+    await settle();
+    expect(root().querySelectorAll("iframe").length).toBe(1);
+    expect(frameNonce()).toBe(nonceN(2));
+  });
+
+  test("a frame that doesn't connect within 2 s of loading is replaced", async () => {
+    s.showSidebar(true);
+    await openAndLoad();
+    frame()?.dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(2001);
+    await settle();
+    expect(frameNonce()).toBe(nonceN(2));
+  });
+
+  test("a frame that connects in time stays", async () => {
+    s.showSidebar(true);
+    await openAndLoad();
+    s.chatFrameReady(nonceN(1));
+    frame()?.dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(6000);
+    await settle();
+    expect(frameNonce()).toBe(nonceN(1));
+  });
+
+  test("a lost frame is taken off at once and a new one loaded; old news is ignored", async () => {
+    s.showSidebar(true);
+    await openAndLoad();
+    s.chatFrameReady(nonceN(1));
+    const lost = frame();
+    s.chatFrameLost(nonceN(1));
+    expect(lost?.isConnected).toBe(false); // before any new pass arrives
+    expect(frame()).toBeNull();
+    await settle();
+    expect(frameNonce()).toBe(nonceN(2));
+    s.chatFrameLost(nonceN(1)); // the frame we removed ourselves
+    await settle();
+    expect(frameNonce()).toBe(nonceN(2));
+  });
+
+  test("a page that keeps taking the frame turns chat off on that page", async () => {
+    const turnedOff = vi.fn();
+    s.onChatOff(turnedOff);
+    s.showSidebar(true);
+    await openAndLoad();
+    for (let n = 1; n <= 3; n++) {
+      s.chatFrameLost(nonceN(n));
+      await settle();
+    }
+    expect(s.isChatOff()).toBe(true);
+    expect(turnedOff).toHaveBeenCalledTimes(1);
+    expect(hosts()).toBe(0);
+    expect(s.isSidebarOpen()).toBe(false);
+    s.openSidebar();
+    await settle();
+    expect(hosts()).toBe(0);
+  });
+
+  test("losses spread over more than a minute, or our own reloads, don't turn it off", async () => {
+    s.showSidebar(true);
+    await openAndLoad();
+    s.chatFrameLost(nonceN(1));
+    await settle();
+    s.chatFrameLost(nonceN(2));
+    await settle();
+    s.chatFrameReady(nonceN(3)); // the third frame connects, so its deadline passes quietly
+    vi.advanceTimersByTime(61_000);
+    s.chatFrameLost(nonceN(3));
+    await settle();
+    for (let i = 0; i < 3; i++) {
+      s.renewFrame(); // a worker restart: ours
+      await settle();
+    }
+    expect(s.isChatOff()).toBe(false);
+    expect(hosts()).toBe(1);
+  });
+
   test("taken off by us (leaving), it stays off", async () => {
     s.showSidebar(true);
     await openAndLoad();
@@ -115,7 +212,7 @@ describe("in and out of a room", () => {
     expect(hosts()).toBe(1);
     expect(panel().hidden).toBe(false);
     expect(panel().getAttribute("aria-label")).toBe("WatchSync");
-    expect(frame()?.src).toBe("chrome-extension://abc/sidebar.html#nonce-123456");
+    expect(frame()?.src).toBe(`chrome-extension://abc/sidebar.html#${nonceN(1)}`);
     expect(frame()?.title).toBe("WatchSync chat");
   });
 
@@ -231,7 +328,7 @@ describe("opening and closing", () => {
 });
 
 describe("the pill's chat button", () => {
-  const model = (chatOpen: boolean) => ({
+  const model = (chatOpen: boolean, chatOff = false) => ({
     people: [],
     following: true,
     onSync: () => {},
@@ -242,6 +339,16 @@ describe("the pill's chat button", () => {
     onSyncAll: () => {},
     onChat: () => {},
     chatOpen,
+    chatOff,
+  });
+
+  test("off on this page: says why, does nothing, hides the count", async () => {
+    s.setCollapsedBadge(2);
+    o.renderPill(model(false, true));
+    expect(chat().getAttribute("aria-label")).toBe(o.CHAT_OFF);
+    expect(chat().title).toBe(o.CHAT_OFF);
+    expect(chat().getAttribute("aria-disabled")).toBe("true");
+    expect(chat().querySelector<HTMLElement>(".count")?.hidden).toBe(true);
   });
   const chat = () => {
     const b = o.chatButton();

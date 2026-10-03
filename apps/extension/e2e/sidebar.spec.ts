@@ -212,6 +212,61 @@ test("a scripted click in the chat frame does nothing; only the person's own doe
   await expect(panel(tab)).toBeHidden();
 });
 
+test("a page that points the chat frame at its own page gets the real one back; three times turns chat off", async ({
+  ext,
+}) => {
+  const { tab, code } = await inRoom(ext);
+  // The service page's own fake chat, served from its own origin so it could read keys.
+  await ext.context.route(`${MOCK}/fake-chat`, (r) =>
+    r.fulfill({ contentType: "text/html", body: "<p>Fake chat</p>" }),
+  );
+  // window.frames leaves out frames in shadow trees, so a page can't reach ours that way; it
+  // would have to capture the closed shadow root (patching attachShadow before we run). The
+  // test build's open root stands in for that.
+  expect(await tab.evaluate(() => window.frames.length)).toBe(0);
+  const hijack = () =>
+    tab.evaluate(() => {
+      const f = document
+        .querySelector("watchsync-sidebar")
+        ?.shadowRoot?.querySelector("iframe")?.contentWindow;
+      if (!f) throw new Error("no chat frame to hijack");
+      f.location.href = "http://localhost:4173/fake-chat";
+    });
+  const fakeShown = () => tab.frames().some((f) => f.url().endsWith("/fake-chat"));
+  await chatButton(tab).click();
+  await expect(frame(tab).getByText(`Room ${code}`)).toBeVisible();
+
+  for (let i = 0; i < 2; i++) {
+    await hijack();
+    // Within a second the page's frame is gone and the real chat is back, connected.
+    await expect.poll(fakeShown, { timeout: 1000 }).toBe(false);
+    await expect(frame(tab).getByText(`Room ${code}`)).toBeVisible({ timeout: 1000 });
+  }
+
+  await hijack();
+  const off = "Chat is turned off on this page because the page interfered with it.";
+  await expect(tab.getByText(off)).toBeVisible();
+  await expect(tab.locator("watchsync-sidebar")).toHaveCount(0);
+  await expect.poll(fakeShown).toBe(false);
+  const button = tab.getByRole("button", { name: off });
+  await expect(button).toHaveAttribute("aria-disabled", "true");
+  await button.click({ force: true }); // a person can still press it; nothing opens
+  await expect(tab.locator("watchsync-sidebar")).toHaveCount(0);
+});
+
+test("the page never sees the chat frame's pass", async ({ ext }) => {
+  const { tab, code } = await inRoom(ext);
+  await chatButton(tab).click();
+  await expect(frame(tab).getByText(`Room ${code}`)).toBeVisible();
+  const seen = await tab.evaluate(() =>
+    performance
+      .getEntries()
+      .map((e) => e.name)
+      .filter((name) => name.includes("#")),
+  );
+  expect(seen).toEqual([]);
+});
+
 // ---- US-041: full screen, player controls, fading, page width ----
 
 const inFullscreen = (tab: Page) => tab.evaluate(() => document.fullscreenElement?.id ?? null);

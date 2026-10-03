@@ -12,6 +12,7 @@ import {
 } from "../shared/messages";
 import { align } from "./align";
 import {
+  CHAT_OFF,
   chatButton,
   clearPrompt,
   focusedControl,
@@ -25,9 +26,13 @@ import {
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
 import { providerFor } from "./providers";
 import {
+  chatFrameLost,
+  chatFrameReady,
   closeSidebar,
   focusFallback,
+  isChatOff,
   isSidebarOpen,
+  onChatOff,
   onSidebarChange,
   renewFrame,
   retireSidebar,
@@ -248,6 +253,8 @@ function onPush(m: Push) {
     return;
   }
   if (m.kind === "closeSidebar") return closeSidebar(); // Esc or close inside the chat frame
+  if (m.kind === "chatFrameReady") return chatFrameReady(m.frame);
+  if (m.kind === "chatFrameLost") return chatFrameLost(m.frame);
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
@@ -394,11 +401,17 @@ function drawPill() {
     onSyncAll: syncEveryone,
     onChat: (from) => toggleSidebar(from),
     chatOpen: isSidebarOpen(),
+    chatOff: isChatOff(),
   });
 }
 onSidebarChange((open) => {
   drawPill();
   noticesBesideSidebar(open);
+});
+// Fail closed: the page kept pointing the chat frame elsewhere (DEC-042).
+onChatOff(() => {
+  drawPill();
+  toast(CHAT_OFF, 8000, { icon: "alert", tone: "bad" });
 });
 // The control that opened chat can be gone by the time it closes: the pill's chat button.
 focusFallback(chatButton);

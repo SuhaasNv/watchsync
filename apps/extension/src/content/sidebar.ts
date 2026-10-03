@@ -37,6 +37,20 @@ root.innerHTML = `<style>
 
 const panel = root.querySelector(".panel") as HTMLDivElement;
 let frame: HTMLIFrameElement | null = null;
+/** The pass of the frame on the page; news about any other frame is about one we removed. */
+let current: string | null = null;
+/** The pass whose frame has connected (said hello to the background). */
+let greeted: string | null = null;
+/** Bumped with every request for a pass: a reply that isn't the latest is dropped. */
+let asked = 0;
+/** We re-appended the host, which reloads the frame: losing it is ours, not the page's doing. */
+let ourReload = false;
+let helloDue: ReturnType<typeof setTimeout> | undefined;
+/** Chat is off on this page: it interfered with the frame too often (fail closed). */
+let off = false;
+/** When the page last interfered with the frame, within the last minute. */
+const interference: number[] = [];
+const offWatchers: (() => void)[] = [];
 
 let inRoom = false;
 let open = false;
@@ -68,7 +82,7 @@ function mount() {
   guard.disconnect();
   guard.observe(parent, { childList: true });
   // moveBefore (Chrome 133+) keeps the frame loaded, focused and scrolled. A plain append
-  // reloads the frame, which then gets a new pass and connects again (renewFrame).
+  // reloads the frame, which is then replaced by a new one with a new pass (frameTrouble).
   if (host.isConnected && "moveBefore" in parent) {
     try {
       return parent.moveBefore(host, null);
@@ -77,6 +91,7 @@ function mount() {
     }
   }
   const focused = root.activeElement;
+  if (frame) ourReload = true;
   parent.append(host);
   if (focused instanceof HTMLElement) focused.focus();
 }
@@ -98,27 +113,50 @@ async function pass(): Promise<string | null> {
 
 const frameUrl = (nonce: string) => `${chrome.runtime.getURL("sidebar.html")}#${nonce}`;
 
+/** Takes the frame off the page at once. */
+function dropFrame() {
+  clearTimeout(helloDue);
+  frame?.remove();
+  frame = null;
+  current = null;
+  ourReload = false;
+}
+
 /** Loads a new frame with a fresh pass, in place of any frame there was. */
 async function loadFrame() {
+  const ticket = ++asked;
   const nonce = await pass();
-  if (!nonce || retired || !inRoom) return;
+  // Only the latest request counts: an older reply arriving late would load a frame whose pass
+  // the background has already replaced, and that frame could never connect.
+  if (ticket !== asked || !nonce || retired || !inRoom || off) return;
+  dropFrame();
   const f = document.createElement("iframe");
   f.title = "WatchSync chat";
   f.src = frameUrl(nonce);
   let loaded = false;
   f.addEventListener("load", () => {
-    // A second load is a reload (the page took the host off and we put it back): its pass is
-    // spent, so a new frame with a new pass takes its place.
-    if (loaded) return renewFrame();
+    // A second load means the frame's page was replaced: by our own re-append, or by the
+    // service page pointing the frame elsewhere. Either way it can't be trusted any more.
+    if (loaded) return frameTrouble(nonce);
     loaded = true;
     // Focus given to the frame before its page loaded doesn't reach that page: give it again.
     if (focusWhenReady && open) focusFrame(f);
     focusWhenReady = false;
+    helloWithin(nonce, 2000);
   });
-  frame?.remove();
   frame = f;
+  current = nonce;
   panel.append(f);
+  helloWithin(nonce, 5000); // a frame that never even loads
   if (focusWhenReady && open) f.focus(); // off the page's control at once
+}
+
+/** The frame must have connected within `ms`, or it isn't ours any more. */
+function helloWithin(nonce: string, ms: number) {
+  clearTimeout(helloDue);
+  helloDue = setTimeout(() => {
+    if (greeted !== nonce) frameTrouble(nonce);
+  }, ms);
 }
 
 /** Focus into the frame's page; it then puts focus on its first control. */
@@ -128,13 +166,69 @@ function focusFrame(f: HTMLIFrameElement) {
 }
 
 /**
- * The frame's connection dropped (a worker restart) or it reloaded with a spent pass: a new
- * frame with a new pass replaces it, and takes its focus if it had it.
+ * The frame on the page is no longer the one we loaded, or no longer connected: take it off at
+ * once (nothing the page loaded stays in our panel) and put a new one with a new pass in its
+ * place. If the page did this three times in a minute, chat turns off on this page.
+ */
+function frameTrouble(nonce: string) {
+  if (nonce !== current) return; // a frame we already replaced or removed
+  const ours = ourReload;
+  const hadFocus = open && root.activeElement === frame;
+  dropFrame();
+  if (!ours && interfered()) {
+    if (hadFocus) giveFocusBack();
+    return;
+  }
+  if (hadFocus) focusWhenReady = true;
+  loadFrame().catch((e: unknown) => console.debug("watchsync: chat frame", e));
+}
+
+/** Counts one interference; true if that's three within a minute and chat is now off. */
+function interfered(): boolean {
+  const now = Date.now();
+  interference.push(now);
+  while (interference.length && now - (interference[0] ?? now) > 60_000) interference.shift();
+  if (interference.length < 3) return false;
+  off = true;
+  const was = open;
+  open = false;
+  returnTo = null;
+  focusWhenReady = false;
+  clearTimeout(closing);
+  panel.classList.remove("closing");
+  panel.hidden = true;
+  unmount();
+  for (const cb of offWatchers) cb();
+  if (was) changed();
+  return true;
+}
+
+/** The background says the frame with this pass connected. */
+export function chatFrameReady(nonce: string) {
+  if (nonce === current) greeted = nonce;
+}
+
+/** The background says the frame with this pass lost its connection without our doing. */
+export function chatFrameLost(nonce: string) {
+  frameTrouble(nonce);
+}
+
+/**
+ * The background worker restarted, dropping the frame's connection: a new frame with a new
+ * pass replaces it (our doing, not the page's).
  */
 export function renewFrame() {
-  if (!frame) return;
-  if (root.activeElement === frame && open) focusWhenReady = true;
-  loadFrame().catch((e: unknown) => console.debug("watchsync: chat frame", e));
+  if (!current) return;
+  ourReload = true;
+  frameTrouble(current);
+}
+
+/** Chat was turned off on this page because the page interfered with it. */
+export const isChatOff = () => off;
+
+/** Called once if chat turns off on this page. */
+export function onChatOff(cb: () => void) {
+  offWatchers.push(cb);
 }
 
 function changed() {
@@ -163,8 +257,8 @@ export function showSidebar(room: boolean) {
   clearTimeout(closing);
   panel.classList.remove("closing");
   panel.hidden = true;
-  frame?.remove(); // its port closes with it; a new room gets a fresh frame
-  frame = null;
+  asked++; // a pass still on its way is for this room's frame: drop it
+  dropFrame(); // its port closes with it; a new room gets a fresh frame
   unmount();
   if (was) changed();
 }
@@ -174,7 +268,7 @@ export function showSidebar(room: boolean) {
  * whatever had focus. Already open: just moves focus in.
  */
 export function openSidebar(from: HTMLElement | null = focusedOnPage()) {
-  if (retired || !inRoom) return;
+  if (retired || !inRoom || off) return;
   if (!open) {
     returnTo = from;
     open = true;
@@ -237,6 +331,7 @@ export function focusFallback(find: () => HTMLElement | null) {
 export function retireSidebar() {
   retired = true;
   clearTimeout(closing);
+  clearTimeout(helloDue);
   unmount();
   document.removeEventListener("fullscreenchange", onFullscreen);
 }

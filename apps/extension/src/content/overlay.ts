@@ -92,6 +92,8 @@ root.innerHTML = `<style>
     color: #a9b8b9; }
   .pill button.bare:hover { background: rgba(214, 236, 240, 0.1); color: #ecf2f1; }
   .pill button.chat { position: relative; }
+  .pill button.chat[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+  .pill button.chat[aria-disabled="true"]:hover { background: transparent; color: #a9b8b9; }
   /* Unread messages on the chat button (UC-014); 9+ past nine. */
   .count { position: absolute; top: -3px; right: -3px; box-sizing: border-box; min-width: 16px;
     height: 16px; padding: 0 4px; border-radius: 8px; background: #ffd25a; color: #1b1503;
@@ -329,7 +331,11 @@ export interface PillModel {
   /** Open or close chat; opened from here, the button gets focus back when it closes. */
   onChat: (from: HTMLElement) => void;
   chatOpen: boolean;
+  /** Chat was turned off on this page because the page interfered with it. */
+  chatOff: boolean;
 }
+
+export const CHAT_OFF = "Chat is turned off on this page because the page interfered with it.";
 
 const pill = document.createElement("div");
 pill.className = "pill";
@@ -412,12 +418,16 @@ let unread = 0;
 
 function drawChat() {
   const open = lastModel?.chatOpen === true;
-  const base = open ? "Close chat" : `Open chat (${SHORTCUT})`;
-  const label = unread ? `${base}, ${unread} unread` : base;
+  const off = lastModel?.chatOff === true;
+  const base = off ? CHAT_OFF : open ? "Close chat" : `Open chat (${SHORTCUT})`;
+  const label = unread && !off ? `${base}, ${unread} unread` : base;
   chat.setAttribute("aria-label", label);
   chat.title = label;
   chat.setAttribute("aria-expanded", String(open));
-  count.hidden = unread === 0;
+  // Still focusable and named, so the reason can be found; it does nothing when pressed.
+  if (off) chat.setAttribute("aria-disabled", "true");
+  else chat.removeAttribute("aria-disabled");
+  count.hidden = unread === 0 || off;
   count.textContent = unread > 9 ? "9+" : String(unread);
 }
 
