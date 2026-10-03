@@ -83,9 +83,13 @@ const seen = new IntersectionObserver(
 for (const el of document.querySelectorAll("[data-reveal]")) seen.observe(el);
 
 // ---- Pinned or not: Chrome reports it, so the page can confirm instead of guessing. ----
+// Chrome has no way for an extension to pin itself; the page points at the puzzle icon and
+// checks every 1.5 s while it's open (and when it comes back into view) whether it's done.
 const pinState = $<HTMLSpanElement>("#pin-state");
 const pinText = $<HTMLSpanElement>("#pin-text");
 const pointer = $<HTMLDivElement>("#pointer");
+/** The pointer shows itself once, the first time Chrome says WatchSync isn't pinned. */
+let pointedOnce = false;
 
 async function refreshPin() {
   let pinned: boolean | null = null;
@@ -96,14 +100,31 @@ async function refreshPin() {
   }
   pinState.dataset.state = pinned === null ? "unknown" : pinned ? "yes" : "no";
   pinText.textContent =
-    pinned === null ? "Pin status unknown" : pinned ? "Pinned" : "Not pinned yet";
+    pinned === null
+      ? "Pin status unknown"
+      : pinned
+        ? "Pinned. You'll find WatchSync up there."
+        : "Not pinned yet";
   if (pinned) pointer.hidden = true;
+  else if (pinned === false && !pointedOnce) {
+    pointedOnce = true;
+    pointer.hidden = false;
+  }
 }
 void refreshPin();
-// The change event arrived in Chrome 130; focus covers earlier versions.
+let poll: ReturnType<typeof setInterval> | undefined;
+function watchPin() {
+  clearInterval(poll);
+  poll = document.hidden ? undefined : setInterval(() => void refreshPin(), 1500);
+}
+watchPin();
+// The change event arrived in Chrome 130; the poll and focus cover earlier versions.
 chrome.action.onUserSettingsChanged?.addListener(() => void refreshPin());
 addEventListener("focus", () => void refreshPin());
-document.addEventListener("visibilitychange", () => void refreshPin());
+document.addEventListener("visibilitychange", () => {
+  watchPin();
+  if (!document.hidden) void refreshPin();
+});
 
 $<HTMLButtonElement>("#show-me").addEventListener("click", () => {
   pointer.hidden = false;
