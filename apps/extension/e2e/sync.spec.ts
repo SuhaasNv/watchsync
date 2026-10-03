@@ -97,7 +97,7 @@ test("Stay here keeps my position and stops asking", async ({ ext }) => {
   }
 });
 
-test("watching on my own stops following until Sync", async ({ ext }) => {
+test("watching on my own stops following until Rejoin the room", async ({ ext }) => {
   const { host, hostTab, friend } = await room(ext);
   try {
     const tab = await friend.context.newPage();
@@ -121,7 +121,7 @@ test("watching on my own stops following until Sync", async ({ ext }) => {
     await tab.waitForTimeout(1500);
     expect(Math.abs((await position(hostTab)) - hostAt)).toBeLessThan(0.5);
 
-    await tab.getByRole("button", { name: "Sync", exact: true }).click();
+    await tab.getByRole("button", { name: "Rejoin the room" }).click();
     await expect.poll(() => playing(tab)).toBe(false);
     await expect.poll(() => gap(tab, hostTab)).toBeLessThan(1);
     await expect(host.getByText(/On their own/)).toHaveCount(0);
@@ -147,11 +147,11 @@ test("the pill shows who is here, folds away, and stays in full screen", async (
     await expect(region.getByRole("button", { name: "Watch on my own" })).toBeVisible();
 
     // Playing together, the start button pauses everyone instead; paused, it starts again.
-    const pauseAll = region.getByRole("button", { name: "Pause together" });
+    const pauseAll = region.getByRole("button", { name: "Pause everyone" });
     await expect(pauseAll).toBeVisible();
     await pauseAll.click();
     await expect.poll(() => playing(tab)).toBe(false);
-    await expect(region.getByRole("button", { name: "Start together" })).toBeVisible();
+    await expect(region.getByRole("button", { name: "Start with 3-2-1" })).toBeVisible();
 
     await tab.getByRole("button", { name: "Full screen" }).click();
     await expect
@@ -168,7 +168,7 @@ test("the pill shows who is here, folds away, and stays in full screen", async (
   }
 });
 
-test("Pause together right after a page loads still pauses everyone", async ({ ext }) => {
+test("Pause everyone right after a page loads still pauses everyone", async ({ ext }) => {
   const { friend, hostTab } = await room(ext);
   try {
     const tab = await friend.context.newPage();
@@ -177,36 +177,41 @@ test("Pause together right after a page loads still pauses everyone", async ({ e
     // Inside the first seconds after a load, where autoplay is ignored (BUG-004): the press
     // is still the person's own and must not be undone.
     const region = tab.getByRole("region", { name: "WatchSync room" });
-    await region.getByRole("button", { name: "Pause together" }).click();
+    await region.getByRole("button", { name: "Pause everyone" }).click();
     await tab.waitForTimeout(4000);
     expect(await playing(tab)).toBe(false);
     expect(await playing(hostTab)).toBe(false);
-    await expect(region.getByRole("button", { name: "Start together" })).toBeVisible();
+    await expect(region.getByRole("button", { name: "Start with 3-2-1" })).toBeVisible();
   } finally {
     await friend.context.close();
   }
 });
 
-test("Sync everyone brings the room to my exact spot without pausing", async ({ ext }) => {
+test("Bring everyone here shows only when I'm off, and brings the room to my exact spot", async ({
+  ext,
+}) => {
   const { friend, hostTab } = await room(ext);
   try {
     const tab = await friend.context.newPage();
-    await tab.goto(`${MOCK}/watch/ep1`);
-    await expect.poll(() => playing(tab)).toBe(true);
-    await tab.waitForTimeout(3500); // past the arrival window (BUG-004)
-    // Half a second apart: under the drift tolerance, so nothing corrects it by itself.
-    await tab.evaluate(() => {
-      const v = document.querySelector("video");
-      if (v) v.currentTime += 0.6;
-    });
-    await hostTab
-      .getByRole("region", { name: "WatchSync room" })
-      .getByRole("button", { name: "Sync everyone" })
-      .click();
-    await expect(tab.getByText("Suhaas synced everyone")).toBeVisible();
+    const bring = (p: Page) =>
+      p
+        .getByRole("region", { name: "WatchSync room" })
+        .getByRole("button", { name: "Bring everyone here" });
+    await landAhead(hostTab, tab);
+    // In step, nobody is offered it: small drift fixes itself.
+    await expect(bring(hostTab)).toHaveCount(0);
+    // 9 s ahead of the room, the friend can bring everyone to where they are instead.
+    await expect(bring(tab)).toBeVisible();
+    await bring(tab).click();
+    await expect(tab.getByText("Everyone is here with you")).toBeVisible();
+    // Nine seconds is a jump for Suhaas, so he's told where Asha took him (one notice).
+    await expect(hostTab.getByText(/Asha skipped ahead to/)).toBeVisible();
     await expect.poll(() => gap(tab, hostTab)).toBeLessThan(0.2);
     expect(await playing(tab)).toBe(true);
     expect(await playing(hostTab)).toBe(true);
+    // Back in step: the drift prompt and the button go away.
+    await expect(tab.getByText(/seconds ahead/)).toHaveCount(0);
+    await expect(bring(tab)).toHaveCount(0);
   } finally {
     await friend.context.close();
   }

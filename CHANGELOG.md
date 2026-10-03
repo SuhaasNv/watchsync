@@ -16,6 +16,12 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 - Honest reconnect messages: while the server updates, the page says "WatchSync is updating, back in a moment" and reconnects within a few seconds; after 2 minutes without a connection it says "Can't reach WatchSync. Still trying." with Try now.
 - Chrome extension updates wait until you leave the room, so an auto-update never drops you mid-film.
 
+### Changed
+- The pill's buttons have clearer names: Start with 3-2-1, Pause everyone, Bring everyone here and Rejoin the room. Bring everyone here appears only when your player is out of step with the room.
+
+### Fixed
+- A friend's 10-second skip on Netflix now shows as one "skipped ahead" notice instead of paused and played.
+
 ### Security
 - The chat panel runs in an extension frame, so the streaming page can't read what you type.
 - Chat limits: up to 500 characters a message, 5 messages every 5 seconds per person and 20 every 10 seconds per room, and a cap on how much chat the room service holds.

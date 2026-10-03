@@ -49,7 +49,7 @@ export async function seekQuietly(provider: StreamingProvider, seconds: number) 
 }
 
 /** Brings this player to the room's playback. `serverNow` is the server clock in ms. */
-/** Within this, "Sync everyone" leaves a player alone: about what anyone can notice. */
+/** Within this, "Bring everyone here" leaves a player alone: about what anyone can notice. */
 const EXACT_SEC = 0.15;
 
 export async function apply(

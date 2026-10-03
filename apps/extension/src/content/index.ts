@@ -65,6 +65,12 @@ let roomMedia: Media | null = null;
 let dismissed: string | null = null;
 /** Who last moved the room's clock, so drift can say whose position it is. */
 let lastActor: { id: string; name: string } | null = null;
+/** One person's play, pause and jump messages that arrive close together (a service's skip). */
+const BURST_MS = 1500;
+let burst: { id: string; at: number; from: number; told: boolean } | null = null;
+/** A play or pause notice waits this long, so a skip right after it can replace it. */
+const NOTICE_WAIT_MS = 400;
+let pendingNotice: ReturnType<typeof setTimeout> | undefined;
 
 /** Room notices on the page (US-114); prompts that need an answer ignore this. */
 let roomNotices = true;
@@ -234,15 +240,30 @@ function onPush(m: Push) {
     if (holder && action === "pause") return; // the wait card explains it (drawWait)
     if (action === "play" && waitShownAt) return; // drawWait says "Back together"
     if (byId === room.session?.participantId) return; // never a notice about myself (BUG-022)
-    if (action !== "seek")
-      return roomNotice(playedText(byName, action), 3000, { who: byName, icon: action });
+    // A skip on Netflix arrives as a burst (pause, jump, play) and the first message can
+    // already carry the new spot. Judge the jump from where this player was when the burst
+    // began, say it once, and drop the burst's play and pause notices.
+    const now = Date.now();
+    if (!burst || burst.id !== byId || now - burst.at > BURST_MS)
+      burst = { id: byId, at: now, from: before, told: false };
+    burst.at = now;
     const to = expectedPosition(playback, serverNow);
-    if (Math.abs(to - before) < 1) return; // already there; nothing visibly moved
-    const ahead = to > before;
-    roomNotice(jumpedText(byName, ahead, to), 4000, {
-      who: byName,
-      icon: ahead ? "ahead" : "back",
-    });
+    if (Math.abs(to - burst.from) >= 1) {
+      clearTimeout(pendingNotice); // the jump says it all
+      if (burst.told) return;
+      burst.told = true;
+      const ahead = to > burst.from;
+      return roomNotice(jumpedText(byName, ahead, to), 4000, {
+        who: byName,
+        icon: ahead ? "ahead" : "back",
+      });
+    }
+    if (action === "seek") return; // already there; nothing visibly moved
+    clearTimeout(pendingNotice);
+    pendingNotice = setTimeout(
+      () => roomNotice(playedText(byName, action), 3000, { who: byName, icon: action }),
+      NOTICE_WAIT_MS,
+    );
     return;
   }
   if (m.kind === "server" && m.message.type === "REACTION.SHOW") {
@@ -438,7 +459,7 @@ function drawPill() {
         : null,
     playing: provider?.getState()?.playing === true,
     onPause: pauseTogether,
-    onSyncAll: syncEveryone,
+    onSyncAll: behind === null ? null : syncEveryone, // only when I'm out of step
     onChat: (from) => toggleSidebar(from),
     chatOpen: isSidebarOpen(),
     chatOff: isChatOff(),
@@ -470,11 +491,11 @@ function syncEveryone() {
     rate: st.rate,
     titleId: mine.titleId,
   });
-  toast("Everyone is synced to you", 2500, { icon: "sync", tone: "ok" });
+  toast("Everyone is here with you", 2500, { icon: "sync", tone: "ok" });
 }
 
 /**
- * The pill's Pause together is always the person's own action. Sent to the room directly:
+ * The pill's Pause everyone is always the person's own action. Sent to the room directly:
  * a pause in the first seconds after a page load would otherwise read as autoplay noise
  * (BUG-004) and the room would start the video again.
  */
@@ -709,7 +730,7 @@ function goOn() {
   waitKey = "";
 }
 
-// ---- Start together (US-105) ----
+// ---- Start with 3-2-1 (US-105) ----
 
 let startPhase: "preparing" | "go" | null = null;
 let readySent = false;
