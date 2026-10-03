@@ -18,6 +18,7 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 
 ### Changed
 - The pill's buttons have clearer names: Start with 3-2-1, Pause everyone, Bring everyone here and Watch with the room. Bring everyone here appears only when your player is out of step with the room.
+- Reactions work like live hearts: a burst of taps floats up as that many separate emojis, from different spots, each fading at its own time (up to 5 on screen).
 
 ### Fixed
 - A friend's 10-second skip on Netflix now shows as one "skipped ahead" notice instead of paused and played.
