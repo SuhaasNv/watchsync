@@ -1,6 +1,7 @@
 """Settings from environment variables. Defaults are for local development."""
 
 import os
+import secrets
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -40,3 +41,12 @@ MAX_BODY_BYTES = 2048
 # Ceilings that keep one host's memory bounded (resilience audit, 2 October 2026).
 MAX_ROOMS = int(os.environ.get("MAX_ROOMS", "2000"))
 CONNECTS_PER_MINUTE = int(os.environ.get("CONNECTS_PER_MINUTE", "60"))
+# Signs room tokens, so a room can come back after a restart or deploy (DEC-031, US-120).
+# Production must set it (32 bytes or more) and keep it across deploys: changing it ends every
+# open room. In development a random one is made per process, so restores work only within it.
+_secret = os.environ.get("ROOM_SIGNING_SECRET", "")
+if ENVIRONMENT == "production" and len(_secret.encode()) < 32:
+    raise RuntimeError("ROOM_SIGNING_SECRET must be set to at least 32 bytes in production")
+ROOM_SIGNING_SECRET = _secret.encode() if _secret else secrets.token_bytes(32)
+# How long after the process starts a room may be brought back by its people (US-120).
+RESTORE_WINDOW_SECONDS = int(os.environ.get("RESTORE_WINDOW_SECONDS", "600"))

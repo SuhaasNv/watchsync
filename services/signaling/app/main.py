@@ -373,6 +373,29 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await start_progress(room)
     elif msg["type"] == "START.FORCE" and room.start is not None:
         await start_go(room)
+    elif msg["type"] == "ROOM.RESTORE":
+        await restore_room(room, payload["media"], payload["playback"])
+
+
+async def restore_room(
+    room: Room, media: dict[str, Any] | None, playback: dict[str, Any] | None
+) -> None:
+    """The first person back in a room brought back after a restart says what it was
+    watching and where (US-120). Taken once, and only while nobody has set the room's clock
+    here; their presence may already have set the title. Everyone gets the room afresh and
+    their drift check brings them together."""
+    if not room.awaiting_restore:
+        return
+    room.awaiting_restore = False
+    if room.playback is not None:
+        return
+    if media is not None:
+        room.media = safe_media(media)
+    if playback is not None:
+        room.playback = {**playback, "updatedAt": now_ms()}
+    for x in list(room.participants.values()):
+        if x.connected:
+            await send(x, "ROOM.STATE", room.snapshot(x.id))
 
 
 def show(media: dict[str, Any]) -> str | None:

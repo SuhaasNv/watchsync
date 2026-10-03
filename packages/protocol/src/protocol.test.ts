@@ -30,6 +30,24 @@ describe("protocol validators", () => {
     ).toBe(false);
   });
 
+  it("accepts a room restore with or without a title and clock (US-120)", () => {
+    const media = { service: "mock", titleId: "ep1", titleName: null, titleUrl: null } as const;
+    const playback = { status: "paused", position: 2530, rate: 1, updatedAt: 1, titleId: "ep1" };
+    const restore = (payload: Record<string, unknown>) => ({
+      id: "1",
+      type: "ROOM.RESTORE",
+      timestamp: 1,
+      payload,
+    });
+    expect(isClientMessage(restore({ media, playback }))).toBe(true);
+    expect(isClientMessage(restore({ media: null, playback: null }))).toBe(true);
+    expect(isClientMessage(restore({ media }))).toBe(false);
+    expect(isClientMessage(restore({ media, playback, chat: [] }))).toBe(false);
+    expect(isClientMessage(restore({ media, playback: { ...playback, position: -1 } }))).toBe(
+      false,
+    );
+  });
+
   it("does not accept server messages as client messages", () => {
     const pong = { id: "1", timestamp: 1, type: "SYS.PONG", payload: { t1: 1, serverTime: 2 } };
     expect(isServerMessage(pong)).toBe(true);

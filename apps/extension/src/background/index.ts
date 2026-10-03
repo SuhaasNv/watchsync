@@ -1,6 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
+import type { JoinRoomRequest, Media, Playback, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -10,7 +10,12 @@ import {
   isRoomTicket,
   isServerMessage,
 } from "@watchsync/protocol";
-import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
+import {
+  bestSample,
+  type ClockSample,
+  clockSample,
+  expectedPosition,
+} from "@watchsync/sync-engine";
 import {
   type AppState,
   cleanName,
@@ -236,6 +241,18 @@ function connect() {
   };
 }
 
+/**
+ * Back in a room the restarted service brought back from our token (US-120): it knows who we
+ * are but not what we watched. Tell it what we knew, with the clock moved on to now; the
+ * first person back sets the room and everyone's drift check does the rest.
+ */
+function restoreRoom(media: Media, playback: Playback | null) {
+  const serverNow = Date.now() + state.clockOffset;
+  const now = playback && { ...playback, position: expectedPosition(playback, serverNow) };
+  const msg = envelope<ClientMessageOf<"ROOM.RESTORE">>("ROOM.RESTORE", { media, playback: now });
+  if (isClientMessage(msg)) sendServer(msg);
+}
+
 // Keeps the people list in arrival order when someone's row is replaced.
 const seen = new Map<string, number>();
 const order = (id: string) => {
@@ -245,7 +262,8 @@ const order = (id: string) => {
 
 function onServer(msg: AnyServerMessage) {
   switch (msg.type) {
-    case "ROOM.STATE":
+    case "ROOM.STATE": {
+      const known = { media: state.media, playback: state.playback };
       state.connection = "connected";
       state.mediaMove = null;
       state.notice = null;
@@ -254,7 +272,11 @@ function onServer(msg: AnyServerMessage) {
       for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
       state.playback = msg.payload.playback;
+      // A room's title never goes back to none, unless the service restarted (US-120).
+      if (msg.payload.media === null && known.media !== null)
+        restoreRoom(known.media, known.playback);
       break;
+    }
     case "ROOM.PARTICIPANT": {
       const { participant, event } = msg.payload;
       const others = state.participants.filter((p) => p.id !== participant.id);

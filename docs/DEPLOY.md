@@ -27,7 +27,8 @@ Scaling: environments differ only in variables. If one room-service instance is 
 ## How it runs
 
 - Image: `Dockerfile.signaling`, built from the repo root because the service reads the shared schema in `packages/protocol/schema`.
-- One uvicorn worker, because rooms live in memory (DEC-003). A redeploy ends every room.
+- One uvicorn worker, because rooms live in memory (DEC-003). A redeploy no longer ends the rooms (DEC-031, UC-046): on SIGTERM the service closes every connection with code 4002 ("restarting"), the extension says "WatchSync is updating, back in a moment" and retries every 1 to 3 s, and the new process brings each room back from its people's signed tokens (same code, same names; the first person back restores the title and position). Chat history does not come back. Rooms are restored only within `RESTORE_WINDOW_SECONDS` (default 600) of the new process starting.
+- `ROOM_SIGNING_SECRET` (required in production, at least 32 bytes; the service refuses to start without it): signs room tokens. Generate it once with `openssl rand -base64 48`, set it as a service variable on Railway (each environment its own), and keep it across deploys. Changing it ends every open room: old tokens stop verifying and the extension tells people the room has ended. Never commit it, never log it.
 - Logs: no access log and `--log-level warning`, because WebSocket URLs carry room tokens (BUG-003).
 - The process runs as a non-root user. WebSocket frames are capped at 16 KB and request bodies at 2 KB.
 - `TRUST_PROXY=1` (set in `Dockerfile.signaling`): per-client limits key on `X-Real-IP` instead of the TCP peer, which on Railway is always the edge. See "Client addresses" below.
@@ -51,14 +52,14 @@ Service settings, set on Railway rather than in a file:
 
 | Setting | Value |
 |---|---|
-| Variables | `PORT=8080`, `PUBLIC_URL`, `RAILWAY_DOCKERFILE_PATH=Dockerfile.signaling` |
+| Variables | `PORT=8080`, `PUBLIC_URL`, `RAILWAY_DOCKERFILE_PATH=Dockerfile.signaling`, `ROOM_SIGNING_SECRET` (secret, see above) |
 | Healthcheck | `/health`, 30 s |
 | Restart | on failure, up to 10 retries |
 | Sleep | off (sleeping would end the rooms) |
 
 ## Deploy
 
-Ask the owner first: a deploy ends every open room.
+Ask the owner first. Before the first deploy of v0.2, set `ROOM_SIGNING_SECRET` on the service, or the new version won't start (the old one keeps running). With it set, open rooms come back by themselves within seconds; tokens issued by v0.1.x are not signed, so rooms open during that one deploy still end.
 
 ```bash
 railway link --project watchsync --service room-service --environment production

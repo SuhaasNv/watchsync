@@ -1,7 +1,12 @@
 """Rooms held in memory (DEC-003). One process owns every room."""
 
+import base64
+import hashlib
+import hmac
+import json
 import re
 import secrets
+import time
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,6 +42,67 @@ def safe_media(media: dict[str, Any] | None) -> dict[str, Any] | None:
     if page is not None and page.fullmatch(media["titleUrl"]):
         return media
     return {**media, "titleUrl": None}
+
+
+# A signed token: base64url(JSON claims) "." base64url(HMAC-SHA256 of the claims), unpadded.
+TOKEN_SHAPE = re.compile(r"[A-Za-z0-9_-]{1,1024}\.[A-Za-z0-9_-]{43}")
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _unb64(text: str) -> bytes:
+    return base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True)
+
+
+def _mac(payload: bytes) -> bytes:
+    return hmac.new(config.ROOM_SIGNING_SECRET, payload, hashlib.sha256).digest()
+
+
+def sign_token(code: str, participant_id: str, name: str) -> str:
+    """A token that says who it is for, so the room can come back after a restart (DEC-031).
+    The random part keeps every ticket's token distinct, so revoking one never revokes the
+    next one issued to the same person in the same second."""
+    claims = {
+        "c": code,
+        "p": participant_id,
+        "n": name,
+        "i": int(time.time()),
+        "r": secrets.token_hex(4),
+    }
+    payload = json.dumps(claims, separators=(",", ":")).encode()
+    return f"{_b64(payload)}.{_b64(_mac(payload))}"
+
+
+@dataclass(frozen=True)
+class Claims:
+    code: str
+    participant_id: str
+    name: str
+
+
+def read_token(token: str) -> Claims | None:
+    """The token's claims if this service signed it with its current secret, else None."""
+    if not TOKEN_SHAPE.fullmatch(token):
+        return None
+    body, sig = token.split(".")
+    try:
+        payload, mac = _unb64(body), _unb64(sig)
+    except ValueError:
+        return None
+    if not hmac.compare_digest(mac, _mac(payload)):
+        return None
+    try:
+        claims = json.loads(payload)
+    except ValueError:
+        return None
+    if not isinstance(claims, dict):
+        return None
+    code, pid, name = claims.get("c"), claims.get("p"), claims.get("n")
+    if not (isinstance(code, str) and isinstance(pid, str) and isinstance(name, str)):
+        return None
+    return Claims(code, pid, name)
 
 
 class RoomError(Exception):
@@ -104,6 +170,12 @@ class Room:
     creator: str | None = None
     joined: bool = False
     used: bool = False
+    # Brought back after a restart by its people's signed tokens (US-120): who came back so
+    # far (each person once; after leaving, their token is spent), and whether the room still
+    # waits for the first ROOM.RESTORE to say what it was watching.
+    restored: bool = False
+    restored_ids: set[str] = field(default_factory=set)
+    awaiting_restore: bool = False
 
     def holding(self) -> list[Participant]:
         return [
@@ -145,6 +217,8 @@ class Rooms:
         self.tokens: dict[str, tuple[str, str]] = {}
         # Codes of rooms that ended, so a late joiner hears "ended" rather than "not found".
         self.ended: dict[str, float] = {}
+        # When this process started taking rooms: restores are allowed only soon after.
+        self.started = now_ms()
 
     def sweep(self, now: float | None = None) -> None:
         """Drop rooms that have had nobody connected for ROOM_IDLE_EXPIRY_SECONDS, or that
@@ -188,9 +262,10 @@ class Rooms:
         p = Participant(
             id=stale.id if stale else secrets.token_hex(8),
             name=name,
-            token=secrets.token_urlsafe(32),
+            token="",
             rejoined=stale is not None or name in room.gone,
         )
+        p.token = sign_token(room.code, p.id, name)
         room.gone.discard(name)
         room.participants[p.id] = p
         self.tokens[p.token] = (room.code, p.id)
@@ -232,10 +307,38 @@ class Rooms:
     def authenticate(self, code: str, token: str) -> tuple[Room, Participant] | None:
         self.sweep()
         found = self.tokens.get(token)
-        if found is None or found[0] != code or code not in self.rooms:
+        if found is not None:
+            if found[0] != code or code not in self.rooms:
+                return None
+            room = self.rooms[code]
+            return room, room.participants[found[1]]
+        return self.restore(code, token)
+
+    def restore(self, code: str, token: str) -> tuple[Room, Participant] | None:
+        """After a restart, someone connecting with a token the last process signed brings
+        the room back, or takes their place in a room already brought back (US-120). Never
+        for a room that is live here (its tokens are in the registry) or ended here, and only
+        within RESTORE_WINDOW_SECONDS of this process starting."""
+        claims = read_token(token)
+        if claims is None or claims.code != code or code in self.ended:
             return None
-        room = self.rooms[code]
-        return room, room.participants[found[1]]
+        if now_ms() - self.started > config.RESTORE_WINDOW_SECONDS * 1000:
+            return None
+        room = self.rooms.get(code)
+        if room is None:
+            room = Room(code=code, empty_since=now_ms(), joined=True, used=True)
+            room.restored = room.awaiting_restore = True
+            self.rooms[code] = room
+        pid = claims.participant_id
+        if not room.restored or pid in room.restored_ids or pid in room.participants:
+            return None
+        if len(room.participants) >= config.MAX_PARTICIPANTS:
+            return None
+        p = Participant(id=pid, name=claims.name, token=token)
+        room.restored_ids.add(p.id)
+        room.participants[p.id] = p
+        self.tokens[token] = (code, p.id)
+        return room, p
 
 
 rooms = Rooms()
