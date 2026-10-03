@@ -24,6 +24,7 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 - A friend's 10-second skip on Netflix now shows as one "skipped ahead" notice instead of paused and played.
 - Typing in chat no longer gets cut off when a streaming site's player grabs focus: the chat box takes focus back and the player's shortcuts stay out of your message.
 - Skipping no longer risks pulling the room back when the player has to load the new spot, and one skip is sent as one update.
+- Everyone's clocks line up faster and more precisely when a room starts and after a reconnect, so players stay closer together.
 
 ### Security
 - The chat panel runs in an extension frame, so the streaming page can't read what you type.

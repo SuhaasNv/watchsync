@@ -10,7 +10,17 @@ import {
   isRoomTicket,
   isServerMessage,
 } from "@watchsync/protocol";
-import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
+import {
+  CLOCK_MAX_AGE_MS,
+  CLOCK_WINDOW,
+  clockSample,
+  estimateOffset,
+  freshSamples,
+  nextPingDelay,
+  smoothOffset,
+  type TimedSample,
+  toWallOffset,
+} from "@watchsync/sync-engine";
 import { isTypedText, salvageHistory } from "../shared/chat";
 import {
   type AppState,
@@ -53,6 +63,7 @@ const state: AppState = {
   playback: null,
   following: true,
   clockOffset: 0,
+  clockUncertainty: null,
   lastRoom: null,
   notice: null,
   mediaMove: null,
@@ -65,8 +76,11 @@ const ENDED = "This room is no longer available. Ask your friend for a new code.
 const DAY = 24 * 3600 * 1000;
 let lastTicket: Session | null = null;
 let socket: WebSocket | null = null;
-let pingTimer: ReturnType<typeof setInterval> | undefined;
-const samples: ClockSample[] = [];
+let pingTimer: ReturnType<typeof setTimeout> | undefined;
+/** Ping round trips on the monotonic clock (performance.now), so a system clock change can't skew them. */
+let samples: TimedSample[] = [];
+/** False until a pong has set clockOffset, and again when its samples are too old to trust. */
+let clockKnown = false;
 const ports = new Set<chrome.runtime.Port>();
 // ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
 let presence: { service: Service; media: Media | null } = { service: "none", media: null };
@@ -305,18 +319,29 @@ function connect() {
     if (valid) onServer(valid);
   };
   ws.onopen = () => {
-    clearInterval(pingTimer);
-    // Pings keep the MV3 worker alive while in a room and feed the clock estimate.
-    const ping = () => sendServer(envelope("SYS.PING", { t1: Date.now() }));
+    clearTimeout(pingTimer);
+    // An estimate older than 2 minutes isn't trusted: the burst below replaces it.
+    samples = freshSamples(samples, performance.now(), CLOCK_MAX_AGE_MS);
+    if (samples.length === 0) {
+      clockKnown = false;
+      state.clockUncertainty = null;
+    }
+    // Pings keep the MV3 worker alive while in a room and feed the clock estimate: a quick
+    // burst on every (re)connect for a good first estimate, then one every 20 s.
+    let sent = 0;
+    const ping = () => {
+      sendServer(envelope("SYS.PING", { t1: performance.now() }));
+      sent += 1;
+      pingTimer = setTimeout(ping, nextPingDelay(sent));
+    };
     ping();
-    pingTimer = setInterval(ping, 20_000);
     sendPresence();
     chat.onSocketOpen(); // messages typed while reconnecting go out now
   };
   ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
-    clearInterval(pingTimer);
+    clearTimeout(pingTimer);
     chat.onSocketClosed(); // sends with no echo yet go again on the next connection
     if (e.code === 1008) {
       // The room ended or our token was revoked; retrying can't help.
@@ -394,9 +419,17 @@ function onServer(msg: AnyServerMessage) {
       break;
     }
     case "SYS.PONG": {
-      samples.push(clockSample(msg.payload.t1, msg.payload.serverTime, Date.now()));
-      if (samples.length > 10) samples.shift();
-      state.clockOffset = bestSample(samples)?.offset ?? 0;
+      const t4 = performance.now();
+      samples.push({ ...clockSample(msg.payload.t1, msg.payload.serverTime, t4), at: t4 });
+      if (samples.length > CLOCK_WINDOW) samples.shift();
+      const best = estimateOffset(samples);
+      if (best) {
+        // The samples are server time minus monotonic time; callers add the offset to Date.now().
+        const wall = toWallOffset(best.offset, Date.now(), t4);
+        state.clockOffset = smoothOffset(clockKnown ? state.clockOffset : null, wall);
+        state.clockUncertainty = best.rtt / 2;
+        clockKnown = true;
+      }
       break;
     }
   }
@@ -412,6 +445,7 @@ function onServer(msg: AnyServerMessage) {
 
 function reset() {
   retry.reset();
+  clearTimeout(pingTimer); // onclose below ignores this socket, so it can't stop the pings
   socket?.close(); // onclose ignores it: socket is no longer this one
   socket = null;
   seen.clear();
