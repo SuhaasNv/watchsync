@@ -138,8 +138,9 @@ test.describe("install guide", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto("/install/");
     await page.getByRole("tabpanel").getByRole("button", { name: "Copy" }).click();
+    // The address, then what to do with it: websites can't open the browser's own pages.
     await expect(page.getByRole("status").filter({ hasText: "Copied" })).toHaveText(
-      "Copied chrome://extensions",
+      /^Copied chrome:\/\/extensions\. Open a new tab \((⌘|Ctrl\+)T\), paste \((⌘|Ctrl\+)V\) and press Enter\.$/,
     );
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("chrome://extensions");
   });

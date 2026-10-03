@@ -1,6 +1,7 @@
 import { renderMarkdown } from "../lib/markdown";
 import { checksumFor, formatDate, type Release, versionLabel } from "../lib/releases";
-import { fetchReleases, GithubError } from "./github";
+import { CHANNEL } from "../lib/site";
+import { fetchDevBuild, fetchReleases, GithubError } from "./github";
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -20,19 +21,26 @@ function link(href: string, text: string, className: string): HTMLAnchorElement 
   return a;
 }
 
-function card(r: Release, latest: boolean): HTMLLIElement {
+function card(r: Release, latest: boolean, dev = false): HTMLLIElement {
   const li = el("li", "release");
   const meta = el("div", "release-meta");
   const name = el("h3", "release-name", r.name);
   const tag = el("p", "release-tag", [r.tag, formatDate(r.date)].filter(Boolean).join(" · "));
   const badges = el("p", "release-badges");
-  if (latest) badges.append(el("span", "badge latest", "Latest"));
-  if (r.prerelease) badges.append(el("span", "badge rc", "Release candidate"));
+  if (dev) badges.append(el("span", "badge rc", "Dev build"));
+  else {
+    if (latest) badges.append(el("span", "badge latest", "Latest"));
+    if (r.prerelease) badges.append(el("span", "badge rc", "Release candidate"));
+  }
 
   const links = el("p", "release-links");
   const zip = r.assets.find((a) => a.name.endsWith(".zip"));
   if (zip) {
-    const a = link(zip.url, `Download ${versionLabel(r.tag)}`, "btn primary");
+    const a = link(
+      zip.url,
+      dev ? "Download this dev build" : `Download ${versionLabel(r.tag)}`,
+      "btn primary",
+    );
     links.append(a);
   }
   links.append(link(r.url, "On GitHub", "btn ghost"));
@@ -70,10 +78,15 @@ export function initReleases() {
     root.setAttribute("aria-busy", String(state === "loading"));
   };
 
-  fetchReleases()
-    .then((releases) => {
-      if (!releases.length) return show("empty");
-      list.replaceChildren(...releases.map((r, i) => card(r, i === 0)));
+  // The dev site lists its rolling dev build among the published releases, newest first by date.
+  const devBuild = CHANNEL === "dev" ? fetchDevBuild().catch(() => null) : Promise.resolve(null);
+  Promise.all([fetchReleases(), devBuild])
+    .then(([releases, dev]) => {
+      if (!releases.length && !dev) return show("empty");
+      const items = releases.map((r, i) => ({ date: r.date, el: card(r, i === 0) }));
+      if (dev) items.push({ date: dev.date, el: card(dev, false, true) });
+      items.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+      list.replaceChildren(...items.map((item) => item.el));
       show("list");
       // The build-time changelog is only a fallback for when GitHub has nothing to show.
       const changelog = document.querySelector<HTMLElement>("[data-changelog]");

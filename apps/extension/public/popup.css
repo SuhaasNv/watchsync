@@ -78,10 +78,16 @@ body {
   background: var(--acc);
   color: var(--on-acc);
 }
+/* Chrome stops a popup at 600 px. The popup never scrolls as a whole: the header and footer
+   stay put and only the middle (.body) scrolls, with a thin bar, so it stays smooth. */
+html {
+  overflow: hidden;
+}
 #root {
   display: flex;
   flex-direction: column;
   min-height: 460px;
+  max-height: 600px;
 }
 :focus-visible {
   outline: 2px solid var(--focus);
@@ -107,6 +113,7 @@ p {
 /* Screens */
 .screen {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   animation: screen-in 200ms var(--ease);
@@ -131,6 +138,18 @@ p {
   gap: var(--s4);
   padding: var(--s4);
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+/* The invite row and the two buttons sit at the bottom when the room is short. */
+.bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
 }
 .grow {
   flex: 1;
@@ -673,9 +692,11 @@ p {
 }
 .foot p.foot-row {
   display: flex;
-  gap: var(--s3);
+  flex-wrap: wrap;
+  gap: 0 var(--s3);
 }
 .foot .version {
+  white-space: nowrap;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.04em;

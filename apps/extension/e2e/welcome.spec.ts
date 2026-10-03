@@ -49,21 +49,20 @@ test("opens on install; the mark animates, and holds still under reduced motion"
   }
 });
 
-test("not pinned: an arrow points up at Chrome's puzzle icon, top right", async () => {
+test("not pinned: a card at the top right shows the puzzle icon to click", async () => {
   const { context, page } = await welcome();
   try {
-    await page.emulateMedia({ reducedMotion: "reduce" }); // no bounce: the arrow holds still
+    await page.emulateMedia({ reducedMotion: "reduce" }); // the card doesn't rise in: measure it still
     for (const width of [1280, 375]) {
       await page.setViewportSize({ width, height: 800 });
-      const arrow = page.locator(".pointer-arrow");
-      await expect(arrow).toBeVisible();
+      const card = page.locator(".pointer-card");
+      await expect(card).toBeVisible();
       await expect(page.locator("#pin-text")).toHaveText("Not pinned yet");
-      const box = await arrow.boundingBox();
-      const fromRight = width - ((box?.x ?? 0) + (box?.width ?? 0) / 2);
-      expect(fromRight).toBeGreaterThanOrEqual(96);
-      expect(fromRight).toBeLessThanOrEqual(140);
-      expect(box?.y).toBe(0);
+      const box = await card.boundingBox();
+      expect(width - ((box?.x ?? 0) + (box?.width ?? 0))).toBeLessThanOrEqual(20); // right edge
+      expect(box?.y ?? 99).toBeLessThanOrEqual(16); // top
       await expect(page.locator("#pointer-text")).toContainText("puzzle icon");
+      await expect(page.locator("#pointer-text .pin-glyph")).toBeVisible();
     }
   } finally {
     await context.close();

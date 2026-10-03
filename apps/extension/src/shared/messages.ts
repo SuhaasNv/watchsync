@@ -28,6 +28,8 @@ export interface AppState {
   following: boolean;
   /** server clock minus local clock, ms */
   clockOffset: number;
+  /** Half the best ping round trip, ms: how far clockOffset can be off. Null until measured. */
+  clockUncertainty: number | null;
   /** A room we can go back to after the browser restarted (US-034). */
   lastRoom: string | null;
   /** How the room last changed title: straight on (next episode) or a newly picked one. */
@@ -159,6 +161,8 @@ export type TabEvent =
       position: number;
       rate: number;
       titleId: string | null;
+      /** Room-clock time (ms) at which position was read; left out until the clock is known. */
+      at?: number;
     }
   | { kind: "hold"; reason: "buffering" | "ad" | null; position: number; adLeft: number | null }
   | { kind: "start"; position: number; titleId: string | null }

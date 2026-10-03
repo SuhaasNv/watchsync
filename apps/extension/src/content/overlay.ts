@@ -92,6 +92,10 @@ root.innerHTML = `<style>
     box-shadow: 0 0 0 2px #151d21; }
   .face[data-mark="synced"]::after { content: "✓"; background: #5ed8c3; }
   .face[data-mark="wait"]::after { content: "…"; background: #ff9f4a; line-height: 9px; }
+  /* Dev builds only: the live gap to the room's clock. Fixed width so it never shifts the pill. */
+  .drift { box-sizing: border-box; min-width: 6.5em; padding: 0 6px; text-align: center;
+    white-space: nowrap; color: #8fa1a2; font: 11px/18px ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums; }
   .sep { width: 1px; height: 20px; background: rgba(214, 236, 240, 0.14); margin: 0 2px; }
   .pill button { height: 32px; border-radius: 999px; padding: 0 12px; font-size: 13px; }
   .pill button.bare { width: 32px; padding: 0; justify-content: center; background: transparent;
@@ -467,6 +471,39 @@ export function focusedControl(): HTMLElement | null {
   return root.activeElement instanceof HTMLElement ? root.activeElement : null;
 }
 
+/** Dev builds only: the tag and its text, made on first use so prod never builds them. */
+let driftTag: HTMLSpanElement | null = null;
+let driftText: Text | null = null;
+let driftShown = false;
+
+/**
+ * Dev builds only: shows your gap to the room's clock in ms ("+37 ms" ahead, "−12 ms" behind) in
+ * the pill; null hides it. Updates the text in place, so it is safe to call several times a second.
+ */
+export function showDrift(ms: number | null) {
+  if (__CHANNEL__ !== "dev") return;
+  driftShown = ms !== null;
+  if (ms === null) {
+    driftTag?.remove();
+    return;
+  }
+  if (!driftTag || !driftText) {
+    driftText = document.createTextNode("");
+    driftTag = document.createElement("span");
+    driftTag.className = "drift";
+    driftTag.title = "Your gap to the room's clock (dev build only)";
+    driftTag.setAttribute("aria-hidden", "true");
+    driftTag.append(driftText);
+  }
+  const rounded = Math.round(Math.abs(ms));
+  const text = Math.abs(ms) < 5 ? "±0 ms" : `${ms > 0 ? "+" : "\u2212"}${rounded} ms`;
+  if (driftText.data !== text) driftText.data = text;
+  // Not when folded; renderPill adds it back when the pill is unfolded.
+  if (!driftTag.isConnected && pill.isConnected && !collapsed) {
+    pill.insertBefore(driftTag, pill.lastElementChild);
+  }
+}
+
 /** Shows who's here and in sync; null hides it (not in a room). */
 export function renderPill(model: PillModel | null) {
   lastModel = model;
@@ -551,7 +588,9 @@ export function renderPill(model: PillModel | null) {
         ]
       : [];
   // Chat first after the faces: the one control people reach for most.
-  pill.replaceChildren(faces, sep, chat, toggle, ...syncAll, ...together, fold);
+  // Dev builds only: showDrift's tag survives the redraw (driftTag is never made in prod).
+  const drift = driftTag && driftShown ? [driftTag] : [];
+  pill.replaceChildren(faces, sep, chat, toggle, ...syncAll, ...together, ...drift, fold);
   if (chatFocused) chat.focus();
   wake();
 }

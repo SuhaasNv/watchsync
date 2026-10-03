@@ -1,7 +1,16 @@
 // Content script on supported service pages: reports what this tab has open and
 // keeps it on the room's title.
 import type { Media, Playback } from "@watchsync/protocol";
-import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
+import {
+  DEFAULT_SYNC,
+  DRIFT_TOLERANCE_SEC,
+  decide,
+  expectedPosition,
+  improved,
+  NUDGE_MAX_SEC,
+  toleranceAt,
+  WIDE_FOR_MS,
+} from "@watchsync/sync-engine";
 import {
   closedText,
   jumpedText,
@@ -21,6 +30,7 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { align } from "./align";
+import { baseRate, type NudgeView, nudgeAvailable, nudgeDriftMs, startNudging } from "./nudge";
 import {
   CHAT_OFF,
   chatButton,
@@ -32,16 +42,22 @@ import {
   renderPill,
   retireOverlay,
   setChatBadge,
+  showDrift,
   toast,
 } from "./overlay";
 import {
   apply,
+  cancelSettle,
   clock,
   coalesce,
+  correctQuietly,
   hold,
   isEcho,
+  isSettling,
   listen,
+  type RoomView,
   seekQuietly,
+  stopSettling,
   watchSeeking,
 } from "./playback";
 import { providerFor } from "./providers";
@@ -248,6 +264,7 @@ function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
     const { playback, action, byId, byName } = m.message.payload;
     lastActor = { id: byId, name: byName };
+    cancelSettle(); // the room moved: whatever the last seek was settling toward is stale
     if (!provider || !mine || playback.titleId !== mine.titleId) return;
     if (!room?.following) return; // watching on my own (US-027)
     if (isLive()) return; // live streams aren't synced in v0.1 (US-032)
@@ -260,7 +277,7 @@ function onPush(m: Push) {
     const prev = room.playback?.updatedAt === playback.updatedAt ? clockBefore : room.playback;
     const was =
       prev && prev.titleId === playback.titleId ? expectedPosition(prev, serverNow) : before;
-    apply(provider, playback, serverNow, action === "sync").catch((e: unknown) =>
+    apply(provider, playback, serverNow, action === "sync", roomView).catch((e: unknown) =>
       toast(e instanceof Error ? e.message : "We couldn't control the player here.", 6000, {
         icon: "alert",
         tone: "bad",
@@ -347,12 +364,15 @@ function onPush(m: Push) {
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
-  if (m.state.playback?.updatedAt !== room?.playback?.updatedAt)
+  if (m.state.playback?.updatedAt !== room?.playback?.updatedAt) {
     clockBefore = room?.playback ?? null;
+    cancelSettle();
+  }
   room = m.state;
   if (!room.session) {
     // Left or ended: a move still waiting to be sent, or a notice still waiting to show,
     // belongs to a room that is gone.
+    cancelSettle();
     userMoves.cancel();
     forgetNotices();
   }
@@ -405,6 +425,31 @@ let drift = 0;
 /** "Stay here": the drift and room clock the person chose to keep, so we don't nag. */
 let stayed: { drift: number; updatedAt: number } | null = null;
 let nextCorrection = 0;
+/** Until when the wider tolerance applies: a player that a correction didn't bring closer. */
+let widenedUntil = 0;
+/** The last correction's drift (absolute, seconds), to see whether it helped at the next check. */
+let lastCorrection: { drift: number; updatedAt: number; at: number } | null = null;
+/** A correction is judged at the next check only if that comes this soon after it, ms. */
+const JUDGE_WITHIN_MS = 10_000;
+
+/** What the post-seek settle reads from, and reports to, this tab. */
+const roomView: RoomView = {
+  clock: () => {
+    const playback = room?.playback;
+    if (!room?.session || !room.following || !mine || !playback) return null;
+    if (playback.titleId !== mine.titleId) return null;
+    return { playback, offset: room.clockOffset };
+  },
+  busy: () => holdReason !== null || startPhase !== null || isLive(),
+  corrected: (drift) => {
+    // Judged like the check's own corrections, and the check waits its turn.
+    lastCorrection = { drift, updatedAt: room?.playback?.updatedAt ?? 0, at: Date.now() };
+    nextCorrection = Math.max(nextCorrection, Date.now() + 3000);
+  },
+  stuck: () => {
+    widenedUntil = Date.now() + WIDE_FOR_MS;
+  },
+};
 /** Since when this player has been playing while the room is paused, or the reverse. */
 let playStateSince = 0;
 
@@ -446,7 +491,7 @@ function publishMine() {
     action: "seek",
     status,
     position: st.position,
-    rate: st.rate,
+    rate: baseRateOf(st.rate),
     titleId: mine.titleId,
   });
 }
@@ -529,7 +574,7 @@ function syncEveryone() {
     action: "sync",
     status: st.playing ? "playing" : "paused",
     position: st.position,
-    rate: st.rate,
+    rate: baseRateOf(st.rate),
     titleId: mine.titleId,
   });
   toast("Everyone is here with you", 2500, { icon: "sync", tone: "ok" });
@@ -548,7 +593,7 @@ function pauseTogether() {
     action: "pause",
     status: "paused",
     position: st.position,
-    rate: st.rate,
+    rate: baseRateOf(st.rate),
     titleId: mine.titleId,
   });
   // The pause event this causes isn't a second action: held back 120 ms like a person's
@@ -611,6 +656,7 @@ function checkDrift() {
   const local = provider.getState();
   const v = provider.video();
   if (!local || !v || v.seeking || isEcho() || Date.now() < nextCorrection) return;
+  if (isSettling()) return; // a seek is landing: the settle measures it, not this check
   if (holdReason || startPhase || isLive()) return; // not drift: waits, countdowns, live
   if (local.playing !== (playback.status === "playing")) {
     // A press right after the room moved this player is taken as our own echo and never
@@ -625,13 +671,31 @@ function checkDrift() {
   playStateSince = 0;
   // A speed tool running this player at another speed than the room (past 4x, BUG-034):
   // positions can't line up, and jumping it back would swallow the person's next press.
-  if (Math.abs(local.rate - playback.rate) > 0.01) return showBehind(null);
-  const expected = expectedPosition(playback, Date.now() + room.clockOffset);
-  const action = decide(local.position, expected, DEFAULT_SYNC);
+  if (Math.abs(baseRate(v) - playback.rate) > 0.01) return showBehind(null);
+  const now = Date.now();
+  const expected = expectedPosition(playback, now + room.clockOffset);
+  const gap = Math.abs(local.position - expected);
+  // A correction that left the player no closer means it can't land any closer (a coarse
+  // player): widen the tolerance for a while instead of jumping it again and again.
+  if (lastCorrection && now - lastCorrection.at <= JUDGE_WITHIN_MS) {
+    if (lastCorrection.updatedAt === playback.updatedAt && !improved(lastCorrection.drift, gap))
+      widenedUntil = now + WIDE_FOR_MS;
+  }
+  lastCorrection = null;
+  // Small drift is the nudge's: it speeds or slows the player a little, which lands exactly
+  // where a seek is a gamble. Only the bigger gaps below are seeked or asked about.
+  if (nudgeAvailable() && gap <= NUDGE_MAX_SEC) return showBehind(null);
+  const tolerance = toleranceAt(
+    widenedUntil,
+    now,
+    provider.driftToleranceSec ?? DRIFT_TOLERANCE_SEC,
+  );
+  const action = decide(local.position, expected, { ...DEFAULT_SYNC, toleranceSec: tolerance });
   if (action === "none") return showBehind(null);
   if (action === "seek") {
-    nextCorrection = Date.now() + 3000; // let the player settle before judging again
-    seekQuietly(provider, expected).catch(() => {});
+    nextCorrection = now + 3000; // let the player settle before judging again
+    lastCorrection = { drift: gap, updatedAt: playback.updatedAt, at: now };
+    correctQuietly(provider, playback, now + room.clockOffset).catch(() => {});
     return showBehind(null);
   }
   drift = local.position - expected;
@@ -879,7 +943,7 @@ function catchUp(tries = 5) {
     if (tries > 0) setTimeout(() => catchUp(tries - 1), 1000);
     return;
   }
-  apply(provider, playback, Date.now() + (room?.clockOffset ?? 0)).catch(() => {});
+  apply(provider, playback, Date.now() + (room?.clockOffset ?? 0), false, roomView).catch(() => {});
 }
 
 function connect() {
@@ -918,17 +982,64 @@ function wake() {
  * three that its "crossed" echo could undo, and holding an arrow key stays under the rate limit.
  * (The pill's buttons post directly and don't come through here.)
  */
+/** Bumped by each move sent, so one still waiting for its player gives way to a newer one. */
+let sendSeq = 0;
+/** True while a move waits for this player to load the spot it jumped to. */
+let sendWaiting = false;
+
 const userMoves = coalesce((move) => {
   if (holdReason || !room?.session || !room.following || !mine) return;
-  post({
-    kind: "playback",
-    action: move.action,
-    status: move.playing ? "playing" : "paused",
-    position: move.position,
-    rate: move.rate,
-    titleId: mine.titleId,
-  });
+  const seq = ++sendSeq;
+  const titleId = mine.titleId;
+  // The room stamps this message when it arrives and runs its clock from there. A jump to a spot
+  // that isn't loaded stalls this player while friends' players run on, so a playing move waits
+  // (up to 3 s) until this player plays there, then sends where it is at that moment.
+  const send = (tries: number) => {
+    if (seq !== sendSeq) return;
+    const v = provider?.video();
+    const st = provider?.getState();
+    const live = Boolean(move.playing && st?.playing && v && !v.seeking && v.readyState >= 3);
+    if (move.playing && !live && tries > 0) {
+      sendWaiting = true;
+      setTimeout(() => send(tries - 1), 50);
+      return;
+    }
+    sendWaiting = false;
+    if (holdReason || !room?.session || !room.following || mine?.titleId !== titleId) return;
+    post({
+      kind: "playback",
+      action: move.action,
+      status: move.playing ? "playing" : "paused",
+      position: live && st ? Math.min(86_400, Math.max(0, st.position)) : move.position,
+      rate: move.rate,
+      titleId,
+      // When the position was read, on the room's clock, so the room starts its clock there.
+      ...(live && room.clockUncertainty !== null ? { at: Date.now() + room.clockOffset } : {}),
+    });
+  };
+  send(60);
 });
+
+/** The rate to tell the room: this player's own, never one the nudge is holding it at. */
+function baseRateOf(rate: number): number {
+  const v = provider?.video();
+  return v ? baseRate(v) : rate;
+}
+
+/**
+ * What the nudge reads from this tab: the check's own reasons to stand aside. Not the echo
+ * window: the nudge only reads the position, and a landed seek is closed sooner without it.
+ */
+const nudgeView: NudgeView = {
+  clock: roomView.clock,
+  busy: () =>
+    holdReason !== null ||
+    startPhase !== null ||
+    isLive() ||
+    isSettling() ||
+    userMoves.pending() ||
+    sendWaiting,
+};
 
 const timers: ReturnType<typeof setInterval>[] = [];
 /** Player listeners added once for the provider's video, removed in retire(). */
@@ -937,7 +1048,9 @@ const stops: (() => void)[] = [];
 function retire() {
   for (const t of timers) clearInterval(t);
   for (const stop of stops) stop();
+  stopSettling();
   userMoves.cancel();
+  sendSeq += 1; // a move still waiting for its player is dropped
   forgetNotices();
   document.removeEventListener("visibilitychange", wake);
   window.removeEventListener("focus", wake);
@@ -999,17 +1112,21 @@ if (provider) {
   );
   stops.push(
     listen(provider, (action, playing, position, rate) => {
+      cancelSettle(); // the person acted: the room is about to follow them, not the other way
       if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions
       if (room?.session && room.following && mine)
         userMoves.push({ action, playing, position, rate });
     }),
   );
+  stops.push(startNudging(provider, nudgeView));
+  // Dev builds only: the live gap to the room's clock in the pill, for testing on real services.
+  if (__CHANNEL__ === "dev") timers.push(setInterval(() => showDrift(nudgeDriftMs()), 250));
   timers.push(
     setInterval(poll, 1000),
     // Not while a move of mine is still waiting to be sent: the room's clock is the old one
     // until it goes, and drift correction would undo the skip.
     setInterval(() => {
-      if (!userMoves.pending()) checkDrift();
+      if (!userMoves.pending() && !sendWaiting) checkDrift();
     }, 1000),
     setInterval(() => {
       checkHold();

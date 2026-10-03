@@ -148,3 +148,95 @@ test("a Netflix-style skip (pause, jump, play) shows one jump notice, not pause 
     await friend.context.close();
   }
 });
+
+/** Both players' positions at the same moment, so the gap isn't a measuring delay. */
+const gapBetween = async (a: Page, b: Page) => {
+  const [x, y] = await Promise.all([position(a), position(b)]);
+  return Math.abs(x - y);
+};
+const seekCount = (p: Page) =>
+  p.evaluate(() => Number((window as { __seeks?: number }).__seeks ?? 0));
+
+/** Host and friend playing in step on ep1, the friend's player built from `friendQuery`. */
+async function playingTogether(ext: Parameters<typeof room>[0], friendQuery: string) {
+  const r = await room(ext);
+  const tab = await r.friend.context.newPage();
+  await tab.goto(`${MOCK}/watch/ep1${friendQuery}`);
+  await expect.poll(() => playing(tab)).toBe(true);
+  await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
+  await expect.poll(() => gapBetween(tab, r.hostTab), { timeout: 8000 }).toBeLessThan(1.5);
+  return { ...r, tab };
+}
+
+test("a skip lands the friend on the room's clock even when their seek is slow", async ({
+  ext,
+}) => {
+  // The friend's player takes 400 ms to land every seek, like a streaming player buffering.
+  const { hostTab, friend, tab } = await playingTogether(ext, "?slow=400");
+  try {
+    await tab.waitForTimeout(2500); // the arrival's own settling is over
+    for (const skip of [30, -25]) {
+      const to = (await position(hostTab)) + skip;
+      await jump(hostTab, to);
+      await hostTab.waitForTimeout(4000);
+      expect(await gapBetween(tab, hostTab), `after a ${skip} s skip`).toBeLessThan(0.15);
+      expect(await playing(hostTab)).toBe(true);
+      expect(await playing(tab)).toBe(true);
+    }
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("a jump to a spot that still has to load starts the room's clock when it plays there", async ({
+  ext,
+}) => {
+  // The friend's player says "seeked" at once, then buffers for 1 s before playing on.
+  const { hostTab, friend, tab } = await playingTogether(ext, "?stall=1000");
+  try {
+    await tab.waitForTimeout(2500); // the arrival's own settling is over
+    const to = (await position(tab)) + 30;
+    await tab.evaluate((t) => {
+      const v = document.querySelector("video");
+      if (!v) return;
+      const w = window as { __stall?: () => void; __jumps?: number };
+      w.__jumps = 0;
+      v.addEventListener("seeking", () => {
+        w.__jumps = (w.__jumps ?? 0) + 1;
+      });
+      v.addEventListener("seeked", () => setTimeout(() => w.__stall?.(), 0), { once: true });
+      v.currentTime = t;
+    }, to);
+    // Seeked close, then nudged the rest of the way: within 50 ms.
+    await expect.poll(() => gapBetween(tab, hostTab), { timeout: 10_000 }).toBeLessThan(0.05);
+    // The room ran its clock from when this player played there, so it was never pulled again.
+    expect(await tab.evaluate(() => (window as { __jumps?: number }).__jumps)).toBe(1);
+    expect(await playing(tab)).toBe(true);
+    expect(await playing(hostTab)).toBe(true);
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("a player that can only land on whole segments is corrected at most twice, then left alone", async ({
+  ext,
+}) => {
+  // The friend's player lands every seek on a 2 s boundary: it can't be closer than 1 s.
+  const { hostTab, friend, tab } = await playingTogether(ext, "?coarse=2000");
+  try {
+    await tab.waitForTimeout(6000); // the arrival's own settling is over
+    const before = await seekCount(tab);
+    await jump(hostTab, (await position(hostTab)) + 30);
+    await hostTab.waitForTimeout(5000);
+    const settled = await seekCount(tab);
+    await hostTab.waitForTimeout(5000);
+    expect(await seekCount(tab)).toBe(settled); // no seeking back and forth afterwards
+    // The skip itself plus at most two corrections.
+    expect(settled - before).toBeGreaterThanOrEqual(1);
+    expect(settled - before).toBeLessThanOrEqual(3);
+    expect(await gapBetween(tab, hostTab)).toBeLessThanOrEqual(2);
+    expect(await playing(tab)).toBe(true);
+  } finally {
+    await friend.context.close();
+  }
+});
