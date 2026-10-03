@@ -33,8 +33,8 @@ Nobody gets left behind
 When someone's video stops for an ad or a slow connection, the room waits for them and says why ("Maya is on an ad, about 0:20 left"), then everyone starts again together.
 
 Also
-- Start together with a ready check and a 3-2-1 countdown.
-- Small drift is corrected quietly; a big gap offers a Sync button.
+- Start with 3-2-1: a ready check, then a countdown. Pause everyone with one press.
+- Small drift is corrected quietly; a big gap offers Catch up or Bring everyone here.
 - Watch on your own at any time without leaving the room.
 - Reconnects by itself after a network drop.
 - Chat with your room beside the player, and send reactions. Alt+Shift+W (Control+Shift+W on a Mac) opens and closes the chat; you can change it at chrome://extensions/shortcuts.
