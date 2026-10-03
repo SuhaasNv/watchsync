@@ -105,3 +105,85 @@ describe("boundary values (edge-case sweep, UC-008)", () => {
     expect(isClientMessage([])).toBe(false);
   });
 });
+
+describe("chat messages (UC-014)", () => {
+  const chat = (payload: Record<string, unknown>) => ({
+    id: "1",
+    type: "CHAT.SEND",
+    timestamp: 1,
+    payload: { text: "hi", movieTime: 2530, titleId: "80057281", ...payload },
+  });
+  const relayed = (payload: Record<string, unknown> = {}) => ({
+    id: "a1b2c3d4e5f60708",
+    fromId: "p1",
+    name: "Maya",
+    text: "hi",
+    movieTime: 2530,
+    titleId: "80057281",
+    serverTime: 1,
+    ...payload,
+  });
+  const server = (type: string, payload: unknown) => ({ id: "1", type, timestamp: 1, payload });
+
+  it("accepts a chat message with or without a movie time", () => {
+    const m = envelope<ClientMessageOf<"CHAT.SEND">>("CHAT.SEND", {
+      text: "hi",
+      movieTime: 2530.4,
+      titleId: "80057281",
+    });
+    expect(isClientMessage(m)).toBe(true);
+    expect(isClientMessage(chat({ movieTime: null, titleId: null }))).toBe(true);
+    // Script-like text is only data: it is accepted and later rendered as text.
+    expect(isClientMessage(chat({ text: "<img src=x onerror=alert(1)> https://x.y" }))).toBe(true);
+  });
+
+  it("counts length in code points, so 500 emoji fit and 501 don't", () => {
+    // Each emoji is two UTF-16 units; a UTF-16 count would refuse 500 of them.
+    expect(isClientMessage(chat({ text: "😀".repeat(500) }))).toBe(true);
+    expect(isClientMessage(chat({ text: "😀".repeat(501) }))).toBe(false);
+    expect(isClientMessage(chat({ text: "x".repeat(500) }))).toBe(true);
+    expect(isClientMessage(chat({ text: "x".repeat(501) }))).toBe(false);
+    expect(isClientMessage(chat({ text: "" }))).toBe(false);
+  });
+
+  it("refuses control characters, newlines included", () => {
+    for (const c of ["\u0000", "\n", "\r", "\t", "\u001b", "\u007f", "\u0085", "\u009f"])
+      expect(isClientMessage(chat({ text: `a${c}b` })), JSON.stringify(c)).toBe(false);
+    expect(isClientMessage(chat({ text: "a b" }))).toBe(true); // a no-break space is text
+  });
+
+  it("refuses wrong types, missing and extra fields", () => {
+    expect(isClientMessage(chat({ text: 5 }))).toBe(false);
+    expect(isClientMessage(chat({ movieTime: "42:10" }))).toBe(false);
+    expect(isClientMessage(chat({ movieTime: -1 }))).toBe(false);
+    expect(isClientMessage(chat({ titleId: 7 }))).toBe(false);
+    expect(isClientMessage(chat({ extra: true }))).toBe(false);
+    const { titleId: _, ...missing } = chat({}).payload;
+    expect(isClientMessage({ ...chat({}), payload: missing })).toBe(false);
+  });
+
+  it("accepts the server's chat messages and refuses malformed ones", () => {
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed()))).toBe(true);
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ movieTime: null })))).toBe(true);
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ text: "" })))).toBe(false);
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ name: "x".repeat(31) })))).toBe(false);
+    const { serverTime: _, ...noTime } = relayed();
+    expect(isServerMessage(server("CHAT.MESSAGE", noTime))).toBe(false);
+    expect(isServerMessage(server("CHAT.HISTORY", { messages: [] }))).toBe(true);
+    const full = Array.from({ length: 200 }, () => relayed());
+    expect(isServerMessage(server("CHAT.HISTORY", { messages: full }))).toBe(true);
+    const over = [...full, relayed()];
+    expect(isServerMessage(server("CHAT.HISTORY", { messages: over }))).toBe(false);
+    for (const reason of ["too_long", "rate_limited", "invalid"])
+      expect(isServerMessage(server("CHAT.REJECTED", { reason, text: "hi" }))).toBe(true);
+    expect(isServerMessage(server("CHAT.REJECTED", { reason: "nope", text: "hi" }))).toBe(false);
+    // A chat message is never a client message, and a client's send never a server one.
+    expect(isClientMessage(server("CHAT.MESSAGE", relayed()))).toBe(false);
+    expect(isServerMessage(chat({}))).toBe(false);
+  });
+
+  it("refuses server types it doesn't know, as the shipped extension does with chat", () => {
+    const show = { fromId: "p1", name: "Maya", emoji: "🔥", count: 1 };
+    expect(isServerMessage(server("REACTION.SHOW", show))).toBe(false);
+  });
+});
