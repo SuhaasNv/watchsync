@@ -21,3 +21,11 @@ export const rejoinedText = (name: string) => `${name} rejoined`;
 export const closedText = (name: string) => `${name} closed the show`;
 export const movedText = (name: string, how: "next" | "new", title: string) =>
   how === "next" ? `${name} moved on to ${title}` : `${name} opened ${title}`;
+
+/**
+ * Room notices on the page on or off (US-114): a setting in chrome.storage.local, on unless
+ * turned off in chat. Only the notices above; waiting, reconnecting, Sync and follow prompts
+ * always show, and the chat feed always records.
+ */
+export const NOTICES_KEY = "roomNotices";
+export const noticesOn = (stored: unknown): boolean => stored !== false;

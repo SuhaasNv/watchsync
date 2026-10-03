@@ -7,6 +7,8 @@ import {
   jumpedText,
   leftText,
   movedText,
+  NOTICES_KEY,
+  noticesOn,
   playedText,
   rejoinedText,
 } from "../shared/activity";
@@ -61,6 +63,25 @@ let roomMedia: Media | null = null;
 let dismissed: string | null = null;
 /** Who last moved the room's clock, so drift can say whose position it is. */
 let lastActor: { id: string; name: string } | null = null;
+
+/** Room notices on the page (US-114); prompts that need an answer ignore this. */
+let roomNotices = true;
+chrome.storage.local
+  .get(NOTICES_KEY)
+  .then((got) => {
+    roomNotices = noticesOn(got[NOTICES_KEY]);
+  })
+  .catch(() => {});
+function onSetting(changes: Record<string, chrome.storage.StorageChange>, area: string) {
+  const change = changes[NOTICES_KEY];
+  if (area === "local" && change) roomNotices = noticesOn(change.newValue);
+}
+chrome.storage.onChanged.addListener(onSetting);
+
+/** A room notice: play, pause, jumps, people coming and going, title moves. */
+function roomNotice(...args: Parameters<typeof toast>) {
+  if (roomNotices) toast(...args);
+}
 
 function post(event: TabEvent) {
   port?.postMessage(event);
@@ -134,7 +155,7 @@ function reconcile(roomBefore: Media | null) {
   }
   if (step.kind === "follow") {
     const who = whoIsOn(media);
-    toast(`Moving to ${title} with ${who}`, 4000, { who: friendOn(media), icon: "title" });
+    roomNotice(`Moving to ${title} with ${who}`, 4000, { who: friendOn(media), icon: "title" });
     // The page load wipes that notice before anyone can read it: the next page says it.
     const arrival: Arrival = { titleId: media.titleId, title, who, at: Date.now() };
     chrome.storage.local
@@ -183,7 +204,7 @@ function sayArrival() {
       void chrome.storage.local.remove("arrival");
       if (!isArrival(arrival) || arrival.titleId !== mine?.titleId) return;
       if (Date.now() - arrival.at > 15_000) return; // a load that never finished: stale
-      toast(`Moved to ${arrival.title} with ${arrival.who}`, 5000, {
+      roomNotice(`Moved to ${arrival.title} with ${arrival.who}`, 5000, {
         who: arrival.who,
         icon: "title",
       });
@@ -212,11 +233,11 @@ function onPush(m: Push) {
     if (action === "play" && waitShownAt) return; // drawWait says "Back together"
     if (byId === room.session?.participantId) return; // never a notice about myself (BUG-022)
     if (action !== "seek")
-      return toast(playedText(byName, action), 3000, { who: byName, icon: action });
+      return roomNotice(playedText(byName, action), 3000, { who: byName, icon: action });
     const to = expectedPosition(playback, serverNow);
     if (Math.abs(to - before) < 1) return; // already there; nothing visibly moved
     const ahead = to > before;
-    toast(jumpedText(byName, ahead, to), 4000, {
+    roomNotice(jumpedText(byName, ahead, to), 4000, {
       who: byName,
       icon: ahead ? "ahead" : "back",
     });
@@ -234,7 +255,7 @@ function onPush(m: Push) {
     else if (room?.session && !room.following && mine) {
       // Watching on my own: the room's move doesn't take me along, but I should know.
       const title = nameOf(media) ?? "a title";
-      toast(movedText(byName, how, title), 6000, {
+      roomNotice(movedText(byName, how, title), 6000, {
         who: byName,
         icon: "title",
         detail: "You're watching on your own, so you stay here.",
@@ -245,9 +266,9 @@ function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
     const { participant, event } = m.message.payload;
     if (event === "left")
-      toast(leftText(participant.name), 4000, { who: participant.name, icon: "leave" });
+      roomNotice(leftText(participant.name), 4000, { who: participant.name, icon: "leave" });
     if (event === "rejoined")
-      toast(rejoinedText(participant.name), 4000, { who: participant.name, icon: "rejoin" });
+      roomNotice(rejoinedText(participant.name), 4000, { who: participant.name, icon: "rejoin" });
     return;
   }
   if (m.kind === "report") {
@@ -303,7 +324,7 @@ function noticeClosedShows(before: AppState | null, after: AppState) {
   for (const p of after.participants) {
     const was = before.participants.find((x) => x.id === p.id);
     if (p.id !== me && p.connected && was?.titleId === roomTitle && p.titleId === null)
-      toast(closedText(p.name), 4000, { who: p.name, icon: "leave" });
+      roomNotice(closedText(p.name), 4000, { who: p.name, icon: "leave" });
   }
 }
 
@@ -822,6 +843,7 @@ function retire() {
   for (const t of timers) clearInterval(t);
   document.removeEventListener("visibilitychange", wake);
   window.removeEventListener("focus", wake);
+  chrome.storage.onChanged.removeListener(onSetting);
   retireOverlay();
   retireSidebar();
 }
