@@ -97,7 +97,7 @@ test("Stay here keeps my position and stops asking", async ({ ext }) => {
   }
 });
 
-test("watching on my own stops following until Rejoin the room", async ({ ext }) => {
+test("watching on my own stops following until Watch with the room", async ({ ext }) => {
   const { host, hostTab, friend } = await room(ext);
   try {
     const tab = await friend.context.newPage();
@@ -121,7 +121,7 @@ test("watching on my own stops following until Rejoin the room", async ({ ext })
     await tab.waitForTimeout(1500);
     expect(Math.abs((await position(hostTab)) - hostAt)).toBeLessThan(0.5);
 
-    await tab.getByRole("button", { name: "Rejoin the room" }).click();
+    await tab.getByRole("button", { name: "Watch with the room" }).click();
     await expect.poll(() => playing(tab)).toBe(false);
     await expect.poll(() => gap(tab, hostTab)).toBeLessThan(1);
     await expect(host.getByText(/On their own/)).toHaveCount(0);

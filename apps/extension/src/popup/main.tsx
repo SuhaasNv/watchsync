@@ -604,7 +604,7 @@ function RoomScreen({ state }: { state: AppState }) {
             onClick={() => send({ kind: "follow", following: !state.following })}
           >
             <Icon name="sync" />
-            {state.following ? "Watch on my own" : "Sync with the room"}
+            {state.following ? "Watch on my own" : "Watch with the room"}
           </button>
           <button className="btn danger" type="button" onClick={() => send({ kind: "leave" })}>
             <Icon name="leave" />

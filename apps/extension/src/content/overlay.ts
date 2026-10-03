@@ -520,7 +520,7 @@ export function renderPill(model: PillModel | null) {
     ? button("Watch on my own", model.onOwn, {
         hint: "Play, pause and jump just for you. The room carries on.",
       })
-    : button("Rejoin the room", model.onSync, {
+    : button("Watch with the room", model.onSync, {
         primary: true,
         icon: "sync",
         hint: "Follow the room again, from where it is now.",

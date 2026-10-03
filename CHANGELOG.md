@@ -17,7 +17,7 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 - Chrome extension updates wait until you leave the room, so an auto-update never drops you mid-film.
 
 ### Changed
-- The pill's buttons have clearer names: Start with 3-2-1, Pause everyone, Bring everyone here and Rejoin the room. Bring everyone here appears only when your player is out of step with the room.
+- The pill's buttons have clearer names: Start with 3-2-1, Pause everyone, Bring everyone here and Watch with the room. Bring everyone here appears only when your player is out of step with the room.
 
 ### Fixed
 - A friend's 10-second skip on Netflix now shows as one "skipped ahead" notice instead of paused and played.
