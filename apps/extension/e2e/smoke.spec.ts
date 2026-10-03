@@ -4,7 +4,7 @@ test("first run asks for a name, then creates a room", async ({ ext }) => {
   const page = await ext.context.newPage();
   await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
   await expect(page.getByRole("heading", { name: "Watch together, in sync" })).toBeVisible();
-  await expect(page.getByText("v0.1.1")).toBeVisible(); // US-038
+  await expect(page.getByText("v0.2.0")).toBeVisible(); // US-038
 
   const cont = page.getByRole("button", { name: "Continue" });
   await expect(cont).toBeDisabled();
