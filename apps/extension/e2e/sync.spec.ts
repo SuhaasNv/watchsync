@@ -229,8 +229,8 @@ test("closing the show tells the others, and nobody is offered a title no one wa
     await fpopPage.goto(`chrome-extension://${friend.extensionId}/popup.html`);
     await expect(fpopPage.getByRole("heading", { name: "In this room (2)" })).toBeVisible();
     await fpopPage.waitForTimeout(4000); // the closed tab reports "nothing open" after 3 s
-    await expect(fpopPage.getByRole("button", { name: /^Open / })).toHaveCount(0);
-    await expect(host.getByRole("button", { name: /^Open / })).toHaveCount(0);
+    await expect(fpopPage.getByRole("button", { name: /^Open (?!chat)/ })).toHaveCount(0);
+    await expect(host.getByRole("button", { name: /^Open (?!chat)/ })).toHaveCount(0);
   } finally {
     await friend.context.close();
   }
