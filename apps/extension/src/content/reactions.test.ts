@@ -1,5 +1,6 @@
-// The float layer (US-045, US-046): five nodes reused, reduced motion stays still, a hidden
-// tab shows nothing, and incoming reactions are said once, merged.
+// The float layer (US-045, US-046): a burst floats as separate emojis, five nodes reused,
+// reduced motion stays still, a hidden tab shows nothing, and incoming reactions are said once,
+// merged.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 type Layer = typeof import("./reactions");
@@ -79,16 +80,157 @@ test("a node is released when its float finishes", async () => {
   expect(visible()).toHaveLength(0);
 });
 
-test("shows the sender's name and the count, and floats up", () => {
-  r.showReaction({ fromId: "a", name: "Asha", emoji: "😂", count: 3, mine: false });
-  expect(visible()[0]?.textContent).toBe("😂×3Asha");
-  expect(JSON.stringify(started[0]?.frames)).toContain("-240px");
+/** A small seeded random, so a run of variations is repeatable. */
+function seeded(seed: number) {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const burst = (count: number, fromId = "a", name = "Asha") =>
+  r.showReaction({ fromId, name, emoji: "😂", count, mine: false });
+
+test("variation stays inside its ranges, for a seeded random and at both extremes", () => {
+  const draws = [seeded(7), () => 0, () => 0.999999];
+  for (const random of draws) {
+    for (let i = 0; i < 200; i++) {
+      const v = r.variation(random);
+      expect(v.size).toBeGreaterThanOrEqual(26);
+      expect(v.size).toBeLessThanOrEqual(34);
+      expect(v.left).toBeGreaterThanOrEqual(28);
+      expect(v.left + v.size).toBeLessThanOrEqual(200 - 28);
+      expect(v.rise).toBeGreaterThanOrEqual(200);
+      expect(v.rise).toBeLessThanOrEqual(320);
+      expect(v.duration).toBeGreaterThanOrEqual(2400);
+      expect(v.duration).toBeLessThanOrEqual(4200);
+      expect(v.delay).toBeGreaterThanOrEqual(70);
+      expect(v.delay).toBeLessThanOrEqual(140);
+      expect([3, 4]).toContain(v.sway.length);
+      for (const x of v.sway) {
+        expect(Math.abs(x)).toBeGreaterThanOrEqual(12);
+        expect(Math.abs(x)).toBeLessThanOrEqual(28);
+      }
+    }
+  }
+  // The same seed gives the same look; different draws differ.
+  expect(r.variation(seeded(3))).toEqual(r.variation(seeded(3)));
+  expect(r.variation(seeded(3))).not.toEqual(r.variation(seeded(4)));
 });
 
-test("reduced motion: a still fade in place", () => {
+test("a burst floats as that many separate emojis, staggered, with no count badge", () => {
+  burst(3);
+  expect(visible()).toHaveLength(1); // the first is straight away
+  vi.advanceTimersByTime(300); // two gaps of at most 140 ms
+  expect(visible()).toHaveLength(3);
+  expect(started).toHaveLength(3);
+  expect(visible().map((n) => n.firstElementChild?.textContent)).toEqual(["😂", "😂", "😂"]);
+  expect(visible().some((n) => n.textContent?.includes("×"))).toBe(false);
+  // Each has its own look.
+  const lefts = visible().map((n) => n.style.left);
+  expect(new Set(lefts).size).toBeGreaterThan(1);
+});
+
+test("the burst's spawns are 70 to 140 ms apart, never all at once", () => {
+  burst(5);
+  vi.advanceTimersByTime(60);
+  expect(visible()).toHaveLength(1); // the next one is at least 70 ms away
+  vi.advanceTimersByTime(80);
+  expect(visible()).toHaveLength(2); // and within 140 ms
+  vi.advanceTimersByTime(600);
+  expect(visible()).toHaveLength(5);
+});
+
+test("only the first emoji of a burst carries the sender's name", () => {
+  burst(4);
+  vi.advanceTimersByTime(600);
+  const nodes = visible();
+  expect(nodes).toHaveLength(4);
+  expect(nodes[0]?.querySelector(".n")?.textContent).toBe("Asha");
+  expect(shadow?.querySelectorAll(".n")).toHaveLength(1);
+  for (const n of nodes.slice(1)) expect(n.querySelector(".n")).toBeNull();
+});
+
+test("never more than five on screen: a burst is capped, later bursts replace the oldest", () => {
+  burst(9); // more than the protocol allows
+  vi.advanceTimersByTime(1000);
+  expect(visible()).toHaveLength(5);
+  burst(5, "b", "Ben");
+  vi.advanceTimersByTime(1000);
+  expect(shadow?.querySelectorAll(".r")).toHaveLength(5);
+  expect(visible()).toHaveLength(5);
+  expect(started).toHaveLength(10);
+  expect(started.filter((a) => a.cancelled)).toHaveLength(5);
+});
+
+test("a bad count floats one emoji", () => {
+  burst(0);
+  burst(Number.NaN, "b");
+  vi.advanceTimersByTime(1000);
+  expect(visible()).toHaveLength(2);
+});
+
+test("a floating emoji sways and rises on its own path", () => {
+  burst(1);
+  const frames = JSON.stringify(started[0]?.frames);
+  expect(frames).toContain("scale(0.8)");
+  expect(frames).toContain("scale(1.15)");
+  expect(frames).not.toContain("will-change");
+  const shifts = (started[0]?.frames ?? []).filter(
+    (f) => typeof f.transform === "string" && !f.transform.startsWith("translate3d(0,"),
+  );
+  expect(shifts.length).toBeGreaterThanOrEqual(3);
+});
+
+test("reduced motion: each emoji of a burst fades in place, still five at most, name on the first", () => {
   reduced = true;
-  from(1);
-  expect(JSON.stringify(started[0]?.frames)).not.toContain("translate");
+  burst(5);
+  vi.advanceTimersByTime(1000);
+  expect(visible()).toHaveLength(5);
+  expect(started).toHaveLength(5);
+  for (const a of started) {
+    const text = JSON.stringify(a.frames);
+    expect(text).toContain("opacity");
+    expect(text).not.toContain("translate");
+    expect(text).not.toContain("transform");
+  }
+  expect(shadow?.querySelectorAll(".n")).toHaveLength(1);
+  expect(new Set(visible().map((n) => n.style.left)).size).toBeGreaterThan(1);
+  burst(5, "b", "Ben");
+  vi.advanceTimersByTime(1000);
+  expect(visible()).toHaveLength(5);
+});
+
+test("leaving the room drops the spawns still waiting", () => {
+  burst(5);
+  r.showReactions(false);
+  vi.advanceTimersByTime(1000);
+  expect(started).toHaveLength(1);
+  expect(visible()).toHaveLength(0);
+});
+
+test("a burst is announced as one line, not once per emoji", () => {
+  burst(5);
+  vi.advanceTimersByTime(1500);
+  expect(said()).toBe("Asha: Laugh");
+});
+
+test("the per-sender gate drops lone taps close together but never a burst", () => {
+  burst(1);
+  burst(1); // a lone tap right behind another one
+  expect(started).toHaveLength(1);
+  burst(3); // a burst is already a batch
+  vi.advanceTimersByTime(1000);
+  expect(started).toHaveLength(4);
+  burst(2); // a second burst straight after the first
+  vi.advanceTimersByTime(1000);
+  expect(started).toHaveLength(6);
+  vi.advanceTimersByTime(400);
+  burst(1);
+  expect(started).toHaveLength(7);
 });
 
 test("a hidden tab shows nothing; one sender floats at most once per 300 ms", () => {
