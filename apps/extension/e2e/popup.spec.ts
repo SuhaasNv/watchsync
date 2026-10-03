@@ -134,7 +134,6 @@ test("Open chat brings the room's tab forward with chat open and focused (US-115
 
   await expect.poll(active).toBe(true);
   await expect(tab.getByRole("region", { name: "WatchSync", exact: true })).toBeVisible();
-  // The first control in chat; UC-014 puts the message box first (data-focus-first).
   const chat = tab.frameLocator("watchsync-sidebar iframe");
-  await expect(chat.getByRole("button", { name: "Close chat" })).toBeFocused();
+  await expect(chat.getByRole("textbox", { name: "Message" })).toBeFocused();
 });
