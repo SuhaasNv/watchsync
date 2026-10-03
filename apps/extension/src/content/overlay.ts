@@ -24,7 +24,8 @@ root.innerHTML = `<style>
     transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   /* Chat is open on the right edge: notices move aside, not over it. On a narrow window
      there is no room beside it: passing notices wait, prompts and lasting lines stay. */
-  @media (min-width: 720px) { .wrap.beside { transform: translateX(-328px); } }
+  @media (min-width: 720px) {
+    .wrap.beside { transform: translateX(calc(-8px - clamp(320px, 26vw, 360px))); } }
   @media (max-width: 719.98px) { .wrap.beside .notices .card:not(.sticky) { display: none; } }
   .notices, .asks { display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     width: 100%; }

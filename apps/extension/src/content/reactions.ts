@@ -18,7 +18,8 @@ root.innerHTML = `<style>
   :host { all: initial !important; }
   .layer { position: fixed; z-index: 2147483645; right: 24px; bottom: 120px; width: 96px;
     height: 50vh; pointer-events: none; contain: strict; }
-  .layer.beside { right: 360px; }
+  /* Beside the chat panel (16 px from the edge, 320 to 360 px wide). */
+  .layer.beside { right: max(360px, calc(clamp(320px, 26vw, 360px) + 24px)); }
   .r { position: absolute; bottom: 0; display: grid; justify-items: center; gap: 2px;
     opacity: 0; font: 30px/1 -apple-system, system-ui, "Segoe UI", sans-serif;
     text-shadow: 0 1px 2px rgb(0 0 0 / 0.5); }

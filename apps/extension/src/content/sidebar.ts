@@ -19,10 +19,14 @@ root.innerHTML = `<style>
      neither is covered, with room for as many messages as fit. One under the overlay, so a
      waiting or Sync prompt stays visible over it on narrow windows. */
   .panel { position: fixed; z-index: 2147483646; right: 16px; top: 64px; bottom: 96px;
-    width: 320px; max-width: calc(100vw - 32px); min-height: 160px; box-sizing: border-box;
-    border-radius: 16px; overflow: hidden; background: rgb(18 26 30 / 0.97);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
+    width: clamp(320px, 26vw, 360px); max-width: calc(100vw - 32px); min-height: 160px;
+    box-sizing: border-box; border-radius: 16px; overflow: hidden; background: #121a1e;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
     contain: layout paint style; animation: in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  /* The edge, drawn over the frame so the frame's own colour can't hide it. */
+  .panel::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(214, 236, 240, 0.08); pointer-events: none; }
+  @media (max-width: 719.98px) { .panel { right: 8px; max-width: calc(100vw - 16px); } }
   .panel[hidden] { display: none; }
   .panel.closing { animation: out 140ms cubic-bezier(0.4, 0, 1, 1) forwards; pointer-events: none; }
   iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
