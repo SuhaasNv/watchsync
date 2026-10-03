@@ -85,6 +85,11 @@ const ogImage = new URL("/og.png", site).href;
   main:focus {
     outline: none;
   }
+  /* Skip to content (#main) must not scroll the page: with the dev strip above the header the
+     global scroll-padding pushed the strip half out of view. Main is always near the top. */
+  main {
+    scroll-margin-top: 120px;
+  }
   .dev-strip {
     /* Above the header's status-bar cover (Header.astro ::before), which reaches up over
        everything above the bar (BUG-053). */
