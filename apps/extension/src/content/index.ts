@@ -7,7 +7,6 @@ import {
   decide,
   expectedPosition,
   improved,
-  STUCK_FOR_MS,
   toleranceAt,
   WIDE_FOR_MS,
 } from "@watchsync/sync-engine";
@@ -445,7 +444,7 @@ const roomView: RoomView = {
     nextCorrection = Math.max(nextCorrection, Date.now() + 3000);
   },
   stuck: () => {
-    widenedUntil = Date.now() + STUCK_FOR_MS;
+    widenedUntil = Date.now() + WIDE_FOR_MS;
   },
 };
 /** Since when this player has been playing while the room is paused, or the reverse. */
@@ -977,22 +976,40 @@ function wake() {
  * three that its "crossed" echo could undo, and holding an arrow key stays under the rate limit.
  * (The pill's buttons post directly and don't come through here.)
  */
+/** Bumped by each move sent, so one still waiting for its player gives way to a newer one. */
+let sendSeq = 0;
+/** True while a move waits for this player to load the spot it jumped to. */
+let sendWaiting = false;
+
 const userMoves = coalesce((move) => {
   if (holdReason || !room?.session || !room.following || !mine) return;
-  // The move's position was read at its last event, up to a coalescing window ago, and the room
-  // stamps this message when it arrives: a player that is playing on has moved since, so send
-  // where it is now. One that is still seeking or loading reports its event position.
-  const v = provider?.video();
-  const st = provider?.getState();
-  const live = Boolean(move.playing && st?.playing && v && !v.seeking && v.readyState >= 3);
-  post({
-    kind: "playback",
-    action: move.action,
-    status: move.playing ? "playing" : "paused",
-    position: live && st ? Math.min(86_400, Math.max(0, st.position)) : move.position,
-    rate: move.rate,
-    titleId: mine.titleId,
-  });
+  const seq = ++sendSeq;
+  const titleId = mine.titleId;
+  // The room stamps this message when it arrives and runs its clock from there. A jump to a spot
+  // that isn't loaded stalls this player while friends' players run on, so a playing move waits
+  // (up to 3 s) until this player plays there, then sends where it is at that moment.
+  const send = (tries: number) => {
+    if (seq !== sendSeq) return;
+    const v = provider?.video();
+    const st = provider?.getState();
+    const live = Boolean(move.playing && st?.playing && v && !v.seeking && v.readyState >= 3);
+    if (move.playing && !live && tries > 0) {
+      sendWaiting = true;
+      setTimeout(() => send(tries - 1), 50);
+      return;
+    }
+    sendWaiting = false;
+    if (holdReason || !room?.session || !room.following || mine?.titleId !== titleId) return;
+    post({
+      kind: "playback",
+      action: move.action,
+      status: move.playing ? "playing" : "paused",
+      position: live && st ? Math.min(86_400, Math.max(0, st.position)) : move.position,
+      rate: move.rate,
+      titleId,
+    });
+  };
+  send(60);
 });
 
 const timers: ReturnType<typeof setInterval>[] = [];
@@ -1004,6 +1021,7 @@ function retire() {
   for (const stop of stops) stop();
   stopSettling();
   userMoves.cancel();
+  sendSeq += 1; // a move still waiting for its player is dropped
   forgetNotices();
   document.removeEventListener("visibilitychange", wake);
   window.removeEventListener("focus", wake);
@@ -1076,7 +1094,7 @@ if (provider) {
     // Not while a move of mine is still waiting to be sent: the room's clock is the old one
     // until it goes, and drift correction would undo the skip.
     setInterval(() => {
-      if (!userMoves.pending()) checkDrift();
+      if (!userMoves.pending() && !sendWaiting) checkDrift();
     }, 1000),
     setInterval(() => {
       checkHold();

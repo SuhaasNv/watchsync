@@ -6,7 +6,6 @@ import {
   expectedPosition,
   SEEK_SAMPLES,
   SETTLE_MAX_CORRECTIONS,
-  STUCK_FOR_MS,
   seekLead,
   settleDecision,
   settleMinFor,
@@ -152,8 +151,9 @@ export async function seekQuietly(provider: StreamingProvider, seconds: number) 
 // aims ahead by how long the last few seeks took, and once it has landed and is playing, the
 // player is measured against the room and corrected at most twice.
 
-/** A seek that hasn't said "seeked" by now is given up on, ms. */
-const SEEK_CEILING_MS = 3000;
+/** A seek that hasn't said "seeked" by now is given up on, ms. A jump to a spot that isn't
+ * loaded can take several seconds, and it still needs its settle afterwards. */
+const SEEK_CEILING_MS = 8000;
 /** While a seek is out, player events count as our own this far ahead, ms. */
 const SEEK_HOLD_MS = 700;
 /** And this long after its "seeked", for the play and playing events that follow, ms. */
@@ -253,7 +253,6 @@ type Ready =
 let run: { stop: () => void } | null = null;
 /** Bumped on every cancel, so a landing that finishes after one starts no settle. */
 let epoch = 0;
-let stuck: { titleId: string | null; until: number } | null = null;
 
 /** True while a seek is landing or a settle is running: the drift check waits. */
 export const isSettling = () => run !== null || pending.size > 0;
@@ -271,7 +270,6 @@ export function stopSettling() {
 }
 
 function startSettle(provider: StreamingProvider, view: RoomView, from: Playback) {
-  if (stuck && stuck.titleId === from.titleId && Date.now() < stuck.until) return;
   run?.stop();
   const startedAt = Date.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -338,8 +336,8 @@ function startSettle(provider: StreamingProvider, view: RoomView, from: Playback
     const min = settleMinFor(provider.driftToleranceSec ?? DRIFT_TOLERANCE_SEC);
     const action = settleDecision(local, expected, corrections, previous, min);
     if (action === "stop") {
-      // It has been corrected and is no closer: don't keep jumping it on this title.
-      stuck = { titleId: from.titleId, until: now + STUCK_FOR_MS };
+      // It has been corrected and is no closer: stop jumping it for this move. The next move
+      // gets its own settle: a correction that landed on a spot still loading looks the same.
       view.stuck();
       return me.stop();
     }

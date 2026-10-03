@@ -127,6 +127,22 @@ describe("seek lead and settle", () => {
     expect(view.stuck).toHaveBeenCalledTimes(1);
   });
 
+  test("giving up on one jump doesn't stop the next jump from being settled", async () => {
+    // A correction that lands no closer (a spot still loading looks like this) gives up on that
+    // jump only: the next one is measured and corrected again.
+    const { provider, seeks } = rig(300, -0.6);
+    const first = roomAt(100);
+    await mod.apply(provider, first, Date.now(), false, viewOf(first));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(seeks).toHaveLength(2);
+    const next = roomAt(500);
+    const view = viewOf(next);
+    await mod.apply(provider, next, Date.now(), false, view);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(seeks).toHaveLength(4);
+    expect(view.corrected).toHaveBeenCalledTimes(1);
+  });
+
   test("nothing is settled once the room has moved or the person has acted", async () => {
     const { provider, seeks } = rig(600, 0);
     const room = roomAt(100);

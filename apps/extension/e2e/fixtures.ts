@@ -113,11 +113,28 @@ async function serveMockPlayer(context: BrowserContext) {
             );
           </script>`
         : "";
+    // ?stall=ms: window.__stall() holds the player still that long without a pause or play
+    // event, like a player that said "seeked" at a spot that isn't loaded yet and is buffering.
+    const stallMs = Number(url.searchParams.get("stall") ?? 0);
+    const stall =
+      stallMs > 0
+        ? `<script>
+            const stalling = document.querySelector("video");
+            let still = false;
+            for (const type of ["pause", "play", "playing"])
+              window.addEventListener(type, (e) => still && e.stopImmediatePropagation(), true);
+            window.__stall = () => {
+              still = true;
+              stalling.pause();
+              setTimeout(() => stalling.play().finally(() => { still = false; }), ${stallMs});
+            };
+          </script>`
+        : "";
     return route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><title>Mock player</title><h1 data-title>${TITLES[id] ?? `Demo ${id}`}</h1>
         <div id="player"><video src="/clip.webm" width="640" height="360" muted autoplay controls></video></div>
-        <button onclick="document.getElementById('player').requestFullscreen()">Full screen</button>${next}${steal}${seeking}`,
+        <button onclick="document.getElementById('player').requestFullscreen()">Full screen</button>${next}${steal}${seeking}${stall}`,
     });
   });
 }

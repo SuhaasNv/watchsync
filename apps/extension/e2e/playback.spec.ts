@@ -188,6 +188,36 @@ test("a skip lands the friend on the room's clock even when their seek is slow",
   }
 });
 
+test("a jump to a spot that still has to load starts the room's clock when it plays there", async ({
+  ext,
+}) => {
+  // The friend's player says "seeked" at once, then buffers for 1 s before playing on.
+  const { hostTab, friend, tab } = await playingTogether(ext, "?stall=1000");
+  try {
+    await tab.waitForTimeout(2500); // the arrival's own settling is over
+    const to = (await position(tab)) + 30;
+    await tab.evaluate((t) => {
+      const v = document.querySelector("video");
+      if (!v) return;
+      const w = window as { __stall?: () => void; __jumps?: number };
+      w.__jumps = 0;
+      v.addEventListener("seeking", () => {
+        w.__jumps = (w.__jumps ?? 0) + 1;
+      });
+      v.addEventListener("seeked", () => setTimeout(() => w.__stall?.(), 0), { once: true });
+      v.currentTime = t;
+    }, to);
+    await hostTab.waitForTimeout(4000);
+    expect(await gapBetween(tab, hostTab)).toBeLessThan(0.15);
+    // The room ran its clock from when this player played there, so it was never pulled again.
+    expect(await tab.evaluate(() => (window as { __jumps?: number }).__jumps)).toBe(1);
+    expect(await playing(tab)).toBe(true);
+    expect(await playing(hostTab)).toBe(true);
+  } finally {
+    await friend.context.close();
+  }
+});
+
 test("a player that can only land on whole segments is corrected at most twice, then left alone", async ({
   ext,
 }) => {

@@ -32,8 +32,6 @@ export const SETTLE_MAX_SEC = 3;
 export const MIN_GAIN_SEC = 0.05;
 /** Corrections after one room-driven seek, never more. */
 export const SETTLE_MAX_CORRECTIONS = 2;
-/** After a correction that did nothing, a title is left alone this long, ms. */
-export const STUCK_FOR_MS = 5 * 60_000;
 
 /** Drift the ongoing check ignores, seconds. */
 export const DRIFT_TOLERANCE_SEC = 0.25;
