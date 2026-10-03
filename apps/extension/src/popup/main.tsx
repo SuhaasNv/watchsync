@@ -483,9 +483,9 @@ function OpenChat({ shortcut, unread }: { shortcut: string | null; unread: numbe
           </span>
         )}
         {shortcut && (
-          <kbd className="key" aria-hidden="true">
+          <span className="key" aria-hidden="true">
             {shortcut}
-          </kbd>
+          </span>
         )}
       </button>
       {hasTab === false && (
