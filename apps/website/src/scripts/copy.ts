@@ -27,7 +27,10 @@ export function initCopyButtons() {
           for (const key of hint.querySelectorAll<HTMLElement>("[data-key]"))
             key.textContent = `${mac ? "⌘" : "Ctrl+"}${(key.dataset.key ?? "").toUpperCase()}`;
           hint.hidden = false;
-          const next = (hint.textContent ?? "").replace(/\s+/g, " ").replace(/^\s*Copied\.\s*/, "").trim();
+          const next = (hint.textContent ?? "")
+            .replace(/\s+/g, " ")
+            .replace(/^\s*Copied\.\s*/, "")
+            .trim();
           live.textContent = `Copied ${text}. ${next}`;
         }
       } catch {
