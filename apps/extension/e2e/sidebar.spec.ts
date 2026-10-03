@@ -165,8 +165,19 @@ test("the popup shows the chat shortcut", async ({ ext }) => {
   await pop.reload();
   const open = pop.getByRole("button", { name: "Open chat", exact: true });
   await expect(open).toBeEnabled();
-  await expect(open.locator(".key")).toHaveText(/W$/);
-  await expect(open).toHaveAttribute("title", /^Open chat on the player with .+W$/);
+  // The popup shows what Chrome reports for the command. A Linux runner may leave it
+  // unassigned; then there is no key hint and no title, and the row still works.
+  const shortcut = await pop.evaluate(
+    async () =>
+      (await chrome.commands.getAll()).find((c) => c.name === "toggle-sidebar")?.shortcut ?? "",
+  );
+  if (shortcut) {
+    await expect(open.locator(".key")).toHaveText(shortcut);
+    await expect(open).toHaveAttribute("title", `Open chat on the player with ${shortcut}`);
+  } else {
+    await expect(open.locator(".key")).toHaveCount(0);
+    await expect(open).not.toHaveAttribute("title", /./);
+  }
   await expect(pop.getByText("Open the title on a supported service first.")).toHaveCount(0);
 });
 
