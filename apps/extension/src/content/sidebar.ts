@@ -31,8 +31,10 @@ root.innerHTML = `<style>
   .close:hover { background: rgba(214, 236, 240, 0.1); color: #ecf2f1; }
   .toggle { right: 16px; top: 50%; margin-top: -20px; width: 40px; height: 40px;
     border-radius: 50%; background: rgba(18, 26, 30, 0.95); color: #ecf2f1;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(214, 236, 240, 0.1); }
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
+    transition: background 120ms, opacity 0.3s ease-out; }
   .toggle:hover { background: rgba(38, 50, 56, 0.95); }
+  .toggle.idle:not(:hover):not(:focus-visible) { opacity: 0; }
   .badge { position: absolute; top: -4px; right: -4px; box-sizing: border-box; min-width: 18px;
     height: 18px; padding: 0 5px; border-radius: 9px; background: #ffd25a; color: #1b1503;
     font-size: 11px; font-weight: 750; line-height: 18px; text-align: center; }
@@ -73,7 +75,20 @@ const watchers: ((open: boolean) => void)[] = [];
 function mount() {
   if (retired || !code) return;
   const parent = document.fullscreenElement ?? document.documentElement;
-  if (host.parentNode !== parent) parent.append(host);
+  if (host.parentNode === parent) return;
+  // Moving the host in or out of full screen drops focus: keep it on the same control.
+  const focused = root.activeElement;
+  parent.append(host);
+  if (focused instanceof HTMLElement) focused.focus();
+}
+
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Like the pill and the player's own controls: the collapsed button fades after 3 s still.
+function wake() {
+  toggle.classList.remove("idle");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => toggle.classList.add("idle"), 3000);
 }
 
 function render() {
@@ -106,6 +121,7 @@ export function showSidebar(roomCode: string | null) {
   codeText.textContent = `Room ${roomCode}`;
   render();
   mount();
+  wake();
 }
 
 /**
@@ -169,7 +185,9 @@ export function onSidebarChange(cb: (open: boolean) => void) {
 export function retireSidebar() {
   retired = true;
   host.remove();
+  clearTimeout(idleTimer);
   document.removeEventListener("fullscreenchange", mount);
+  document.removeEventListener("mousemove", wake);
 }
 
 /** The element with focus on the page, outside our own UI. */
@@ -187,3 +205,4 @@ root.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("fullscreenchange", mount);
+document.addEventListener("mousemove", wake, { passive: true });

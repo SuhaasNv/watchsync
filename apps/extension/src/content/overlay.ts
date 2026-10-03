@@ -21,6 +21,8 @@ root.innerHTML = `<style>
   /* Bottom right, above the player's own controls; notices stack upwards, newest on top. */
   .wrap { position: fixed; right: 24px; bottom: 96px; width: 340px; max-width: calc(100vw - 32px);
     display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+  /* The sidebar is open on the right edge: notices sit beside it, not over it. */
+  @media (min-width: 720px) { .wrap.beside { right: 352px; } }
   .notices, .asks { display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     width: 100%; }
   .asks .card, .notices .card.ask { pointer-events: auto; }
@@ -93,6 +95,11 @@ root.innerHTML = `<style>
 </style><div class="wrap"><div class="notices" role="status" aria-live="polite"></div><div class="asks" aria-live="polite"></div></div>`;
 const notices = root.querySelector(".notices") as HTMLDivElement;
 const asks = root.querySelector(".asks") as HTMLDivElement;
+
+/** Keeps notices and prompts beside the open sidebar rather than over it. */
+export function noticesBesideSidebar(open: boolean) {
+  root.querySelector(".wrap")?.classList.toggle("beside", open);
+}
 
 function mount() {
   if (retired) return;

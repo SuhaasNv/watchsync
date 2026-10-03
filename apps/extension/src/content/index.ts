@@ -15,6 +15,7 @@ import {
   clearPrompt,
   focusedControl,
   notice,
+  noticesBesideSidebar,
   prompt,
   renderPill,
   retireOverlay,
@@ -391,7 +392,10 @@ function drawPill() {
     chatOpen: isSidebarOpen(),
   });
 }
-onSidebarChange(() => drawPill());
+onSidebarChange((open) => {
+  drawPill();
+  noticesBesideSidebar(open);
+});
 
 /** Everyone jumps to exactly where I am, without pausing or counting down (owner, 2 Oct). */
 function syncEveryone() {

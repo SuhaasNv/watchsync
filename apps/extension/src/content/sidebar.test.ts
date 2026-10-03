@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 type Sidebar = typeof import("./sidebar");
 let s: Sidebar;
+let previous: Sidebar | undefined;
 
 beforeEach(async () => {
-  document.documentElement.querySelector("watchsync-sidebar")?.remove();
+  previous?.retireSidebar(); // the last test's copy: off the page, its listeners gone
   document.body.innerHTML = `<button id="page">Page control</button>`;
   vi.resetModules();
   s = await import("./sidebar");
+  previous = s;
 });
 
 /** The sidebar's shadow root, closed to the page but reachable from an element inside it. */
@@ -117,6 +119,24 @@ describe("opening and closing", () => {
     s.toggleSidebar();
     expect(s.isSidebarOpen()).toBe(false);
     expect(document.activeElement).toBe(pageButton());
+  });
+
+  test("follows the player into full screen and back, open and focused", () => {
+    s.showSidebar("ABC234");
+    s.openSidebar();
+    const player = document.createElement("div");
+    document.body.append(player);
+    const fullscreen = (el: Element | null) => {
+      Object.defineProperty(document, "fullscreenElement", { value: el, configurable: true });
+      document.dispatchEvent(new Event("fullscreenchange"));
+    };
+    fullscreen(player);
+    expect(player.querySelector("watchsync-sidebar")).not.toBeNull();
+    expect(s.isSidebarOpen()).toBe(true);
+    expect(shadow().activeElement).toBe(el(".close"));
+    fullscreen(null);
+    expect(document.documentElement.lastElementChild?.tagName).toBe("WATCHSYNC-SIDEBAR");
+    expect(shadow().activeElement).toBe(el(".close"));
   });
 
   test("the collapsed button counts unread messages in its name", () => {
