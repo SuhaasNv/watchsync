@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 import ipaddress
 import json
+import logging
+import os
 import re
 import secrets
 import signal
@@ -21,6 +23,21 @@ from . import config, join_page
 from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
 from .ratelimit import Limiter
 from .rooms import Participant, Room, RoomError, rooms, safe_media
+
+
+class NoFrameLogs(logging.Filter):
+    """The WebSocket library logs every frame at DEBUG through uvicorn's logger, and a frame
+    carries chat text, which is never logged at any level (DEC-032). Its debug lines never
+    pass, whatever level the server runs at; its connection lines (INFO and up) still do."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno > logging.DEBUG or f"{os.sep}websockets{os.sep}" not in (
+            record.pathname
+        )
+
+
+logging.getLogger("uvicorn.error").addFilter(NoFrameLogs())
+logging.getLogger("websockets").setLevel(logging.INFO)  # the library's own loggers too
 
 
 @contextlib.asynccontextmanager

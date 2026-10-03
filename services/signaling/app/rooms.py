@@ -255,6 +255,7 @@ class Rooms:
             if room.empty_since is not None and now - room.empty_since > limit:
                 for p in room.participants.values():
                     self.tokens.pop(p.token, None)
+                room.chat.clear()  # a handler may still hold the room; its chat goes now
                 del self.rooms[code]
                 self.ended[code] = now
         for code, at in list(self.ended.items()):
@@ -330,6 +331,7 @@ class Rooms:
         room.skip_hold.discard(p.id)
         room.gone.add(p.name)
         if not room.participants and end_if_empty:
+            room.chat.clear()
             del self.rooms[room.code]
             self.ended[room.code] = now_ms()
 

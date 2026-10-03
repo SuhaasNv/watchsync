@@ -6,13 +6,19 @@ its own sender's handler to finish (a ping answered) before anyone reads another
 """
 
 import contextlib
+import json
+import logging
+import socket
+import threading
 import time
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+import uvicorn
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from websockets.sync.client import connect as ws_connect
 
 from app import config, main
 from app.protocol import is_server_message
@@ -162,6 +168,32 @@ def test_history_cap_comes_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
         assert [m["text"] for m in history] == ["b", "c"]
 
 
+def test_chat_is_deleted_when_the_last_person_leaves() -> None:
+    host = create()
+    with connected(host) as (ws, _):
+        say(ws, "secret")
+        room = main.rooms.rooms[host["code"]]
+        ws.send_json(msg("ROOM.LEAVE", {}))
+        closed(ws)
+    assert list(room.chat) == []
+    assert host["code"] not in main.rooms.rooms
+    # A new room starts with no earlier messages.
+    with connected(create()) as (_, history):
+        assert history == []
+
+
+def test_chat_is_deleted_when_an_empty_room_expires() -> None:
+    host = create()
+    with connected(host) as (ws, _):
+        say(ws, "secret")
+    room = main.rooms.rooms[host["code"]]
+    assert [m["text"] for m in room.chat] == ["secret"]  # kept while the room waits
+    later = main.now_ms() + (config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000
+    main.rooms.sweep(now=later)
+    assert host["code"] not in main.rooms.rooms
+    assert list(room.chat) == []
+
+
 def test_more_than_the_rate_limit_is_refused_with_the_text_echoed() -> None:
     assert config.CHAT_PER_5S == 5
     host = create()
@@ -295,3 +327,74 @@ def test_older_message_types_are_unaffected() -> None:
             payload = {"action": "pause", "status": "paused", "position": 10, "rate": 1}
             send(gws, "PLAYBACK.UPDATE", payload | {"titleId": "1"})
             assert next_of(ws, "PLAYBACK.STATE")["payload"]["byName"] == "Asha"
+
+
+def test_chat_text_is_never_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """Every outcome (sent, refused for space, length and rate, replayed) at every level."""
+    caplog.set_level(logging.DEBUG)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "websockets", "app"):
+        caplog.set_level(logging.DEBUG, logger=name)
+    texts = [f"private-words-{i}" for i in range(8)]
+    host = create()
+    guest = join(host["code"])
+    with connected(host) as (hws, _), connected(guest) as (gws, _):
+        say(hws, texts[0])
+        say(gws, "   ")
+        say(gws, texts[1] + "x" * 600)
+        for text in texts[2:]:
+            say(gws, text)  # the sixth in 5 s is refused
+    with connected(guest) as (_, history):
+        assert len(history) == 6
+    logged = "\n".join(r.getMessage() for r in caplog.records) + caplog.text
+    for text in texts:
+        assert text not in logged
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port: int = s.getsockname()[1]
+        return port
+
+
+@pytest.mark.parametrize("ws_impl", ["auto", "websockets"])
+def test_chat_text_is_never_logged_by_the_real_server_at_debug(
+    caplog: pytest.LogCaptureFixture, ws_impl: str
+) -> None:
+    """The WebSocket library logs every frame at DEBUG through uvicorn's logger, shortened to
+    its first and last few dozen characters: a short message, or a refusal echoing the text at
+    the end, shows the text. Run the real server at debug and read everything it logs."""
+    caplog.set_level(logging.DEBUG)
+    port = free_port()
+    server = uvicorn.Server(
+        uvicorn.Config(main.app, port=port, log_level="debug", log_config=None, ws=ws_impl)
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not server.started:
+            assert time.monotonic() < deadline, "server did not start"
+            time.sleep(0.05)
+        assert logging.getLogger("uvicorn.error").isEnabledFor(logging.DEBUG)
+        host = create()
+        url = f"ws://127.0.0.1:{port}/ws/rooms/{host['code']}?token={host['token']}"
+        with ws_connect(url) as ws:
+            assert json.loads(ws.recv(timeout=5))["type"] == "ROOM.STATE"
+            assert json.loads(ws.recv(timeout=5))["type"] == "CHAT.HISTORY"
+            for text, answer in (
+                ("hi-secret", "CHAT.MESSAGE"),
+                ("x" * 500 + "-tail-secret", "CHAT.REJECTED"),
+            ):
+                chat = {"text": text, "movieTime": 1, "titleId": "1"}
+                ws.send(json.dumps(msg("CHAT.SEND", chat)))
+                assert json.loads(ws.recv(timeout=5))["type"] == answer
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+    # Everything but this test's own client library.
+    server_logs = [r for r in caplog.records if r.name != "websockets.client"]
+    # Captured: the socket's own lines are there, only the frames are not.
+    assert any("[accepted]" in r.getMessage() for r in server_logs)
+    logged = "\n".join(r.getMessage() for r in server_logs)
+    assert "secret" not in logged
