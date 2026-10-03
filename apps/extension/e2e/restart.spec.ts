@@ -156,6 +156,10 @@ test("a long outage says so plainly, and Try now brings the room back", async ()
     const code = (await pop.getByTestId("room-code").textContent()) ?? "";
     const tab = await onTitle(ext);
     await expect(pop.getByText("Connected")).toBeVisible();
+    // With chat open (UC-013), the outage lines sit beside it and stay clickable.
+    const chat = tab.getByRole("region", { name: "WatchSync", exact: true });
+    await tab.getByRole("button", { name: /^Open chat/ }).click();
+    await expect(chat).toBeVisible();
 
     // A crash, not a deploy: no restarting close, so the normal reconnect line first, then,
     // past the long-outage time (2 minutes; 15 s in test builds), the plain one.
@@ -164,6 +168,9 @@ test("a long outage says so plainly, and Try now brings the room back", async ()
     const unreachable = "Can't reach WatchSync. Still trying.";
     await expect(tab.getByText(unreachable)).toBeVisible({ timeout: 30_000 });
     await expect(pop.getByText(unreachable)).toBeVisible();
+    const line = await tab.getByText(unreachable).boundingBox();
+    const panel = await chat.boundingBox();
+    expect((line?.x ?? 0) + (line?.width ?? 0)).toBeLessThanOrEqual(panel?.x ?? 0);
 
     // Try now tries at once; with the service still down the line stays, retries go on.
     await tab.getByRole("button", { name: "Try now" }).click();

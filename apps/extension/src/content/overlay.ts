@@ -20,7 +20,12 @@ root.innerHTML = `<style>
     -webkit-font-smoothing: antialiased; z-index: 2147483647; }
   /* Bottom right, above the player's own controls; notices stack upwards, newest on top. */
   .wrap { position: fixed; right: 24px; bottom: 96px; width: 340px; max-width: calc(100vw - 32px);
-    display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none;
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  /* Chat is open on the right edge: notices move aside, not over it. On a narrow window
+     there is no room beside it: passing notices wait, prompts and lasting lines stay. */
+  @media (min-width: 720px) { .wrap.beside { transform: translateX(-328px); } }
+  @media (max-width: 719.98px) { .wrap.beside .notices .card:not(.sticky) { display: none; } }
   .notices, .asks { display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     width: 100%; }
   .asks .card, .notices .card.ask { pointer-events: auto; }
@@ -56,16 +61,18 @@ root.innerHTML = `<style>
   button:hover { background: rgba(214, 236, 240, 0.17); }
   button.primary { background: #ffd25a; color: #1b1503; }
   button.primary:hover { background: #ffdd80; }
-  button:focus-visible { outline: 2px solid #ffd25a; outline-offset: 2px; }
+  /* A dark halo keeps the ring visible over a bright picture. */
+  button:focus-visible { outline: 2px solid #ffd25a; outline-offset: 2px;
+    box-shadow: 0 0 0 6px rgb(0 0 0 / 0.6); }
 
   .pill { position: fixed; top: 16px; display: flex; align-items: center; gap: 4px; padding: 4px;
     border-radius: 999px; background: rgba(18, 26, 30, 0.95); backdrop-filter: blur(16px) saturate(140%);
     -webkit-backdrop-filter: blur(16px) saturate(140%);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
-    font-size: 13px; line-height: 18px; transition: opacity 0.3s ease-out; }
+    font-size: 13px; line-height: 18px; transition: opacity 150ms ease-out; }
   .pill[data-corner="tr"] { right: 16px; }
   .pill[data-corner="tl"] { left: 16px; }
-  .pill.idle:not(:hover):not(:focus-within) { opacity: 0; }
+  .pill.idle:not(:hover):not(:focus-within) { opacity: 0; transition: opacity 300ms ease-in; }
   .faces { display: flex; padding: 0 6px 0 2px; }
   .face { position: relative; box-sizing: border-box; width: 28px; height: 28px; border-radius: 50%;
     display: grid; place-items: center; font-weight: 650; font-size: 12px; line-height: 1;
@@ -84,15 +91,31 @@ root.innerHTML = `<style>
   .pill button.bare { width: 32px; padding: 0; justify-content: center; background: transparent;
     color: #a9b8b9; }
   .pill button.bare:hover { background: rgba(214, 236, 240, 0.1); color: #ecf2f1; }
+  .pill button.chat { position: relative; }
+  .pill button.chat[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+  .pill button.chat[aria-disabled="true"]:hover { background: transparent; color: #a9b8b9; }
+  /* Unread messages on the chat button (UC-014); 9+ past nine. */
+  .count { position: absolute; top: -3px; right: -3px; box-sizing: border-box; min-width: 16px;
+    height: 16px; padding: 0 4px; border-radius: 8px; background: #ffd25a; color: #1b1503;
+    font-size: 10px; font-weight: 750; line-height: 16px; text-align: center;
+    font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px #151d21; }
+  .count[hidden] { display: none; }
+  .count.pop { animation: pop 160ms ease-out; }
+  @keyframes pop { from { transform: scale(0.8); } }
   @keyframes in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
   @media (prefers-reduced-motion: reduce) {
-    .card { animation: none; }
-    .card.out, .pill, button { transition: none; }
+    .card, .count.pop { animation: none; }
+    .card.out, .pill, .pill.idle:not(:hover):not(:focus-within), button, .wrap { transition: none; }
     .card.out { transform: none; }
   }
 </style><div class="wrap"><div class="notices" role="status" aria-live="polite"></div><div class="asks" aria-live="polite"></div></div>`;
 const notices = root.querySelector(".notices") as HTMLDivElement;
 const asks = root.querySelector(".asks") as HTMLDivElement;
+
+/** Keeps notices and prompts beside the open chat panel rather than over it. */
+export function noticesBesideSidebar(open: boolean) {
+  root.querySelector(".wrap")?.classList.toggle("beside", open);
+}
 
 function mount() {
   if (retired) return;
@@ -305,7 +328,14 @@ export interface PillModel {
   onPause: () => void;
   /** Sync everyone: jump the room to my exact position, no pause or countdown. */
   onSyncAll: () => void;
+  /** Open or close chat; opened from here, the button gets focus back when it closes. */
+  onChat: (from: HTMLElement) => void;
+  chatOpen: boolean;
+  /** Chat was turned off on this page because the page interfered with it. */
+  chatOff: boolean;
 }
+
+export const CHAT_OFF = "Chat is turned off on this page because the page interfered with it.";
 
 const pill = document.createElement("div");
 pill.className = "pill";
@@ -315,14 +345,23 @@ let corner: "tr" | "tl" = "tr";
 /** Folded down to the faces, so the pill stays out of the way of the player (owner, 2 Oct). */
 let collapsed = false;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let idle = false;
 
-// Like the player's own controls: visible while the mouse moves, faded after 3 s still.
+// Like the player's own controls: visible while the mouse moves, faded after 3 s still. The
+// class flips only when the state does, and the listener captures, so a player that stops
+// mouse events on the way still wakes it.
 function wake() {
-  pill.classList.remove("idle");
+  if (idle) {
+    idle = false;
+    pill.classList.remove("idle");
+  }
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => pill.classList.add("idle"), 3000);
+  idleTimer = setTimeout(() => {
+    idle = true;
+    pill.classList.add("idle");
+  }, 3000);
 }
-document.addEventListener("mousemove", wake, { passive: true });
+document.addEventListener("mousemove", wake, { passive: true, capture: true });
 
 let lastModel: PillModel | null = null;
 chrome.storage.local.get(["pillCorner", "pillCollapsed"]).then(({ pillCorner, pillCollapsed }) => {
@@ -355,6 +394,63 @@ function button(label: string, run: () => void, look: ButtonLook = {}): HTMLButt
   b.className = [look.primary && "primary", look.bare && "bare"].filter(Boolean).join(" ");
   b.addEventListener("click", run);
   return b;
+}
+
+/** The chat shortcut as Chrome suggests it on this system (build.mjs `commands`). */
+const SHORTCUT = /Mac/.test(navigator.platform) ? "Control+Shift+W" : "Alt+Shift+W";
+
+// The one way into chat on the page (with the shortcut). One lasting button, so focus can
+// come back to it after chat closes even though the pill redraws in between.
+const chat = button("Open chat", () => lastModel?.onChat(chat), { icon: "chat", bare: true });
+chat.classList.add("chat");
+chat.setAttribute("aria-keyshortcuts", SHORTCUT);
+// Space or Enter on this button opens chat; it mustn't also play or pause the player.
+for (const type of ["keydown", "keyup", "keypress"])
+  chat.addEventListener(type, (e) => {
+    if (e instanceof KeyboardEvent && (e.key === " " || e.key === "Enter")) e.stopPropagation();
+  });
+const count = document.createElement("span");
+count.className = "count";
+count.setAttribute("aria-hidden", "true");
+count.hidden = true;
+chat.append(count);
+let unread = 0;
+
+function drawChat() {
+  const open = lastModel?.chatOpen === true;
+  const off = lastModel?.chatOff === true;
+  const base = off ? CHAT_OFF : open ? "Close chat" : `Open chat (${SHORTCUT})`;
+  const label = unread && !off ? `${base}, ${unread} unread` : base;
+  chat.setAttribute("aria-label", label);
+  chat.title = label;
+  chat.setAttribute("aria-expanded", String(open));
+  // Still focusable and named, so the reason can be found; it does nothing when pressed.
+  if (off) chat.setAttribute("aria-disabled", "true");
+  else chat.removeAttribute("aria-disabled");
+  count.hidden = unread === 0 || off;
+  count.textContent = unread > 9 ? "9+" : String(unread);
+}
+
+/** Unread messages on the chat button; 0 hides the count. It pops only when the first arrives. */
+export function setChatBadge(n: number) {
+  const next = Math.max(0, Math.floor(n));
+  if (unread === 0 && next > 0) {
+    count.classList.remove("pop");
+    count.addEventListener("animationend", () => count.classList.remove("pop"), { once: true });
+    requestAnimationFrame(() => count.classList.add("pop"));
+  }
+  unread = next;
+  drawChat();
+}
+
+/** The chat button while it's on the page: where focus goes when chat closes. */
+export function chatButton(): HTMLElement | null {
+  return chat.isConnected ? chat : null;
+}
+
+/** The overlay control that has focus, if any (its shadow root hides it from the page). */
+export function focusedControl(): HTMLElement | null {
+  return root.activeElement instanceof HTMLElement ? root.activeElement : null;
 }
 
 /** Shows who's here and in sync; null hides it (not in a room). */
@@ -394,8 +490,13 @@ export function renderPill(model: PillModel | null) {
   );
   fold.setAttribute("aria-expanded", String(!collapsed));
   pill.classList.toggle("folded", collapsed);
+  drawChat();
+  // Redrawing takes the chat button out and back in, which drops its focus: keep it.
+  const chatFocused = root.activeElement === chat;
+  // Chat stays reachable when the pill is folded: it is the only button for it.
   if (collapsed) {
-    pill.replaceChildren(faces, fold);
+    pill.replaceChildren(faces, chat, fold);
+    if (chatFocused) chat.focus();
     return wake();
   }
   const sep = document.createElement("span");
@@ -434,6 +535,7 @@ export function renderPill(model: PillModel | null) {
         }),
       ]
     : [];
-  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, fold);
+  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, chat, fold);
+  if (chatFocused) chat.focus();
   wake();
 }

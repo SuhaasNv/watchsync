@@ -57,7 +57,32 @@ export type Push =
   | { kind: "state"; state: AppState }
   | { kind: "server"; message: AnyServerMessage }
   /** The tab that reported our title is gone: any other tab with a title, say so. */
-  | { kind: "report" };
+  | { kind: "report" }
+  /** The chat shortcut was pressed in this tab (to its port only). */
+  | { kind: "toggleSidebar" }
+  /** The chat panel in this tab asked to close: Esc or its close button (to its port only). */
+  | { kind: "closeSidebar" }
+  /** The chat frame with this pass connected (to its tab's port only). */
+  | { kind: "chatFrameReady"; frame: string }
+  /** The chat frame with this pass lost its connection (to its tab's port only). */
+  | { kind: "chatFrameLost"; frame: string };
+
+/**
+ * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first
+ * message is "hello" with the one-time pass the tab's content script put in the frame's
+ * address; the background serves the port only if it matches.
+ */
+export type SidebarEvent = { kind: "hello"; nonce: string } | { kind: "close" };
+
+export function isSidebarEvent(v: unknown): v is SidebarEvent {
+  if (typeof v !== "object" || v === null) return false;
+  const kind = Reflect.get(v, "kind");
+  return kind === "close" || (kind === "hello" && typeof Reflect.get(v, "nonce") === "string");
+}
+
+/** Content script → background: a one-time pass for the chat frame it is about to load. */
+export type ChatNonceRequest = { kind: "chatNonce" };
+export type ChatNonceReply = { nonce: string } | null;
 
 /** Content script → background, over its port. */
 export type TabEvent =

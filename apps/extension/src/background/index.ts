@@ -13,7 +13,10 @@ import {
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
 import {
   type AppState,
+  type ChatNonceReply,
+  type ChatNonceRequest,
   cleanName,
+  isSidebarEvent,
   nameProblem,
   type Push,
   type Reply,
@@ -28,6 +31,7 @@ import {
   RELEASES_API,
   type UpdateCheck,
 } from "../shared/update";
+import { ChatFrames, wantsServerMessage } from "./chat-frames";
 import { injectOpenTabs } from "./inject";
 import { restoreMessage } from "./restore";
 import { RESTARTING, Retry } from "./retry";
@@ -325,7 +329,9 @@ function onServer(msg: AnyServerMessage) {
     }
   }
   changed();
-  push({ kind: "server", message: msg });
+  // Chat goes only to the chat frames, never to a service page's content script (DEC-042).
+  for (const p of ports)
+    if (wantsServerMessage(p.name, msg.type)) p.postMessage({ kind: "server", message: msg });
 }
 
 function reset() {
@@ -491,11 +497,40 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   void injectOpenTabs(chrome);
 });
 
-// Test builds only: lets end-to-end tests cut the connection like a network drop.
-if (__MOCK__) Object.assign(globalThis, { watchsyncDropSocket: () => socket?.close() });
+/** Tells the content script of one tab, and no other, about its chat panel. */
+function toTab(tabId: number | undefined, msg: Push) {
+  if (tabId === undefined) return;
+  for (const p of ports) if (p.name === "tab" && p.sender?.tab?.id === tabId) p.postMessage(msg);
+}
 
-chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
+/** The chat shortcut (US-040): only the tab it was pressed in opens or closes its panel. */
+async function onCommand(command: string, tab?: chrome.tabs.Tab) {
+  if (command !== "toggle-sidebar") return;
+  const id = tab?.id ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
+  toTab(id, { kind: "toggleSidebar" });
+}
+chrome.commands.onCommand.addListener((command, tab) => {
+  onCommand(command, tab).catch((e: unknown) => console.debug("watchsync: shortcut", e));
+});
+
+// Test builds only: lets end-to-end tests cut the connection like a network drop, and press
+// the chat shortcut (Playwright can't press extension commands).
+if (__MOCK__)
+  Object.assign(globalThis, {
+    watchsyncDropSocket: () => socket?.close(),
+    watchsyncCommand: onCommand,
+  });
+
+const chatFrames = new ChatFrames();
+
+chrome.runtime.onMessage.addListener((req: Request | ChatNonceRequest, sender, reply) => {
   if (sender.id !== chrome.runtime.id) return false;
+  if (req.kind === "chatNonce") {
+    // Only a tab's content script (its top frame) gets a pass for its chat frame.
+    const nonce = chatFrames.issue(sender);
+    reply((nonce ? { nonce } : null) satisfies ChatNonceReply);
+    return false;
+  }
   handle(req).then(reply);
   return true;
 });
@@ -524,6 +559,7 @@ function titleTabGone() {
 
 // Closing the tab: no need to wait out the 3 s page-load allowance below.
 chrome.tabs.onRemoved.addListener((tabId) => {
+  chatFrames.forget(tabId);
   if (tabId === presenceTabId) presenceTabClosed();
 });
 // The retry: every 15 s make sure that tab still exists, so a missed close event can't
@@ -533,8 +569,39 @@ setInterval(() => {
   chrome.tabs.get(presenceTabId).catch(presenceTabClosed);
 }, 15_000);
 
+/**
+ * A chat frame's port is served only after it says hello with the pass its tab's content
+ * script was given (DEC-042); anything else, or silence, is disconnected unserved.
+ */
+function admitChatFrame(port: chrome.runtime.Port) {
+  const silent = setTimeout(() => port.disconnect(), 5000);
+  const hello = (e: unknown) => {
+    clearTimeout(silent);
+    port.onMessage.removeListener(hello);
+    const frame = chatFrames.admit(port.sender, e);
+    if (!frame) return port.disconnect();
+    const tabId = port.sender?.tab?.id;
+    ports.add(port);
+    toTab(tabId, { kind: "chatFrameReady", frame });
+    // Gone without the content script removing it (the page pointed the frame elsewhere):
+    // tell the tab at once, so it puts the real frame back. Its own removals it ignores.
+    port.onDisconnect.addListener(() => {
+      ports.delete(port);
+      toTab(tabId, { kind: "chatFrameLost", frame });
+    });
+    // Its close goes only to the content script of the tab it sits in.
+    port.onMessage.addListener((m: unknown) => {
+      if (isSidebarEvent(m) && m.kind === "close")
+        toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
+    });
+    ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
+  };
+  port.onMessage.addListener(hello);
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
+  if (port.name === "sidebar") return admitChatFrame(port);
   ports.add(port);
   retryNow();
   port.onDisconnect.addListener(() => {

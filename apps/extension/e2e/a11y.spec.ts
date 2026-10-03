@@ -1,7 +1,7 @@
 // WCAG 2.2 AA gate (DEC-022): every WatchSync surface, in each state a person can reach.
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { expect, MOCK, room, test } from "./fixtures";
+import { expect, MOCK, popup, room, test } from "./fixtures";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -55,7 +55,7 @@ test("on-page prompt and notices", async ({ ext }) => {
     await expect(tab.getByText("Open it?")).toBeVisible({ timeout: 5000 });
     await audit(tab, "watchsync-overlay");
 
-    await tab.getByRole("button", { name: "Open" }).click();
+    await tab.getByRole("button", { name: "Open", exact: true }).click();
     await tab.waitForURL(`${MOCK}/watch/ep1`);
     await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
     await hostTab.evaluate(() => document.querySelector("video")?.pause());
@@ -65,6 +65,24 @@ test("on-page prompt and notices", async ({ ext }) => {
   } finally {
     await friend.context.close();
   }
+});
+
+test("chat: closed and open", async ({ ext }) => {
+  const pop = await popup(ext, "Suhaas");
+  await pop.getByRole("button", { name: "Create a room" }).click();
+  await audit(pop); // the room screen with its chat shortcut line
+  const tab = await ext.context.newPage();
+  await tab.goto(`${MOCK}/watch/ep1`);
+  const chat = tab.getByRole("button", { name: /^Open chat/ });
+  await expect(chat).toBeVisible();
+  await tab.mouse.move(20, 20); // not faded out while measured
+  await audit(tab, "watchsync-overlay"); // the pill with its chat button, closed
+
+  await chat.click();
+  const frame = tab.frameLocator("watchsync-sidebar iframe");
+  await expect(frame.getByRole("button", { name: "Close chat" })).toBeFocused();
+  await audit(tab, "watchsync-sidebar"); // the panel and the chat frame inside it
+  await audit(tab, "watchsync-overlay");
 });
 
 test("the popup works by keyboard alone", async ({ ext }) => {
