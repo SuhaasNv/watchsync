@@ -1,4 +1,5 @@
 ---
+import { CARS, H, RIDGES, W } from "../../lib/film";
 // A miniature of the real chat panel (apps/extension/public/sidebar.css) beside a player,
 // with one tap burst of reactions floating up. Plain HTML and CSS; the script only replays it.
 const messages = [
@@ -42,6 +43,33 @@ const burst = [{ name: "Sam" }, { name: "" }, { name: "" }, { name: "" }] as con
     <figure class="demo">
       <div class="stage" aria-hidden="true">
         <div class="player">
+          <svg class="still" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id="chat-sky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#1d4350"></stop>
+                <stop offset="0.62" stop-color="#d27a5a"></stop>
+                <stop offset="1" stop-color="#ffd08a"></stop>
+              </linearGradient>
+            </defs>
+            <rect width={W} height={H} fill="url(#chat-sky)"></rect>
+            <circle cx="212" cy="92" r="13" fill="#ffd25a"></circle>
+            <path d={RIDGES.far} fill="#4b6168"></path>
+            <path d={RIDGES.mid} fill="#2a3d44"></path>
+            <g transform="translate(40 0)">
+              <rect x="-6" y="135.4" width="170" height="1.2" fill="#0b1317"></rect>
+              {
+                CARS.map((x, i) => (
+                  <g transform={`translate(${x} 124)`}>
+                    <rect width="27" height="10" rx={i === 0 ? 3 : 1.5} fill="#0b1317"></rect>
+                    {[4, 10, 16, 22].map((wx) => (
+                      <rect x={wx - 1.5} y="3" width="3" height="3" rx="0.6" fill="#ffd25a"></rect>
+                    ))}
+                  </g>
+                ))
+              }
+            </g>
+            <path d={RIDGES.near} fill="#111c21"></path>
+          </svg>
           <span class="tag">Demo</span>
           <ul class="float">
             {
@@ -182,6 +210,13 @@ const burst = [{ name: "Sam" }, { name: "" }, { name: "" }, { name: "" }] as con
     background: #0c1b22;
     box-shadow: inset 0 0 0 1px var(--line);
     overflow: hidden;
+  }
+  /* The same stand-in film as the hero (a train at dusk), held still. */
+  .still {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
   .tag {
     position: absolute;
