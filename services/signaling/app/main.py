@@ -20,7 +20,15 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, join_page
-from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
+from .protocol import (
+    is_chat_text,
+    is_client_message,
+    is_create_request,
+    is_join_request,
+    is_server_message,
+    message,
+    now_ms,
+)
 from .ratelimit import Limiter
 from .rooms import Participant, Room, RoomError, rooms, safe_media
 
@@ -36,7 +44,25 @@ class NoFrameLogs(logging.Filter):
         )
 
 
+class NoTokens(logging.Filter):
+    """Room tokens ride in the WebSocket URL, which uvicorn logs on connect (and the access
+    log, if on, on every request). Never log a token at any level (CLAUDE.md §6)."""
+
+    TOKEN = re.compile(r"(token=)[^&\s\"']*")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = self.TOKEN.sub(r"\1[redacted]", record.msg)
+        if isinstance(record.args, tuple):  # keep the shape: uvicorn's formatters unpack it
+            record.args = tuple(
+                self.TOKEN.sub(r"\1[redacted]", a) if isinstance(a, str) else a for a in record.args
+            )
+        return True
+
+
 logging.getLogger("uvicorn.error").addFilter(NoFrameLogs())
+for name in ("uvicorn.error", "uvicorn.access"):
+    logging.getLogger(name).addFilter(NoTokens())
 logging.getLogger("websockets").setLevel(logging.INFO)  # the library's own loggers too
 
 
@@ -484,7 +510,7 @@ async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None
     keep it for people who join later. Never log the text (DEC-032). A refusal echoes the
     text to the sender only, so their box can keep it."""
     text: str = payload["text"]
-    if not text.strip():
+    if not is_chat_text(text):  # whitespace or invisible only, or a control character
         await send(p, "CHAT.REJECTED", {"reason": "invalid", "text": text})
         return
     if len(text) > config.CHAT_MAX_CHARS:  # code points, as the protocol counts
@@ -502,7 +528,12 @@ async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None
         "titleId": payload["titleId"],
         "serverTime": now_ms(),
     }
-    room.chat.append(chat)
+    # Never keep or relay what clients would refuse: one bad item would cost every later
+    # joiner the whole history.
+    if not is_server_message(message("CHAT.MESSAGE", chat)):
+        await send(p, "CHAT.REJECTED", {"reason": "invalid", "text": text})
+        return
+    rooms.keep_chat(room, chat)
     await broadcast(room, "CHAT.MESSAGE", chat)
 
 

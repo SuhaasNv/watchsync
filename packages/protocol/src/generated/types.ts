@@ -12,7 +12,7 @@ export type Seconds = number;
 export type Rate = number;
 export type TitleId = string | null;
 /**
- * A chat message: 1 to 500 characters (code points, as names are counted), no control characters. Whitespace-only text is refused by the room service.
+ * A chat message: 1 to 500 characters (code points, as names are counted). As in names, no control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.
  */
 export type ChatText = string;
 /**

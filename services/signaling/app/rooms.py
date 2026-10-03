@@ -122,6 +122,11 @@ def read_token(token: str) -> Claims | None:
     return Claims(code, pid, name, issued, expired)
 
 
+def chat_size(chat: dict[str, Any]) -> int:
+    """A chat message's size as the service sends it (ASCII-only JSON)."""
+    return len(json.dumps(chat))
+
+
 class RoomError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -197,9 +202,10 @@ class Room:
     restored_ids: set[str] = field(default_factory=set)
     restored_playback: dict[str, Any] | None = None
     restore_known_at: float | None = None
-    # The last CHAT_HISTORY chat messages, oldest first, for people who join later. Memory
-    # only, never logged, cleared when the room ends (DEC-032).
-    chat: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=config.CHAT_HISTORY))
+    # The last chat messages, oldest first, for people who join later (Rooms.keep_chat), and
+    # their size as sent. Memory only, never logged, cleared when the room ends (DEC-032).
+    chat: deque[dict[str, Any]] = field(default_factory=deque)
+    chat_bytes: int = 0
 
     def holding(self) -> list[Participant]:
         return [
@@ -243,6 +249,8 @@ class Rooms:
         self.ended: dict[str, float] = {}
         # When this process started taking rooms: restores are allowed only soon after.
         self.started = now_ms()
+        # Bytes of chat kept in all rooms together (keep_chat).
+        self.chat_bytes = 0
 
     def sweep(self, now: float | None = None) -> None:
         """Drop rooms that have had nobody connected for ROOM_IDLE_EXPIRY_SECONDS, or that
@@ -255,12 +263,41 @@ class Rooms:
             if room.empty_since is not None and now - room.empty_since > limit:
                 for p in room.participants.values():
                     self.tokens.pop(p.token, None)
-                room.chat.clear()  # a handler may still hold the room; its chat goes now
+                self._clear_chat(room)  # a handler may still hold the room; its chat goes now
                 del self.rooms[code]
                 self.ended[code] = now
         for code, at in list(self.ended.items()):
             if now - at > 24 * 3600 * 1000:
                 del self.ended[code]
+
+    def keep_chat(self, room: Room, chat: dict[str, Any]) -> None:
+        """Keep a message for people who join later: at most CHAT_HISTORY messages and
+        CHAT_ROOM_BYTES per room, and CHAT_TOTAL_BYTES in all rooms. Past any of them the
+        oldest go first: the room's own, then the oldest anywhere."""
+        if self.rooms.get(room.code) is not room:
+            return  # the room ended while this message was on its way
+        size = chat_size(chat)
+        room.chat.append(chat)
+        room.chat_bytes += size
+        self.chat_bytes += size
+        while len(room.chat) > config.CHAT_HISTORY or room.chat_bytes > config.CHAT_ROOM_BYTES:
+            self._drop_oldest(room)
+        while self.chat_bytes > config.CHAT_TOTAL_BYTES:
+            # Every room's chat is in time order, so the oldest anywhere is some room's first.
+            oldest = min(
+                (r for r in self.rooms.values() if r.chat), key=lambda r: r.chat[0]["serverTime"]
+            )
+            self._drop_oldest(oldest)
+
+    def _drop_oldest(self, room: Room) -> None:
+        size = chat_size(room.chat.popleft())
+        room.chat_bytes -= size
+        self.chat_bytes -= size
+
+    def _clear_chat(self, room: Room) -> None:
+        self.chat_bytes -= room.chat_bytes
+        room.chat.clear()
+        room.chat_bytes = 0
 
     def _new_code(self) -> str:
         while True:
@@ -331,7 +368,7 @@ class Rooms:
         room.skip_hold.discard(p.id)
         room.gone.add(p.name)
         if not room.participants and end_if_empty:
-            room.chat.clear()
+            self._clear_chat(room)
             del self.rooms[room.code]
             self.ended[room.code] = now_ms()
 

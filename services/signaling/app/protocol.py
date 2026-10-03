@@ -1,7 +1,9 @@
 """Validates messages against the shared JSON Schema (DEC-006). Same file the extension uses."""
 
 import json
+import re
 import time
+import unicodedata
 import uuid
 from typing import Any
 
@@ -36,6 +38,22 @@ def is_create_request(data: Any) -> bool:
 
 def is_join_request(data: Any) -> bool:
     return bool(_join.is_valid(data))
+
+
+_chat_text = re.compile(_schema["$defs"]["ChatText"]["pattern"])
+
+
+def is_chat_text(text: str) -> bool:
+    """Chat text as the extension's validator reads the ChatText pattern: over the whole text.
+    jsonschema searches with Python's `$`, which also matches before a final newline, so
+    "hi\\n" passes it but would make every client refuse the room's history. No control
+    character (Cc) either way, and at least one visible character: a letter, number,
+    punctuation or symbol (emoji are symbols)."""
+    return (
+        _chat_text.fullmatch(text) is not None
+        and not any(unicodedata.category(c) == "Cc" for c in text)
+        and any(unicodedata.category(c)[0] in "LNPS" for c in text)
+    )
 
 
 def now_ms() -> float:

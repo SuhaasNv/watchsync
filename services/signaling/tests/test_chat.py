@@ -1,8 +1,7 @@
 """Chat (UC-014): relay, history, limits, membership and privacy (US-042, US-043, US-110).
 
-Each TestClient socket runs the app on its own event loop, and one socket's handler writing to
-another's queue doesn't wake a reader already waiting there. So every helper here waits for
-its own sender's handler to finish (a ping answered) before anyone reads another socket.
+Every socket's handler runs on one event loop (as in test_rooms.py), and the helpers still
+wait for the sender's handler to finish (a ping answered) before reading another socket.
 """
 
 import contextlib
@@ -18,13 +17,21 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from uvicorn.logging import AccessFormatter
 from websockets.sync.client import connect as ws_connect
 
 from app import config, main
-from app.protocol import is_server_message
+from app.protocol import is_chat_text, is_client_message, is_server_message
+from app.rooms import Room, Rooms, chat_size
 
 client = TestClient(main.app)
 SEES_CHAT_HISTORY = True  # conftest.py: these tests read it
+
+
+@pytest.fixture(autouse=True, scope="module")
+def one_loop() -> Iterator[None]:
+    with client:
+        yield
 
 
 def create(name: str = "Maya") -> dict[str, str]:
@@ -175,7 +182,7 @@ def test_chat_is_deleted_when_the_last_person_leaves() -> None:
         room = main.rooms.rooms[host["code"]]
         ws.send_json(msg("ROOM.LEAVE", {}))
         closed(ws)
-    assert list(room.chat) == []
+    assert list(room.chat) == [] and room.chat_bytes == 0
     assert host["code"] not in main.rooms.rooms
     # A new room starts with no earlier messages.
     with connected(create()) as (_, history):
@@ -189,9 +196,12 @@ def test_chat_is_deleted_when_an_empty_room_expires() -> None:
     room = main.rooms.rooms[host["code"]]
     assert [m["text"] for m in room.chat] == ["secret"]  # kept while the room waits
     later = main.now_ms() + (config.ROOM_IDLE_EXPIRY_SECONDS + 1) * 1000
-    main.rooms.sweep(now=later)
+    total, mine = main.rooms.chat_bytes, room.chat_bytes
+    assert mine > 0
+    main.rooms.sweep(now=later)  # ends other tests' idle rooms too
     assert host["code"] not in main.rooms.rooms
-    assert list(room.chat) == []
+    assert list(room.chat) == [] and room.chat_bytes == 0
+    assert main.rooms.chat_bytes <= total - mine  # the budget is given back
 
 
 def test_more_than_the_rate_limit_is_refused_with_the_text_echoed() -> None:
@@ -254,7 +264,99 @@ def test_whitespace_only_is_refused() -> None:
     with connected(host) as (ws, _):
         for text in (" ", "   ", " 　"):
             assert refusal(say(ws, text)) == {"reason": "invalid", "text": text}
+        # Nothing visible: combining marks on their own.
+        for text in ("́́", " ⃝ "):
+            assert refusal(say(ws, text)) == {"reason": "invalid", "text": text}
         assert list(main.rooms.rooms[host["code"]].chat) == []
+
+
+def test_a_final_newline_is_refused_and_never_poisons_the_history() -> None:
+    """Python's `$` matches before a final newline, so the schema alone lets "hi\\n" through
+    here while the extension's validator refuses it: kept, it would make every later joiner's
+    CHAT.HISTORY invalid as a whole."""
+    host = create()
+    with connected(host) as (ws, _):
+        assert refusal(say(ws, "hi\n")) == {"reason": "invalid", "text": "hi\n"}
+        say(ws, "fine")
+    with connected(join(host["code"])) as (_, history):
+        assert [m["text"] for m in history] == ["fine"]
+
+
+# The same cases as packages/protocol/src/protocol.test.ts: the room service and the extension
+# accept and refuse the same text.
+REFUSED = [
+    "hi\n",
+    "a\nb",
+    "a\tb",
+    "a\u0085b",
+    "a\u009fb",
+    *(f"a{c}b" for c in "​‏⁠﻿‪‮⁦⁩  "),
+    *(f"a{c}b" for c in ("\U000e0000", "\U000e0041", "\U000e007f")),
+    "",
+    "x" * 501,
+    "😀" * 501,
+]
+ACCEPTED = ["hi", "a b", "a\U000e0080b", "a‧b c⁰", "😀" * 500, "<b>x</b>"]
+
+
+@pytest.mark.parametrize("text", REFUSED + ACCEPTED)
+def test_the_service_and_the_extension_agree_on_chat_text(text: str) -> None:
+    payload = {"text": text, "movieTime": None, "titleId": None}
+    accepted = is_client_message(msg("CHAT.SEND", payload)) and is_chat_text(text)
+    assert accepted == (text in ACCEPTED), ascii(text)
+
+
+def test_nothing_clients_would_refuse_is_kept_or_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Defence in depth: each message is checked as clients will check it before it is kept."""
+    monkeypatch.setattr(main, "is_server_message", lambda _: False)
+    host = create()
+    with connected(host) as (ws, _):
+        got = say(ws, "hi")
+        assert chats(got) == [] and refusal(got) == {"reason": "invalid", "text": "hi"}
+        assert list(main.rooms.rooms[host["code"]].chat) == []
+
+
+def test_a_room_keeps_at_most_its_byte_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = create()
+    with connected(host) as (ws, _):
+        first = [m["payload"] for m in say(ws, "x" * 100) if m["type"] == "CHAT.MESSAGE"]
+        one = chat_size(first[0])
+        monkeypatch.setattr(config, "CHAT_ROOM_BYTES", one * 3 + 10)  # serverTime's length varies
+        for text in ("a" * 100, "b" * 100, "c" * 100):
+            say(ws, text)
+    room = main.rooms.rooms[host["code"]]
+    assert [m["text"][0] for m in room.chat] == ["a", "b", "c"]  # the oldest went first
+    assert room.chat_bytes == sum(chat_size(m) for m in room.chat) <= one * 3 + 10
+    with connected(host) as (_, history):
+        assert [m["text"][0] for m in history] == ["a", "b", "c"]
+
+
+def test_all_rooms_together_keep_at_most_the_total_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past the service-wide budget the oldest messages anywhere go first."""
+    rooms = Rooms()
+    a, b = Room(code="AAAAAA"), Room(code="BBBBBB")
+    rooms.rooms = {"AAAAAA": a, "BBBBBB": b}
+
+    def chat(text: str, at: float) -> dict[str, Any]:
+        return {"id": text, "fromId": "p", "name": "M", "text": text, "serverTime": at}
+
+    size = chat_size(chat("a1", 1))
+    monkeypatch.setattr(config, "CHAT_TOTAL_BYTES", size * 3)
+    rooms.keep_chat(a, chat("a1", 1))
+    rooms.keep_chat(b, chat("b1", 2))
+    rooms.keep_chat(a, chat("a2", 3))
+    rooms.keep_chat(b, chat("b2", 4))  # over budget: a1, the oldest anywhere, goes
+    assert [m["text"] for m in a.chat] == ["a2"] and [m["text"] for m in b.chat] == ["b1", "b2"]
+    rooms.keep_chat(b, chat("b3", 5))  # b1 is now the oldest
+    assert [m["text"] for m in a.chat] == ["a2"] and [m["text"] for m in b.chat] == ["b2", "b3"]
+    assert rooms.chat_bytes == a.chat_bytes + b.chat_bytes == size * 3
+    # A room that ends gives its share back, and nothing more is kept for it.
+    rooms.leave(a, main.Participant(id="p", name="M", token="t"))  # noqa: S106 (a test value)
+    assert "AAAAAA" not in rooms.rooms and rooms.chat_bytes == b.chat_bytes
+    rooms.keep_chat(a, chat("late", 6))
+    assert list(a.chat) == [] and rooms.chat_bytes == b.chat_bytes
 
 
 def test_malformed_chat_gets_invalid_message_and_the_socket_stays_open() -> None:
@@ -398,3 +500,22 @@ def test_chat_text_is_never_logged_by_the_real_server_at_debug(
     assert any("[accepted]" in r.getMessage() for r in server_logs)
     logged = "\n".join(r.getMessage() for r in server_logs)
     assert "secret" not in logged
+    # Nor the room token from the socket's URL (CLAUDE.md §6).
+    assert host["token"] not in logged and "token=[redacted]" in logged
+
+
+def test_the_access_log_never_shows_a_token() -> None:
+    """uvicorn's access formatter unpacks the record's arguments, so they keep their shape."""
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:1", "GET", "/ws/rooms/ABCDEF?token=s3cr3t-T0k_en&x=1", "1.1", 101),
+        None,
+    )
+    for f in logging.getLogger("uvicorn.access").filters:
+        f.filter(record)
+    line = AccessFormatter("%(message)s", use_colors=False).format(record)
+    assert "s3cr3t" not in line and "token=[redacted]&x=1" in line

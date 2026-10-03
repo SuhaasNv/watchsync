@@ -40,6 +40,10 @@ MESSAGES_PER_10S = int(os.environ.get("MESSAGES_PER_10S", "60"))
 CHAT_MAX_CHARS = int(os.environ.get("CHAT_MAX_CHARS", "500"))
 CHAT_PER_5S = int(os.environ.get("CHAT_PER_5S", "5"))
 CHAT_HISTORY = int(os.environ.get("CHAT_HISTORY", "200"))
+# Bytes of chat (as sent, JSON) kept per room and in all rooms together; past either, the oldest
+# messages go first. Bounds memory and what each join is sent.
+CHAT_ROOM_BYTES = int(os.environ.get("CHAT_ROOM_BYTES", str(64 * 1024)))
+CHAT_TOTAL_BYTES = int(os.environ.get("CHAT_TOTAL_BYTES", str(32 * 1024 * 1024)))
 # Behind Railway's edge, the client address arrives in X-Real-IP (set by the edge).
 TRUST_PROXY = os.environ.get("TRUST_PROXY") == "1"
 # Request bodies are tiny ({"name": ...}); anything bigger is refused.

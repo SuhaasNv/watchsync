@@ -21,11 +21,11 @@
     "Rate": { "type": "number", "minimum": 0.25, "maximum": 4 },
     "TitleId": { "type": ["string", "null"], "maxLength": 200 },
     "ChatText": {
-      "description": "A chat message: 1 to 500 characters (code points, as names are counted), no control characters. Whitespace-only text is refused by the room service.",
+      "description": "A chat message: 1 to 500 characters (code points, as names are counted). As in names, no control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.",
       "type": "string",
       "minLength": 1,
       "maxLength": 500,
-      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF󠀀-󠁿]+$"
     },
     "ChatMessagePayload": {
       "description": "One chat message as the room service relays and keeps it (US-042). movieTime is the sender's player position when they sent it; serverTime is server ms.",

@@ -150,6 +150,22 @@ describe("chat messages (UC-014)", () => {
     for (const c of ["\u0000", "\n", "\r", "\t", "\u001b", "\u007f", "\u0085", "\u009f"])
       expect(isClientMessage(chat({ text: `a${c}b` })), JSON.stringify(c)).toBe(false);
     expect(isClientMessage(chat({ text: "a b" }))).toBe(true); // a no-break space is text
+    expect(isClientMessage(chat({ text: "hi\n" }))).toBe(false); // a final newline too
+  });
+
+  it("refuses the invisible characters names refuse, so nobody can hide or flip text", () => {
+    const hidden = [
+      ["​", "‏", "⁠", "﻿"], // zero-width
+      ["‪", "‮", "⁦", "⁩"], // direction
+      [" ", " "], // line and paragraph separators
+      ["\u{e0000}", "\u{e0041}", "\u{e007f}"], // tags
+    ].flat();
+    for (const c of hidden)
+      expect(isClientMessage(chat({ text: `a${c}b` })), JSON.stringify(c)).toBe(false);
+    // Neighbours of each range stay allowed.
+    expect(isClientMessage(chat({ text: "a\u{e0080}b" }))).toBe(true);
+    expect(isClientMessage(chat({ text: "a‧b c⁰" }))).toBe(true);
+    expect(isServerMessage(server("CHAT.MESSAGE", relayed({ text: "a‮b" })))).toBe(false);
   });
 
   it("refuses wrong types, missing and extra fields", () => {
