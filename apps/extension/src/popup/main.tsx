@@ -644,7 +644,9 @@ function Footer({ update }: { update: AppState["update"] }) {
           Terms
         </a>
         <span className="grow" />
-        <span className="version">v{chrome.runtime.getManifest().version}</span>
+        <span className="version">
+          v{chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}
+        </span>
       </p>
     </footer>
   );

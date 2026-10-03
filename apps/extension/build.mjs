@@ -13,6 +13,9 @@ const out = process.env.WATCHSYNC_OUT ?? "dist";
 const watch = process.argv.includes("--watch");
 const zip = process.argv.includes("--zip");
 const channel = process.env.WATCHSYNC_CHANNEL === "dev" ? "dev" : "prod";
+// A release candidate is 0.2.0 to Chrome (versions are numbers only) and 0.2.0-rc.1 to people:
+// `prerelease` in package.json names it; remove that line for the final release.
+const label = pkg.prerelease ? `${pkg.version}-${pkg.prerelease}` : pkg.version;
 if (zip && !process.env.WATCHSYNC_API) throw new Error("Set WATCHSYNC_API for a zip build");
 // Dev builds name their commit, so the popup can tell a tester a newer dev build is out.
 const build =
@@ -40,7 +43,11 @@ const manifest = {
   manifest_version: 3,
   name: channel === "dev" ? "WatchSync Dev" : "WatchSync",
   version: pkg.version,
-  ...(channel === "dev" ? { version_name: `${pkg.version} dev ${build}` } : {}),
+  ...(channel === "dev"
+    ? { version_name: `${label} dev ${build}` }
+    : pkg.prerelease
+      ? { version_name: label }
+      : {}),
   description:
     "Watch in sync with friends, each on your own account. Works with Netflix, Prime Video and JioHotstar. Not affiliated with them.",
   icons: { 16: "icons/16.png", 32: "icons/32.png", 48: "icons/48.png", 128: "icons/128.png" },
