@@ -12,7 +12,7 @@ import {
   type ServerMessageOf,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
-import { chatAfter } from "../shared/chat";
+import { chatAfter, salvageHistory } from "../shared/chat";
 import {
   type AppState,
   type ChatNonceReply,
@@ -237,7 +237,8 @@ function connect() {
     } catch {
       return;
     }
-    if (isServerMessage(msg)) onServer(msg);
+    const valid = isServerMessage(msg) ? msg : salvageHistory(msg);
+    if (valid) onServer(valid);
   };
   ws.onopen = () => {
     clearInterval(pingTimer);

@@ -1,6 +1,11 @@
-import { type ChatMessagePayload, envelope, type ServerMessageOf } from "@watchsync/protocol";
+import {
+  type ChatMessagePayload,
+  envelope,
+  isServerMessage,
+  type ServerMessageOf,
+} from "@watchsync/protocol";
 import { describe, expect, it } from "vitest";
-import { CHAT_KEEP, type Chat, chatAfter } from "./chat";
+import { CHAT_KEEP, type Chat, chatAfter, salvageHistory } from "./chat";
 
 const said = (text: string, fromId = "friend"): ChatMessagePayload => ({
   id: text,
@@ -60,5 +65,51 @@ describe("chat buffer and unread count (US-042, US-044)", () => {
     const chat = { messages: [said("a")], unread: 1 };
     expect(chatAfter(chat, pong, "me")).toBe(chat);
     expect(chatAfter(chat, refused, "me")).toBe(chat);
+  });
+});
+
+describe("a history with a bad message in it (defence in depth)", () => {
+  const raw = (messages: unknown) => ({
+    id: "1",
+    type: "CHAT.HISTORY",
+    timestamp: 1,
+    payload: { messages },
+  });
+
+  it("keeps the valid messages, in order, instead of dropping them all", () => {
+    const bad = [
+      { ...said("x"), text: "hi\n" },
+      { ...said("x"), text: "a‮b" },
+      { ...said("x"), name: "" },
+      { ...said("x"), extra: 1 },
+      "not a message",
+      null,
+    ];
+    const msg = raw([said("a"), ...bad, said("b")]);
+    expect(isServerMessage(msg)).toBe(false); // the whole history would have been lost
+    const saved = salvageHistory(msg);
+    expect(saved && isServerMessage(saved)).toBe(true);
+    expect(saved?.payload.messages.map((m) => m.text)).toEqual(["a", "b"]);
+    const chat = chatAfter(empty, saved ?? history([]), "me");
+    expect(chat.messages.map((m) => m.text)).toEqual(["a", "b"]);
+    expect(chat.unread).toBe(0);
+  });
+
+  it("keeps only the last 200 of an oversized history", () => {
+    const saved = salvageHistory(raw(Array.from({ length: 201 }, (_, i) => said(`h${i}`))));
+    expect(saved?.payload.messages).toHaveLength(200);
+    expect(saved?.payload.messages[0]?.text).toBe("h1");
+  });
+
+  it("leaves everything else alone", () => {
+    for (const other of [
+      null,
+      "CHAT.HISTORY",
+      raw("nope"),
+      { ...raw([]), payload: null },
+      { id: "1", type: "CHAT.MESSAGE", timestamp: 1, payload: { ...said("x"), text: "" } },
+      { id: "1", type: "ROOM.STATE", timestamp: 1, payload: {} },
+    ])
+      expect(salvageHistory(other)).toBeNull();
   });
 });
