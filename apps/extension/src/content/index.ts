@@ -21,6 +21,7 @@ import {
   prompt,
   renderPill,
   retireOverlay,
+  setChatBadge,
   toast,
 } from "./overlay";
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
@@ -261,6 +262,9 @@ function onPush(m: Push) {
   const wasFollowing = room?.following;
   room = m.state;
   showSidebar(room.session !== null && room.connection !== "idle");
+  // Unread on the chat button (US-044); while chat is open, everything in it is seen.
+  if (isSidebarOpen() && room.unread > 0) post({ kind: "chatOpened" });
+  else setChatBadge(room.unread);
   showConnection();
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
@@ -407,6 +411,7 @@ function drawPill() {
 onSidebarChange((open) => {
   drawPill();
   noticesBesideSidebar(open);
+  if (open) post({ kind: "chatOpened" }); // the unread count clears in every tab
 });
 // Fail closed: the page kept pointing the chat frame elsewhere (DEC-042).
 onChatOff(() => {
