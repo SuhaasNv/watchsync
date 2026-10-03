@@ -460,11 +460,16 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         last = room.last_change
         crossed = last is not None and last[0] != p.id and now - last[1] < 1500
         room.last_change = (p.id, now)
+        # When the sender read its position, by its own estimate of this clock: the room's clock
+        # runs from there, not from when the message arrived, or everyone would be the trip here
+        # behind the sender. Kept within the last 2 s, so a bad estimate can't move it far.
+        at = payload.get("at")
+        stamp = min(now, max(now - 2000, at)) if isinstance(at, (int, float)) else now
         room.playback = {
             "status": payload["status"],  # the sender's real state (BUG-005)
             "position": payload["position"],
             "rate": payload["rate"],
-            "updatedAt": now,
+            "updatedAt": stamp,
             "titleId": payload["titleId"],
         }
         state = {

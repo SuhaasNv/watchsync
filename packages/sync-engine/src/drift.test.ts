@@ -123,12 +123,12 @@ describe("nudgeRate", () => {
   it("scales the change by the room's rate", () => {
     expect(nudgeRate(-0.4, 2, false)).toBe(2.1);
   });
-  it("waits for 40 ms to start and keeps going until within 20 ms", () => {
-    expect(nudgeRate(0.03, 1, false)).toBe(1);
-    expect(nudgeRate(0.03, 1, true)).toBe(0.99);
-    expect(nudgeRate(0.01, 1, true)).toBe(1);
+  it("waits for 15 ms to start and keeps going until within 5 ms", () => {
+    expect(nudgeRate(0.012, 1, false)).toBe(1);
+    expect(nudgeRate(0.012, 1, true)).toBe(0.99);
+    expect(nudgeRate(0.004, 1, true)).toBe(1);
   });
-  it("leaves more than 2 s to the seek", () => {
+  it("leaves more than 0.5 s to the seek", () => {
     expect(nudgeRate(0.51, 1, false)).toBeNull();
     expect(nudgeRate(-5, 1, true)).toBeNull();
   });

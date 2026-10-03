@@ -65,7 +65,7 @@ export const CLOCK_VOTERS = 3;
 /** A sample whose round trip is above this multiple of the best one is ignored. */
 export const CLOCK_RTT_FACTOR = 3;
 /** A new estimate closer than this to the current one is not applied (ms). */
-export const CLOCK_SMOOTH_MS = 15;
+export const CLOCK_SMOOTH_MS = 2;
 /** An estimate older than this is not trusted after a reconnect (ms). */
 export const CLOCK_MAX_AGE_MS = 120_000;
 
@@ -116,7 +116,7 @@ export function freshSamples(samples: TimedSample[], now: number, maxAgeMs: numb
 export const PING_BURST = 6;
 export const PING_BURST_GAP_MS = 150;
 /** Gap between pings after the burst; they also keep the MV3 worker alive (ms). */
-export const PING_STEADY_MS = 20_000;
+export const PING_STEADY_MS = 5_000;
 
 /** Wait before the next ping, once `sent` pings have gone out on this connection. */
 export function nextPingDelay(sent: number): number {

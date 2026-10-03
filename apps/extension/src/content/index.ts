@@ -1013,6 +1013,8 @@ const userMoves = coalesce((move) => {
       position: live && st ? Math.min(86_400, Math.max(0, st.position)) : move.position,
       rate: move.rate,
       titleId,
+      // When the position was read, on the room's clock, so the room starts its clock there.
+      ...(live && room.clockUncertainty !== null ? { at: Date.now() + room.clockOffset } : {}),
     });
   };
   send(60);

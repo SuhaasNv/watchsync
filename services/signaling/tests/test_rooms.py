@@ -378,6 +378,30 @@ def test_playback_update_is_stamped_kept_and_sent_to_others_only() -> None:
         assert main.rooms.rooms[host["code"]].playback == got["playback"]
 
 
+def test_playback_runs_from_when_the_sender_read_it_within_2_s() -> None:
+    host = create()
+    url = f"/ws/rooms/{host['code']}?token="
+    with client.websocket_connect(url + host["token"]) as hws:
+        hws.receive_json()
+        code = host["code"]
+        for at, lo, hi in ((-150, 150, 160), (-60_000, 2000, 2010), (60_000, -10, 10)):
+            now = main.now_ms()
+            payload = {"action": "seek", "status": "playing", "position": 61.5, "rate": 1}
+            hws.send_json(
+                {
+                    "id": "u",
+                    "type": "PLAYBACK.UPDATE",
+                    "timestamp": 1,
+                    "payload": {**payload, "titleId": "1", "at": now + at},
+                }
+            )
+            hws.send_json({"id": "p", "type": "SYS.PING", "timestamp": 1, "payload": {"t1": 1}})
+            assert hws.receive_json()["type"] == "SYS.PONG"
+            # 150 ms ago is kept; a minute ago is 2 s ago; the future is now.
+            behind = now - main.rooms.rooms[code].playback["updatedAt"]
+            assert lo - 50 <= behind <= hi + 50
+
+
 def test_leave_revokes_the_token_and_tells_the_room() -> None:
     host = create()
     guest = join(host["code"]).json()

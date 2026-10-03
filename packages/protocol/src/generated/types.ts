@@ -45,6 +45,10 @@ export type PlaybackUpdate = Envelope & {
     position: Seconds;
     rate: Rate;
     titleId: TitleId;
+    /**
+     * Server time (ms) at which the sender read position, by its own clock estimate. The room runs its clock from here rather than from when the message arrived, so the trip to the room doesn't put everyone behind the sender. Clamped to the last 2 s.
+     */
+    at?: number;
   };
 };
 export type Ping = Envelope & {

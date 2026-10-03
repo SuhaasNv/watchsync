@@ -77,7 +77,7 @@ describe("smoothOffset", () => {
   });
 
   it("applies a change at or over the threshold at once", () => {
-    expect(smoothOffset(5000, 5000 + CLOCK_SMOOTH_MS)).toBe(5015);
+    expect(smoothOffset(5000, 5000 + CLOCK_SMOOTH_MS)).toBe(5000 + CLOCK_SMOOTH_MS);
     expect(smoothOffset(5000, 4000)).toBe(4000);
   });
 });
@@ -135,7 +135,7 @@ describe("nextPingDelay", () => {
     ]);
     expect(PING_BURST).toBe(6);
     expect(PING_BURST_GAP_MS).toBe(150);
-    expect(PING_STEADY_MS).toBe(20_000);
+    expect(PING_STEADY_MS).toBe(5_000);
   });
 
   it("the first ping goes out at once and is followed by the burst gap", () => {

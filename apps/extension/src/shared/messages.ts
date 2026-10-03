@@ -161,6 +161,8 @@ export type TabEvent =
       position: number;
       rate: number;
       titleId: string | null;
+      /** Room-clock time (ms) at which position was read; left out until the clock is known. */
+      at?: number;
     }
   | { kind: "hold"; reason: "buffering" | "ad" | null; position: number; adLeft: number | null }
   | { kind: "start"; position: number; titleId: string | null }

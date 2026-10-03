@@ -327,7 +327,7 @@ function connect() {
       state.clockUncertainty = null;
     }
     // Pings keep the MV3 worker alive while in a room and feed the clock estimate: a quick
-    // burst on every (re)connect for a good first estimate, then one every 20 s.
+    // burst on every (re)connect for a good first estimate, then one every 5 s.
     let sent = 0;
     const ping = () => {
       sendServer(envelope("SYS.PING", { t1: performance.now() }));
@@ -813,7 +813,7 @@ chrome.runtime.onConnect.addListener((port) => {
           position,
           rate,
           titleId,
-          updatedAt: Date.now() + state.clockOffset,
+          updatedAt: update.at ?? Date.now() + state.clockOffset,
         };
         changed();
         return;
