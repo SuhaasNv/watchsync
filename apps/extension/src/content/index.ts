@@ -7,6 +7,7 @@ import {
   decide,
   expectedPosition,
   improved,
+  NUDGE_MAX_SEC,
   toleranceAt,
   WIDE_FOR_MS,
 } from "@watchsync/sync-engine";
@@ -29,6 +30,7 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { align } from "./align";
+import { baseRate, type NudgeView, nudgeAvailable, startNudging } from "./nudge";
 import {
   CHAT_OFF,
   chatButton,
@@ -488,7 +490,7 @@ function publishMine() {
     action: "seek",
     status,
     position: st.position,
-    rate: st.rate,
+    rate: baseRateOf(st.rate),
     titleId: mine.titleId,
   });
 }
@@ -571,7 +573,7 @@ function syncEveryone() {
     action: "sync",
     status: st.playing ? "playing" : "paused",
     position: st.position,
-    rate: st.rate,
+    rate: baseRateOf(st.rate),
     titleId: mine.titleId,
   });
   toast("Everyone is here with you", 2500, { icon: "sync", tone: "ok" });
@@ -590,7 +592,7 @@ function pauseTogether() {
     action: "pause",
     status: "paused",
     position: st.position,
-    rate: st.rate,
+    rate: baseRateOf(st.rate),
     titleId: mine.titleId,
   });
   // The pause event this causes isn't a second action: held back 120 ms like a person's
@@ -668,7 +670,7 @@ function checkDrift() {
   playStateSince = 0;
   // A speed tool running this player at another speed than the room (past 4x, BUG-034):
   // positions can't line up, and jumping it back would swallow the person's next press.
-  if (Math.abs(local.rate - playback.rate) > 0.01) return showBehind(null);
+  if (Math.abs(baseRate(v) - playback.rate) > 0.01) return showBehind(null);
   const now = Date.now();
   const expected = expectedPosition(playback, now + room.clockOffset);
   const gap = Math.abs(local.position - expected);
@@ -679,6 +681,9 @@ function checkDrift() {
       widenedUntil = now + WIDE_FOR_MS;
   }
   lastCorrection = null;
+  // Small drift is the nudge's: it speeds or slows the player a little, which lands exactly
+  // where a seek is a gamble. Only the bigger gaps below are seeked or asked about.
+  if (nudgeAvailable() && gap <= NUDGE_MAX_SEC) return showBehind(null);
   const tolerance = toleranceAt(
     widenedUntil,
     now,
@@ -1012,6 +1017,25 @@ const userMoves = coalesce((move) => {
   send(60);
 });
 
+/** The rate to tell the room: this player's own, never one the nudge is holding it at. */
+function baseRateOf(rate: number): number {
+  const v = provider?.video();
+  return v ? baseRate(v) : rate;
+}
+
+/** What the nudge reads from this tab: the check's own reasons to stand aside. */
+const nudgeView: NudgeView = {
+  clock: roomView.clock,
+  busy: () =>
+    holdReason !== null ||
+    startPhase !== null ||
+    isLive() ||
+    isEcho() ||
+    isSettling() ||
+    userMoves.pending() ||
+    sendWaiting,
+};
+
 const timers: ReturnType<typeof setInterval>[] = [];
 /** Player listeners added once for the provider's video, removed in retire(). */
 const stops: (() => void)[] = [];
@@ -1089,6 +1113,7 @@ if (provider) {
         userMoves.push({ action, playing, position, rate });
     }),
   );
+  stops.push(startNudging(provider, nudgeView));
   timers.push(
     setInterval(poll, 1000),
     // Not while a move of mine is still waiting to be sent: the room's clock is the old one

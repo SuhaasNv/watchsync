@@ -13,15 +13,21 @@ export function clampSeekLead(ms: number): number {
   return Math.min(MAX_SEEK_LEAD_MS, Math.max(0, ms));
 }
 
+/** The middle of `xs` (the mean of the two middle ones when even); NaN for none. */
+export function median(xs: readonly number[]): number {
+  if (xs.length === 0) return Number.NaN;
+  const sorted = [...xs].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 === 1
+    ? (sorted[mid] ?? Number.NaN)
+    : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+}
+
 /** The lead to use: the median of the last SEEK_SAMPLES latencies, so one slow seek can't skew it. */
 export function seekLead(latencies: readonly number[]): number {
   const recent = latencies.filter(Number.isFinite).slice(-SEEK_SAMPLES);
   if (recent.length === 0) return DEFAULT_SEEK_LEAD_MS;
-  const sorted = [...recent].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  const median =
-    sorted.length % 2 === 1 ? sorted[mid] : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
-  return clampSeekLead(median ?? DEFAULT_SEEK_LEAD_MS);
+  return clampSeekLead(median(recent));
 }
 
 /** A player landing this far (or more) off the room after a seek gets corrected, seconds. */
@@ -92,4 +98,32 @@ export function toleranceAt(
   narrow: number = DRIFT_TOLERANCE_SEC,
 ): number {
   return now < wideUntil ? Math.max(narrow, DRIFT_TOLERANCE_WIDE_SEC) : narrow;
+}
+
+/** Drift (absolute, seconds) at which a player that isn't nudging starts. */
+export const NUDGE_MIN_SEC = 0.04;
+/** A nudging player is back at the base rate once within this, seconds (hysteresis). */
+export const NUDGE_DONE_SEC = 0.02;
+/** Drift beyond this is not nudged: a seek (or the prompt) handles it, seconds. */
+export const NUDGE_MAX_SEC = 2;
+/** The most a nudge changes the base rate by (0.05 is 5%, too small to hear or see). */
+export const NUDGE_MAX_DELTA = 0.05;
+/** Rate change per second of drift. */
+export const NUDGE_GAIN = 0.5;
+/** The least a nudge changes the rate by, so it closes the gap in reasonable time. */
+export const NUDGE_MIN_DELTA = 0.01;
+/** How many recent drift measurements the nudge takes its median from. */
+export const NUDGE_SAMPLES = 5;
+
+/**
+ * The playback rate that closes `drift` (local minus expected, seconds) around `baseRate`:
+ * ahead plays slower, behind plays faster. Null when the drift is too big to nudge. Inside
+ * NUDGE_DONE_SEC it is the base rate; a player that isn't nudging yet waits for NUDGE_MIN_SEC.
+ */
+export function nudgeRate(drift: number, baseRate: number, nudging: boolean): number | null {
+  const gap = Math.abs(drift);
+  if (gap > NUDGE_MAX_SEC) return null;
+  if (gap < NUDGE_DONE_SEC || (!nudging && gap < NUDGE_MIN_SEC)) return baseRate;
+  const delta = Math.min(NUDGE_MAX_DELTA, Math.max(NUDGE_MIN_DELTA, gap * NUDGE_GAIN)) * baseRate;
+  return Math.round((baseRate - Math.sign(drift) * delta) * 1000) / 1000;
 }

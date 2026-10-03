@@ -10,6 +10,7 @@ import {
   settleDecision,
   settleMinFor,
 } from "@watchsync/sync-engine";
+import { baseRate, endNudge, nudgeAvailable } from "./nudge";
 import type { StreamingProvider } from "./providers";
 
 export type Action = "play" | "pause" | "seek" | "sync";
@@ -42,7 +43,7 @@ export function listen(
     if (!Number.isFinite(v.duration)) return; // live: not synced (UC-010)
     // Scrubbing, arrow keys, 10-second skips and Skip intro all end in "seeked".
     const action: Action = e.type === "seeked" ? "seek" : e.type === "play" ? "play" : "pause";
-    onUser(action, !v.paused, clamp(v.currentTime, 0, 86_400), clamp(v.playbackRate, 0.25, 4));
+    onUser(action, !v.paused, clamp(v.currentTime, 0, 86_400), clamp(baseRate(v), 0.25, 4));
   };
   document.addEventListener("play", handler, true);
   document.addEventListener("pause", handler, true);
@@ -140,6 +141,7 @@ export { clock } from "../shared/activity";
 /** A correction the person didn't ask for: seek without it being taken as theirs. */
 export async function seekQuietly(provider: StreamingProvider, seconds: number) {
   hold(ECHO_MS);
+  endNudge(); // seek from the room's real rate, not a nudged one
   await provider.seek(seconds);
 }
 
@@ -306,7 +308,7 @@ function startSettle(provider: StreamingProvider, view: RoomView, from: Playback
     if (playback.updatedAt !== from.updatedAt || playback.status !== "playing") return "stop";
     if (document.hidden || view.busy() || provider.ad()) return "stop";
     if (Date.now() - startedAt > SETTLE_DEADLINE_MS || !Number.isFinite(v.duration)) return "stop";
-    if (Math.abs(v.playbackRate - playback.rate) > 0.01) return "stop";
+    if (Math.abs(baseRate(v) - playback.rate) > 0.01) return "stop";
     return v.seeking || v.readyState < 3 || v.paused ? "wait" : { v, clock };
   };
 
@@ -380,6 +382,7 @@ export async function apply(
   const local = provider.getState();
   if (!local) return;
   hold(ECHO_MS);
+  endNudge(); // a room move starts from the room's rate; the nudge picks up again after it
   const target = expectedPosition(playback, serverNow);
   const off = exact
     ? Math.abs(local.position - target) > EXACT_SEC
@@ -394,7 +397,8 @@ export async function apply(
     void landed?.then((ms) => {
       if (ms === null) return;
       recordLatency(ms);
-      if (view && mine === epoch) startSettle(provider, view, playback);
+      // With nudging on, the nudge closes the last bit; a second seek would be another gamble.
+      if (view && mine === epoch && !nudgeAvailable()) startSettle(provider, view, playback);
     });
   }
   if (playback.status === "playing" && !local.playing) await provider.play();

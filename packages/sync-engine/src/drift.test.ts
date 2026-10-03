@@ -6,6 +6,8 @@ import {
   DRIFT_TOLERANCE_WIDE_SEC,
   improved,
   MAX_SEEK_LEAD_MS,
+  median,
+  nudgeRate,
   SETTLE_MIN_SEC,
   seekLead,
   settleDecision,
@@ -94,5 +96,40 @@ describe("ongoing tolerance", () => {
     expect(settleMinFor(0.5)).toBe(0.5);
     expect(settleDecision(99.7, 100, 0, null, settleMinFor(0.5))).toBe("none");
     expect(settleDecision(99.4, 100, 0, null, settleMinFor(0.5))).toBe("correct");
+  });
+});
+
+describe("median", () => {
+  it("is the middle value, or the mean of the two middle ones", () => {
+    expect(median([3, 1, 2])).toBe(2);
+    expect(median([4, 1, 3, 2])).toBe(2.5);
+  });
+  it("is NaN for nothing", () => {
+    expect(median([])).toBeNaN();
+  });
+});
+
+describe("nudgeRate", () => {
+  it("slows a player that is ahead and speeds one that is behind", () => {
+    expect(nudgeRate(0.3, 1, false)).toBe(0.95);
+    expect(nudgeRate(-0.3, 1, false)).toBe(1.05);
+    expect(nudgeRate(-0.06, 1, false)).toBe(1.03);
+  });
+  it("never changes the rate by more than 5% or less than 1%", () => {
+    expect(nudgeRate(1.5, 1, true)).toBe(0.95);
+    expect(nudgeRate(-1.5, 1, true)).toBe(1.05);
+    expect(nudgeRate(0.021, 1, true)).toBe(0.99);
+  });
+  it("scales the change by the room's rate", () => {
+    expect(nudgeRate(-1, 2, false)).toBe(2.1);
+  });
+  it("waits for 40 ms to start and keeps going until within 20 ms", () => {
+    expect(nudgeRate(0.03, 1, false)).toBe(1);
+    expect(nudgeRate(0.03, 1, true)).toBe(0.985);
+    expect(nudgeRate(0.01, 1, true)).toBe(1);
+  });
+  it("leaves more than 2 s to the seek", () => {
+    expect(nudgeRate(2.01, 1, false)).toBeNull();
+    expect(nudgeRate(-5, 1, true)).toBeNull();
   });
 });
