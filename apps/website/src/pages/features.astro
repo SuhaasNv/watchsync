@@ -1,5 +1,6 @@
 ---
 import DownloadButton from "../components/DownloadButton.astro";
+import ChatDemo from "../components/home/ChatDemo.astro";
 import Details from "../components/home/Details.astro";
 import StartTogether from "../components/home/StartTogether.astro";
 import Trust from "../components/Trust.astro";
@@ -8,7 +9,7 @@ import Base from "../layouts/Base.astro";
 
 <Base
   title="Features · WatchSync"
-  description="Start with a 3-2-1, rooms that wait for buffering and ads, quiet drift correction, next episodes together, and what WatchSync can and can't see."
+  description="Start with a 3-2-1, chat and reactions, rooms that wait for buffering and ads, quiet drift correction, next episodes together, and what WatchSync can and can't see."
 >
   <div class="wrap">
     <header class="page-head">
@@ -19,6 +20,7 @@ import Base from "../layouts/Base.astro";
     </header>
   </div>
   <StartTogether />
+  <ChatDemo />
   <Details />
   <Trust />
   <div class="wrap cta">
