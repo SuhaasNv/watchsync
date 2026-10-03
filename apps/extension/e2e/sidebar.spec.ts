@@ -160,10 +160,13 @@ test("leaving the room removes chat and its button", async ({ ext }) => {
 
 test("the popup shows the chat shortcut", async ({ ext }) => {
   const { pop } = await inRoom(ext);
-  // One hint under Open chat: the shortcut once the room's tab is open (the popup opened
-  // before it, so it looks again).
+  // The shortcut sits inside the Open chat row; with the room's tab open there is no hint
+  // line under it (the popup opened before the tab, so it looks again).
   await pop.reload();
-  await expect(pop.getByText(/^Open chat on the player with .+W$/)).toBeVisible();
+  const open = pop.getByRole("button", { name: "Open chat", exact: true });
+  await expect(open).toBeEnabled();
+  await expect(open.locator(".key")).toHaveText(/W$/);
+  await expect(open).toHaveAttribute("title", /^Open chat on the player with .+W$/);
   await expect(pop.getByText("Open the title on a supported service first.")).toHaveCount(0);
 });
 
