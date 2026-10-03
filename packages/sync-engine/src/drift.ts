@@ -104,8 +104,8 @@ export function toleranceAt(
 export const NUDGE_MIN_SEC = 0.04;
 /** A nudging player is back at the base rate once within this, seconds (hysteresis). */
 export const NUDGE_DONE_SEC = 0.02;
-/** Drift beyond this is not nudged: a seek (or the prompt) handles it, seconds. */
-export const NUDGE_MAX_SEC = 2;
+/** Drift beyond this is seeked (5% speed would take 10 s+ to close it), then nudged, seconds. */
+export const NUDGE_MAX_SEC = 0.5;
 /** The most a nudge changes the base rate by (0.05 is 5%, too small to hear or see). */
 export const NUDGE_MAX_DELTA = 0.05;
 /** Rate change per second of drift. */

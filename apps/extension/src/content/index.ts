@@ -30,7 +30,7 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { align } from "./align";
-import { baseRate, type NudgeView, nudgeAvailable, startNudging } from "./nudge";
+import { baseRate, type NudgeView, nudgeAvailable, nudgeDriftMs, startNudging } from "./nudge";
 import {
   CHAT_OFF,
   chatButton,
@@ -42,6 +42,7 @@ import {
   renderPill,
   retireOverlay,
   setChatBadge,
+  showDrift,
   toast,
 } from "./overlay";
 import {
@@ -1023,14 +1024,16 @@ function baseRateOf(rate: number): number {
   return v ? baseRate(v) : rate;
 }
 
-/** What the nudge reads from this tab: the check's own reasons to stand aside. */
+/**
+ * What the nudge reads from this tab: the check's own reasons to stand aside. Not the echo
+ * window: the nudge only reads the position, and a landed seek is closed sooner without it.
+ */
 const nudgeView: NudgeView = {
   clock: roomView.clock,
   busy: () =>
     holdReason !== null ||
     startPhase !== null ||
     isLive() ||
-    isEcho() ||
     isSettling() ||
     userMoves.pending() ||
     sendWaiting,
@@ -1114,6 +1117,8 @@ if (provider) {
     }),
   );
   stops.push(startNudging(provider, nudgeView));
+  // Dev builds only: the live gap to the room's clock in the pill, for testing on real services.
+  if (__CHANNEL__ === "dev") timers.push(setInterval(() => showDrift(nudgeDriftMs()), 250));
   timers.push(
     setInterval(poll, 1000),
     // Not while a move of mine is still waiting to be sent: the room's clock is the old one

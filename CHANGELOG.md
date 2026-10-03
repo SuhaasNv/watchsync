@@ -27,6 +27,7 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 - Everyone's clocks line up faster and more precisely when a room starts and after a reconnect, so players stay closer together.
 - Skipping with the arrow keys or clicking the timeline no longer leaves a friend a fraction of a second behind: the player allows for how long the seek takes and corrects itself once it lands, so you don't need to press Start with 3-2-1 again.
 - Jumping to a part of the episode that hasn't loaded yet no longer leaves the person who jumped behind everyone: the room starts its clock once their player is playing there. Each later jump is fine-tuned again too, instead of only the first.
+- Small gaps between friends (up to half a second) now close by playing a touch faster or slower, at most 5%, instead of jumping, so the picture never skips and you end up within a few hundredths of a second. Bigger gaps still jump first. If a service won't take the speed change, WatchSync goes back to jumping there.
 
 ### Security
 - The chat panel runs in an extension frame, so the streaming page can't read what you type.

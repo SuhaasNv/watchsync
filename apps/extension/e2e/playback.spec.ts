@@ -207,8 +207,8 @@ test("a jump to a spot that still has to load starts the room's clock when it pl
       v.addEventListener("seeked", () => setTimeout(() => w.__stall?.(), 0), { once: true });
       v.currentTime = t;
     }, to);
-    await hostTab.waitForTimeout(4000);
-    expect(await gapBetween(tab, hostTab)).toBeLessThan(0.15);
+    // Seeked close, then nudged the rest of the way: within 50 ms.
+    await expect.poll(() => gapBetween(tab, hostTab), { timeout: 10_000 }).toBeLessThan(0.05);
     // The room ran its clock from when this player played there, so it was never pulled again.
     expect(await tab.evaluate(() => (window as { __jumps?: number }).__jumps)).toBe(1);
     expect(await playing(tab)).toBe(true);
