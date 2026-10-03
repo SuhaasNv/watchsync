@@ -27,6 +27,28 @@ body {
   padding: 12px 12px 12px 16px;
   border-bottom: 1px solid rgba(214, 236, 240, 0.1);
 }
+/* Room notices on or off (US-114). */
+.prefs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 16px;
+  color: #a9b8b9;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(214, 236, 240, 0.1);
+  cursor: pointer;
+}
+.prefs input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #ffd25a;
+}
+.prefs input:focus-visible {
+  outline: 2px solid #ffd25a;
+  outline-offset: 2px;
+}
 h1 {
   margin: 0;
   font-size: 14px;
@@ -325,4 +347,13 @@ textarea:disabled {
   50% {
     opacity: 0.4;
   }
+/* Room notices in the feed (US-113): plain secondary lines, set apart from chat rows. */
+.activity {
+  margin: 4px 8px;
+  padding: 2px 0;
+  color: #a9b8b9;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  unicode-bidi: isolate;
 }

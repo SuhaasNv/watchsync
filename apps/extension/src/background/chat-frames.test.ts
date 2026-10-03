@@ -82,5 +82,10 @@ test("chat goes only to chat frames; the rest never to them", () => {
   expect(wantsServerMessage("popup", "CHAT.MESSAGE")).toBe(false);
   expect(wantsServerMessage("tab", "PLAYBACK.STATE")).toBe(true);
   expect(wantsServerMessage("popup", "ROOM.STATE")).toBe(true);
-  expect(wantsServerMessage("sidebar", "PLAYBACK.STATE")).toBe(false);
+  // The feed's room notices (US-113); nothing else that isn't chat.
+  expect(wantsServerMessage("sidebar", "PLAYBACK.STATE")).toBe(true);
+  expect(wantsServerMessage("sidebar", "ROOM.PARTICIPANT")).toBe(true);
+  expect(wantsServerMessage("sidebar", "ROOM.MEDIA")).toBe(true);
+  expect(wantsServerMessage("sidebar", "ROOM.STATE")).toBe(false);
+  expect(wantsServerMessage("sidebar", "START.STATE")).toBe(false);
 });

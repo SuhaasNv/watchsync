@@ -2,9 +2,11 @@
 // (DEC-042): keys typed here never reach the service page. It talks to the background itself;
 // the content script only places the frame. UC-014: the room's messages and the message box.
 import type { AnyServerMessage, ChatMessagePayload } from "@watchsync/protocol";
+import { NOTICES_KEY, noticesOn } from "../shared/activity";
 import { CHAT_KEEP, isChatText } from "../shared/chat";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
+import { ActivityFeed } from "./activity";
 import { announcement, capText, namesFor, type Outgoing, renderLog } from "./chat-view";
 import { mountReactions } from "./reactions";
 
@@ -30,6 +32,21 @@ const hint = byId("hint", HTMLParagraphElement);
 const say = byId("say", HTMLDivElement);
 close.append(svgIcon("close", 16));
 
+// Room notices on the video on or off, for every room from now on (US-114).
+const notices = byId("notices", HTMLInputElement);
+chrome.storage.local
+  .get(NOTICES_KEY)
+  .then((got) => {
+    notices.checked = noticesOn(got[NOTICES_KEY]);
+  })
+  .catch(() => {}); // unreadable: the switch shows the default, on
+notices.addEventListener("change", (e) => {
+  if (!e.isTrusted) return; // only the person's own click
+  chrome.storage.local.set({ [NOTICES_KEY]: notices.checked }).catch(() => {
+    notices.checked = !notices.checked; // not saved: show what still applies
+  });
+});
+
 const LIMIT = 500;
 const REFUSED: Record<string, string> = {
   rate_limited: "Slow down a little.",
@@ -47,6 +64,13 @@ let covered = false;
 let seenVisible = false;
 let burst: { name: string; text: string }[] = [];
 let frame = 0;
+const feed = new ActivityFeed();
+const roomView = () => ({
+  you: you(),
+  media: state?.media ?? null,
+  playback: state?.playback ?? null,
+  participants: state?.participants ?? [],
+});
 
 const you = () => state?.session?.participantId ?? null;
 /** The room has ended (not merely: the room's state hasn't arrived yet). */
@@ -59,8 +83,9 @@ function draw() {
     you: you(),
     people: state?.participants ?? [],
     fresh,
+    activity: feed.items,
   });
-  empty.hidden = messages.length > 0 || outgoing.length > 0;
+  empty.hidden = messages.length > 0 || outgoing.length > 0 || feed.items.length > 0;
 }
 
 function toBottom() {
@@ -108,6 +133,8 @@ function drawComposer() {
 }
 
 function onServer(msg: AnyServerMessage) {
+  // Room notices: drawn with the next frame, silent (the on-page notice says it, US-113).
+  if (feed.onServer(msg, roomView())) return later();
   if (msg.type === "CHAT.HISTORY") {
     const had = messages.length > 0;
     messages = msg.payload.messages.slice(-CHAT_KEEP);
@@ -160,6 +187,7 @@ function onPush(m: Push) {
   if (m.kind === "reactionDropped") return reactions.dropped(m.emoji, m.reason);
   if (m.kind === "state") {
     state = m.state;
+    feed.sync(roomView());
     const room = m.state.session?.code;
     code.textContent = room ? `Room ${room}` : "";
     drawComposer();

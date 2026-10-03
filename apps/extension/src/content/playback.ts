@@ -39,14 +39,8 @@ export function listen(
   document.addEventListener("seeked", handler, true);
 }
 
-/** 2530 → "42:10", 3723 → "1:02:03". */
-export function clock(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(s / 3600);
-  const mm = String(Math.floor((s % 3600) / 60));
-  const ss = String(s % 60).padStart(2, "0");
-  return h ? `${h}:${mm.padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
-}
+/** 2530 → "42:10", 3723 → "1:02:03" (shared with the chat feed, US-113). */
+export { clock } from "../shared/activity";
 
 /** A correction the person didn't ask for: seek without it being taken as theirs. */
 export async function seekQuietly(provider: StreamingProvider, seconds: number) {
