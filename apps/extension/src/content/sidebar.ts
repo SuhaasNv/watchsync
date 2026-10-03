@@ -4,6 +4,7 @@
 // shell only places the frame, animates it open and closed, and follows the player into full
 // screen. It never carries chat or room data; the frame talks to the background itself.
 import type { ChatNonceReply, ChatNonceRequest } from "../shared/messages";
+import { typingGuard } from "./typing-guard";
 
 /** Unread messages, shown on the pill's chat button (the one way into chat on the page). */
 export { setChatBadge as setCollapsedBadge } from "./overlay";
@@ -73,6 +74,17 @@ const openers: (() => void)[] = [];
 const watchers: ((open: boolean) => void)[] = [];
 
 const where = () => document.fullscreenElement ?? document.documentElement;
+
+/** Where characters go that the page got while it held focus from the message box. */
+let forwardKeys: (text: string) => void = () => {};
+// While the panel is open and the person is typing in it, a page that takes focus loses it
+// again and never sees the keys (BUG-073).
+const typing = typingGuard(host, {
+  refocus: () => {
+    if (open && frame) focusFrame(frame);
+  },
+  forward: (text) => forwardKeys(text),
+});
 
 // If the page takes the host off or moves it, put it back. Child list of its parent only.
 const guard = new MutationObserver(() => {
@@ -197,6 +209,7 @@ function interfered(): boolean {
   off = true;
   const was = open;
   open = false;
+  typing.stop();
   returnTo = null;
   focusWhenReady = false;
   clearTimeout(closing);
@@ -255,6 +268,7 @@ export function showSidebar(room: boolean) {
   inRoom = room;
   if (room) return;
   const was = open;
+  typing.stop();
   if (root.activeElement) giveFocusBack();
   open = false;
   returnTo = null;
@@ -277,6 +291,7 @@ export function openSidebar(from: HTMLElement | null = focusedOnPage()) {
   if (!open) {
     returnTo = from;
     open = true;
+    typing.start();
     clearTimeout(closing); // reopened mid-close: the close animation gives way
     panel.classList.remove("closing");
     panel.hidden = false;
@@ -294,6 +309,7 @@ export function openSidebar(from: HTMLElement | null = focusedOnPage()) {
 export function closeSidebar() {
   if (!open) return;
   open = false;
+  typing.stop(); // before focus goes back: that move is the person's, not the page's
   focusWhenReady = false;
   const inside = root.activeElement !== null;
   changed(); // the pill redraws first, so focus lands on its button as it now stands
@@ -317,6 +333,16 @@ export function toggleSidebar(from?: HTMLElement | null) {
 
 export const isSidebarOpen = () => open;
 
+/** The chat frame reports typing in its message box (on), or leaving it with Tab (off). */
+export function chatTyping(on: boolean) {
+  typing.typing(on);
+}
+
+/** Called with each character the page got while it held focus from the message box. */
+export function onChatType(cb: (text: string) => void) {
+  forwardKeys = cb;
+}
+
 /** Called each time the panel opens (UC-014 clears unread then). */
 export function onSidebarOpen(cb: () => void) {
   openers.push(cb);
@@ -335,6 +361,7 @@ export function focusFallback(find: () => HTMLElement | null) {
 /** This copy of the extension was replaced by an update: take the panel off for good. */
 export function retireSidebar() {
   retired = true;
+  typing.stop();
   clearTimeout(closing);
   clearTimeout(helloDue);
   unmount();

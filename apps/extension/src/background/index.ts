@@ -11,7 +11,7 @@ import {
   isServerMessage,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
-import { salvageHistory } from "../shared/chat";
+import { isTypedText, salvageHistory } from "../shared/chat";
 import {
   type AppState,
   type ChatNonceReply,
@@ -585,6 +585,13 @@ function toTab(tabId: number | undefined, msg: Push) {
   for (const p of ports) if (p.name === "tab" && p.sender?.tab?.id === tabId) p.postMessage(msg);
 }
 
+/** Tells the chat frames (admitted ones only) of one tab, and no other. */
+function toChatFrames(tabId: number | undefined, msg: Push) {
+  if (tabId === undefined) return;
+  for (const p of ports)
+    if (p.name === "sidebar" && p.sender?.tab?.id === tabId) p.postMessage(msg);
+}
+
 /** The chat shortcut (US-040): only the tab it was pressed in opens or closes its panel. */
 async function onCommand(command: string, tab?: chrome.tabs.Tab) {
   if (command !== "toggle-sidebar") return;
@@ -731,6 +738,7 @@ function admitChatFrame(port: chrome.runtime.Port) {
       if (m.kind === "chat")
         chat.onTabEvent(port, { kind: "chat", text: m.text, clientId: m.clientId, ...myTime() });
       if (m.kind === "react") react(m.emoji, m.count, port);
+      if (m.kind === "typing") toTab(port.sender?.tab?.id, { kind: "chatTyping", on: m.on });
     });
     ready.then(() => {
       port.postMessage({ kind: "state", state: shared() } satisfies Push);
@@ -791,6 +799,12 @@ chrome.runtime.onConnect.addListener((port) => {
         return changed();
       }
       if (e.kind === "react") return react(e.emoji, e.count, port);
+      if (e.kind === "chatType") {
+        // From this tab's content script to this tab's chat frames, and only if it is text.
+        if (isTypedText(e.text))
+          toChatFrames(port.sender?.tab?.id, { kind: "chatInsert", text: e.text });
+        return;
+      }
       const tabId = port.sender?.tab?.id;
       if (tabId !== undefined) tabTitles.set(tabId, e.media?.titleId ?? null);
       // A browse page in another tab mustn't hide the tab still playing a title; that

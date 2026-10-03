@@ -105,6 +105,19 @@ export function isChatText(text: string): boolean {
   return visible;
 }
 
+/** The most a chat message holds, in code points (the chat frame's own limit). */
+export const CHAT_MAX_CHARS = 500;
+
+/**
+ * Text a tab's page hands the message box (BUG-073): a few typed characters. Not empty, within
+ * the message limit, no control characters (a line break or tab is never typed this way).
+ */
+export const isTypedText = (v: unknown): v is string =>
+  typeof v === "string" &&
+  Array.from(v).length >= 1 &&
+  Array.from(v).length <= CHAT_MAX_CHARS &&
+  !/\p{Cc}/u.test(v);
+
 /** Line breaks as the room keeps them (\n), and tabs as spaces, before validating. */
 export const normalizeChatText = (text: string): string =>
   text.replace(/\r\n?/g, "\n").replace(/\t/g, " ");

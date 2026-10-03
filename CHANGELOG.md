@@ -22,6 +22,7 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 
 ### Fixed
 - A friend's 10-second skip on Netflix now shows as one "skipped ahead" notice instead of paused and played.
+- Typing in chat no longer gets cut off when a streaming site's player grabs focus: the chat box takes focus back and the player's shortcuts stay out of your message.
 
 ### Security
 - The chat panel runs in an extension frame, so the streaming page can't read what you type.

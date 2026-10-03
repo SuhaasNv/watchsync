@@ -3,7 +3,7 @@
 // the content script only places the frame. UC-014: the room's messages and the message box.
 import type { AnyServerMessage, ChatMessagePayload, Participant } from "@watchsync/protocol";
 import { NOTICES_KEY, noticesOn } from "../shared/activity";
-import { CHAT_KEEP, isChatText } from "../shared/chat";
+import { CHAT_KEEP, isChatText, isTypedText } from "../shared/chat";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
@@ -316,7 +316,18 @@ const reactions = mountReactions(composer, (emoji, count) => {
   else reactions.dropped(emoji, "offline");
 });
 
+/**
+ * Characters the person typed while the page held focus from the box (BUG-073): put in at the
+ * caret, which the box keeps while it is out of focus. Only the background sends these.
+ */
+function insertText(text: string) {
+  if (box.disabled || !isTypedText(text)) return;
+  box.setRangeText(text, box.selectionStart, box.selectionEnd, "end");
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function onPush(m: Push) {
+  if (m.kind === "chatInsert") return insertText(m.text);
   if (m.kind === "reactionDropped") return reactions.dropped(m.emoji, m.reason);
   if (m.kind === "state") {
     state = m.state;
@@ -394,7 +405,26 @@ composer.addEventListener("submit", (e) => {
   e.preventDefault();
   if (e.isTrusted || e.submitter === send) submit();
 });
+/**
+ * Tells the page's shell the person is typing (it keeps the page's focus grabs and hotkeys off
+ * the message while they do), at most once per 300 ms; Enter always says so, so the window
+ * stays open for the key up that follows it.
+ */
+let typingSentAt = 0;
+function typing(always = false) {
+  const now = Date.now();
+  if (!always && now - typingSentAt < 300) return;
+  typingSentAt = now;
+  post({ kind: "typing", on: true });
+}
+// Tab moves on from the message box: the shell must not pull focus back to it.
+document.addEventListener("keydown", (e) => {
+  if (!e.isTrusted || e.key !== "Tab") return;
+  typingSentAt = 0;
+  post({ kind: "typing", on: false });
+});
 box.addEventListener("keydown", (e) => {
+  if (e.isTrusted && e.key !== "Tab") typing(e.key === "Enter");
   // Enter sends; Shift+Enter is a new line; nothing happens mid-composition (IME).
   if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
   e.preventDefault();
@@ -408,12 +438,19 @@ box.addEventListener("input", () => {
   }
   showHint(null);
   drawComposer();
+  typing();
 });
-// A page that steals focus mid-message is noticed (the hint goes when typing resumes).
+// A page that steals focus mid-message is noticed (the hint goes when typing resumes). The
+// shell usually takes focus back at once, so the hint waits a second before it shows.
+let pausedHint: ReturnType<typeof setTimeout> | undefined;
 box.addEventListener("blur", () => {
-  if (box.value && !covered) showHint("Typing paused");
+  clearTimeout(pausedHint);
+  pausedHint = setTimeout(() => {
+    if (box.value && !covered) showHint("Typing paused");
+  }, 1000);
 });
 box.addEventListener("focus", () => {
+  clearTimeout(pausedHint);
   if (hint.textContent === "Typing paused") showHint(null);
 });
 

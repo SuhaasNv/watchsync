@@ -80,6 +80,14 @@ export type Push =
   | { kind: "openSidebar" }
   /** The chat panel in this tab asked to close: Esc or its close button (to its port only). */
   | { kind: "closeSidebar" }
+  /**
+   * The chat frame in this tab reports typing in its message box (on), or leaving the box with
+   * Tab (off), so the page's own focus grabs and hotkeys can be kept off the message (BUG-073).
+   * To its tab's port only.
+   */
+  | { kind: "chatTyping"; on: boolean }
+  /** Keys the page of this tab received while it held focus: for the message box (to the tab's chat frames only). */
+  | { kind: "chatInsert"; text: string }
   /** The chat frame with this pass connected (to its tab's port only). */
   | { kind: "chatFrameReady"; frame: string }
   /** The chat frame with this pass lost its connection (to its tab's port only). */
@@ -115,7 +123,9 @@ export type SidebarEvent =
    */
   | { kind: "chat"; text: string; clientId: string }
   /** A reaction button: taps within 250 ms come as one with a count (US-045). */
-  | { kind: "react"; emoji: Emoji; count: number };
+  | { kind: "react"; emoji: Emoji; count: number }
+  /** Typing in the message box (on), or leaving it with Tab (off); at most one per 300 ms. */
+  | { kind: "typing"; on: boolean };
 
 export function isSidebarEvent(v: unknown): v is SidebarEvent {
   if (typeof v !== "object" || v === null) return false;
@@ -127,6 +137,7 @@ export function isSidebarEvent(v: unknown): v is SidebarEvent {
     const whole = typeof count === "number" && Number.isInteger(count);
     return isEmoji(Reflect.get(v, "emoji")) && whole && count >= 1 && count <= MAX_COUNT;
   }
+  if (kind === "typing") return typeof Reflect.get(v, "on") === "boolean";
   return kind === "close" || (kind === "hello" && str("nonce"));
 }
 
@@ -170,7 +181,12 @@ export type TabEvent =
   /** The chat was opened: everything in it is seen, and the unread count clears. */
   | { kind: "chatOpened" }
   /** A reaction (US-045); the chat frame sends the same as a SidebarEvent. */
-  | { kind: "react"; emoji: Emoji; count: number };
+  | { kind: "react"; emoji: Emoji; count: number }
+  /**
+   * A key the person pressed while the page had taken focus from the message box: the
+   * background hands it to this tab's chat frame (BUG-073). Checked with isTypedText.
+   */
+  | { kind: "chatType"; text: string };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {
