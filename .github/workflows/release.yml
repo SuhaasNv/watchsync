@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag vX.Y.Z or vX.Y.Z-rc.N (owner approval each time, see docs/DEPLOY.md) runs the
+# Pushing a tag vX.Y.Z, vX.Y.Z-rc.N or vX.Y.Z-beta.N (owner approval each time, see docs/RELEASING.md) runs the
 # full CI, packs the extension against the production room service and publishes a GitHub
 # Release with the zip, its SHA-256 checksums and a signed build provenance attestation. The notes
 # are the matching CHANGELOG.md section plus the commit, the run and the checksums, so anyone can
@@ -42,35 +42,32 @@ jobs:
       # Production moves only at a release, from main (DEC-026). Testing builds come from dev.
       - name: Tag is on main
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::$TAG is not on main. Merge dev into main first (Ship use case), then tag."
-            exit 1
-          fi
+          # A beta is a pre-release for testers and moves nothing in production, so it may come
+          # from dev; release candidates and finals come from main.
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then exit 0; fi
+          if [[ "$TAG" == *-beta.* ]] && git merge-base --is-ancestor "$GITHUB_SHA" origin/dev; then exit 0; fi
+          echo "::error::$TAG is not on main. Merge dev into main first (Ship use case), then tag."
+          exit 1
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
 
-      - name: Tag matches the extension version
+      # The tag, the version and the "prerelease" label in apps/extension/package.json must agree,
+      # and a final release must be its last release candidate unchanged (docs/RELEASING.md).
+      - name: Tag matches the build, and a final is its last candidate
         id: version
         run: |
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
-            echo "::error::Tag $TAG is not vX.Y.Z or vX.Y.Z-rc.N."
-            exit 1
-          fi
+          git fetch --tags --force
+          node scripts/release-guard.mjs "$TAG"
           base="${TAG#v}"
-          base="${base%%-rc.*}"
-          pkg=$(node -p "require('./apps/extension/package.json').version")
-          if [ "$base" != "$pkg" ]; then
-            echo "::error::Tag $TAG is for $base but apps/extension/package.json says $pkg. Bump the version or fix the tag."
-            exit 1
-          fi
+          base="${base%%-*}"
           echo "base=$base" >> "$GITHUB_OUTPUT"
-          if [[ "$TAG" == *-rc.* ]]; then
-            echo "title=WatchSync $TAG (release candidate)" >> "$GITHUB_OUTPUT"
-          else
-            echo "title=WatchSync $TAG" >> "$GITHUB_OUTPUT"
-          fi
+          case "$TAG" in
+            *-beta.*) echo "kind=beta" >> "$GITHUB_OUTPUT"; echo "title=WatchSync $TAG (beta)" >> "$GITHUB_OUTPUT" ;;
+            *-rc.*) echo "kind=rc" >> "$GITHUB_OUTPUT"; echo "title=WatchSync $TAG (release candidate)" >> "$GITHUB_OUTPUT" ;;
+            *) echo "kind=final" >> "$GITHUB_OUTPUT"; echo "title=WatchSync $TAG" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       # Fail before packing when CHANGELOG.md has no section for this version.
       - name: CHANGELOG.md has notes for this version
@@ -113,22 +110,25 @@ jobs:
             > release-notes.md
           cat release-notes.md
 
-      # Release candidates are published as normal releases, not --prerelease, on purpose:
-      # GitHub's /releases/latest (the website's download link and the popup's update check)
-      # skips prereleases, and friends testing v0.1 install the candidate from the website.
-      # The title says "(release candidate)" instead.
+      # Release candidates and finals are published as normal releases, not --prerelease, on
+      # purpose: GitHub's /releases/latest (the website's download link and the popup's update
+      # check) skips prereleases, and friends testing install the candidate from the website.
+      # A beta is the other way round, like an Apple beta: a pre-release that the website's
+      # download link and the update check never pick, for the testers who are sent its link.
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TITLE: ${{ steps.version.outputs.title }}
+          KIND: ${{ steps.version.outputs.kind }}
         run: |
           files=(watchsync-extension.zip "watchsync-extension-$TAG.zip" SHA256SUMS.txt)
+          if [ "$KIND" = beta ]; then flags=(--prerelease --latest=false); else flags=(--latest); fi
           if gh release view "$TAG" > /dev/null 2>&1; then
             # A re-run after a partial failure: refresh the files, keep the release. A rebuilt zip
             # has new checksums, so the notes are refreshed with them.
             gh release upload "$TAG" "${files[@]}" --clobber
             gh release edit "$TAG" --notes-file release-notes.md
           else
-            gh release create "$TAG" "${files[@]}" --verify-tag --latest \
+            gh release create "$TAG" "${files[@]}" --verify-tag "${flags[@]}" \
               --title "$TITLE" --notes-file release-notes.md
           fi

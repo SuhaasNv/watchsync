@@ -90,24 +90,24 @@ Then check the deploy logs for anything that shouldn't be there.
 
 ## Releasing
 
-A release is a version tag. Pushing it runs `.github/workflows/release.yml`. Each tag push needs the owner's approval, like any push.
+A release is a version tag. Pushing it runs `.github/workflows/release.yml`. Each tag push needs the owner's approval, like any push. The stages (beta, release candidate, final) and the rules between them are in `docs/RELEASING.md`.
 
 1. Bump the version where it appears, keeping them equal: `apps/extension/package.json` (it becomes the manifest version and must match the tag), `services/signaling/pyproject.toml`, and `VERSION` in `services/signaling/app/config.py` (shown by `/health`).
 2. Add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` with `### Added`, `### Fixed` and `### Known issues`. The release notes are that section, as printed by `node scripts/release-notes.mjs X.Y.Z`, followed by a "Check this download" section the workflow adds (commit, build link, SHA-256 of each file); the workflow fails if the section is missing.
-3. Commit on `dev` (or merge `dev` into `main` in the Ship use case), then tag that commit: `vX.Y.Z` for a release, `vX.Y.Z-rc.N` for a release candidate.
+3. Commit on `dev` (or merge `dev` into `main` in the Ship use case), then tag that commit: `vX.Y.Z` for a release, `vX.Y.Z-rc.N` for a release candidate, `vX.Y.Z-beta.N` for a beta. The `"prerelease"` label in `apps/extension/package.json` must match (`"rc.1"`, `"beta.2"`, none for a final).
 4. With the owner's go-ahead: `git push origin vX.Y.Z`.
 
 The workflow then:
 
 - runs the full CI (`ci.yml`: lint, protocol drift, typecheck, unit tests, extension end-to-end, room service checks, secret scan);
-- checks that the tag, without `v` and any `-rc.N`, equals the version in `apps/extension/package.json`, and stops with a clear error if not;
+- runs `scripts/release-guard.mjs`: the tag, the version and the `"prerelease"` label in `apps/extension/package.json` must agree, and a final release must be its last release candidate unchanged (shipped files identical), or it stops with a clear error;
 - runs `pnpm --filter @watchsync/extension zip` (production room service, never a mock build) and checks the manifest has no localhost permission;
 - writes `SHA256SUMS.txt` and signs a build provenance attestation for both zips (`actions/attest-build-provenance`, pinned to a commit), so anyone can run `gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync`;
 - publishes the GitHub Release `WatchSync vX.Y.Z` (with "(release candidate)" for an rc), notes from `CHANGELOG.md` plus the commit, a link to the run and the checksums, and three files: `watchsync-extension-vX.Y.Z.zip`, `watchsync-extension.zip` and `SHA256SUMS.txt`.
 
 The website shows the zip's SHA-256 from the notes next to each download on `/releases/`, and the newest one in the install guide's "Is it safe?" section. Both read the ``- `file`: `hash` `` lines the script writes, so keep that format if the script changes.
 
-Release candidates are published as normal releases, not prereleases, so `/releases/latest` serves them while friends test v0.1.
+Release candidates and finals are published as normal releases, so `/releases/latest` serves them. Betas are published as pre-releases, so the website's download link and the update check never pick them.
 
 **Stable download URL** (always the newest release; the website links here):
 `https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip`
