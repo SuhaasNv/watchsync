@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.0] - unreleased
+
+Talk Together: free voice while you watch, and the room stays together through ads.
+
 ## [0.2.0] - 2026-10-04
 
 Chat and reactions: talk with your room while you watch, without leaving the film.

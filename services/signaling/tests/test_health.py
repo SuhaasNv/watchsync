@@ -10,7 +10,7 @@ client = TestClient(app)
 def test_health_reports_version() -> None:
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "version": "0.2.0"}
+    assert r.json() == {"status": "ok", "version": "0.3.0"}
 
 
 def test_socket_rejects_without_token() -> None:

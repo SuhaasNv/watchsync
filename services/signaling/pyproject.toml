@@ -1,6 +1,6 @@
 [project]
 name = "watchsync-signaling"
-version = "0.2.0"
+version = "0.3.0"
 description = "WatchSync room service: rooms, presence and playback state."
 requires-python = ">=3.12"
 dependencies = [

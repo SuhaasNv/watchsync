@@ -1,10 +1,18 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "./fixtures";
+
+/** The footer shows the version with its label, as package.json has them ("0.3.0-beta.1"). */
+const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+  version: string;
+  prerelease?: string;
+};
+const shown = pkg.prerelease ? `v${pkg.version}-${pkg.prerelease}` : `v${pkg.version}`;
 
 test("first run asks for a name, then creates a room", async ({ ext }) => {
   const page = await ext.context.newPage();
   await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
   await expect(page.getByRole("heading", { name: "Watch together, in sync" })).toBeVisible();
-  await expect(page.getByText("v0.2.0")).toBeVisible(); // US-038
+  await expect(page.getByText(shown)).toBeVisible(); // US-038
 
   const cont = page.getByRole("button", { name: "Continue" });
   await expect(cont).toBeDisabled();
