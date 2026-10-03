@@ -9,7 +9,7 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 - Messages show "Sending" until the room has them; if one doesn't get through it says "Not sent" with Retry.
 - Unread messages show as a count on the on-page pill and on the toolbar icon.
 - Reactions: six buttons in the chat; a tap floats the reaction with your name on everyone's screen for a moment.
-- Room activity in the chat: plays, pauses, jumps, joins, leaves and title moves show as plain lines among the messages. A Room notices switch in the chat turns those notices off on your page; the chat still lists them.
+- Room activity in the chat: plays, pauses, jumps, joins, leaves and title moves show as plain lines among the messages. A Show pop-ups switch in the chat turns those pop-ups off on your page; the chat still lists them.
 - Open chat from the popup.
 - Alt+Shift+W opens and closes the chat (Control+Shift+W on a Mac). You can change it at chrome://extensions/shortcuts.
 - Rooms survive a WatchSync server update: the room comes back by itself with the same code, people, title and position.

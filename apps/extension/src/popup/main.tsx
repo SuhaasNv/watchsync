@@ -446,8 +446,11 @@ function useChatShortcut() {
 
 const NO_TAB = "Open the title on a supported service first.";
 
-/** Opens chat on the tab playing the room's title (US-115); off with a reason when none is open. */
-function OpenChat() {
+/**
+ * Opens chat on the tab playing the room's title (US-115): a full-width row with the unread
+ * count and the shortcut inside it. Off, it says why in one line under it.
+ */
+function OpenChat({ shortcut, unread }: { shortcut: string | null; unread: number }) {
   const [hasTab, setHasTab] = useState<boolean | null>(null);
   useEffect(() => {
     const ask: ChatTabRequest = { kind: "hasChatTab" };
@@ -462,19 +465,31 @@ function OpenChat() {
     else setHasTab(false);
   };
   return (
-    <div>
+    <div className="open-chat">
       <button
-        className="btn grow"
+        className="btn chat-row"
         type="button"
         disabled={hasTab !== true}
+        aria-label={unread > 0 ? `Open chat, ${unread} unread` : "Open chat"}
         aria-describedby={hasTab === false ? "open-chat-why" : undefined}
+        title={shortcut ? `Open chat on the player with ${shortcut}` : undefined}
         onClick={() => void open()}
       >
         <Icon name="chat" />
-        Open chat
+        <span className="chat-label">Open chat</span>
+        {unread > 0 && (
+          <span className="count-pill" aria-hidden="true">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+        {shortcut && (
+          <span className="key" aria-hidden="true">
+            {shortcut}
+          </span>
+        )}
       </button>
       {hasTab === false && (
-        <p className="hint" id="open-chat-why">
+        <p className="hint under" id="open-chat-why">
           {NO_TAB}
         </p>
       )}
@@ -530,11 +545,15 @@ function RoomScreen({ state }: { state: AppState }) {
       />
       <div className="body">
         {state.unreachable && state.connection === "reconnecting" && (
-          <div className="row">
+          <div className="row center">
             <p className="hint grow" role="status">
               {UNREACHABLE}
             </p>
-            <button className="btn" type="button" onClick={() => send({ kind: "retryNow" })}>
+            <button
+              className="btn compact"
+              type="button"
+              onClick={() => send({ kind: "retryNow" })}
+            >
               Try now
             </button>
           </div>
@@ -568,8 +587,7 @@ function RoomScreen({ state }: { state: AppState }) {
           {people}
         </section>
         <OpenTitle state={state} me={s.participantId} />
-        <OpenChat />
-        {shortcut && <p className="hint">Open chat on the player with {shortcut}</p>}
+        <OpenChat shortcut={shortcut} unread={state.unread} />
         <span className="grow" />
         {!alone && (
           <div className="invite">

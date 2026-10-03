@@ -171,6 +171,13 @@ test("a long outage says so plainly, and Try now brings the room back", async ()
     const line = await tab.getByText(unreachable).boundingBox();
     const panel = await chat.boundingBox();
     expect((line?.x ?? 0) + (line?.width ?? 0)).toBeLessThanOrEqual(panel?.x ?? 0);
+    // Try now is a small, quiet action at the right of the words, on the page and in the popup.
+    for (const p of [tab, pop]) {
+      const tryNow = await p.getByRole("button", { name: "Try now" }).boundingBox();
+      const words = await p.getByText(unreachable).boundingBox();
+      expect(tryNow?.height).toBe(28);
+      expect(tryNow?.x ?? 0).toBeGreaterThanOrEqual((words?.x ?? 0) + (words?.width ?? 0));
+    }
 
     // Try now tries at once; with the service still down the line stays, retries go on.
     await tab.getByRole("button", { name: "Try now" }).click();

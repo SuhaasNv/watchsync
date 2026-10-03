@@ -34,9 +34,11 @@ export function mountReactions(
     b.setAttribute("aria-label", name);
     // Only the person's own input acts: a page that frames this can't script a tap.
     b.addEventListener("click", (e) => {
-      if (e.isTrusted) burst.tap(emoji);
+      if (!e.isTrusted) return;
+      burst.tap(emoji);
+      b.classList.add("sent"); // a brief warm flash: it went
     });
-    b.addEventListener("animationend", () => b.classList.remove("dropped"));
+    b.addEventListener("animationend", () => b.classList.remove("dropped", "sent"));
     buttons.set(emoji, b);
     bar.append(b);
   }

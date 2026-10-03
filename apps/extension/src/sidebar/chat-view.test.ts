@@ -1,6 +1,16 @@
 import type { ChatMessagePayload } from "@watchsync/protocol";
 import { describe, expect, test } from "vitest";
-import { announcement, capText, type LogModel, movieClock, namesFor, renderLog } from "./chat-view";
+import {
+  announcement,
+  capText,
+  isEmojiOnly,
+  type LogModel,
+  movieClock,
+  namesFor,
+  newBelowLabel,
+  renderLog,
+  unseenAfter,
+} from "./chat-view";
 
 let n = 0;
 const said = (
@@ -39,7 +49,7 @@ describe("chat list (US-042)", () => {
     const list = draw({
       messages: [said("a", "Maya", "hi"), said("me", "Suhaas", "hello", null)],
     });
-    expect(headers(list)).toEqual(["MMaya · 42:10", "SYou"]);
+    expect(headers(list)).toEqual(["MMaya 42:10", "SYou"]);
     expect(list.querySelectorAll(".group.mine")).toHaveLength(1);
   });
 
@@ -130,5 +140,48 @@ describe("announcements and the length cap", () => {
     const capped = capText(`${"x".repeat(497)}${family}`);
     expect(capped).toBe("x".repeat(497)); // the family doesn't fit whole: it isn't cut
     expect(capText("short")).toBe("short");
+  });
+});
+
+test("one person's next group sits closer than another person's", () => {
+  const list = draw({
+    messages: [
+      said("a", "Maya", "one", null, 1000),
+      said("a", "Maya", "later", null, 1000 + 5 * 60_000),
+      said("b", "Asha", "hi", null, 1000 + 6 * 60_000),
+    ],
+  });
+  const groups = [...list.querySelectorAll(".group")];
+  expect(groups.map((g) => g.classList.contains("same"))).toEqual([false, true, false]);
+});
+
+describe("emoji-only messages", () => {
+  test("one to three emoji, nothing else, show larger", () => {
+    expect(isEmojiOnly("😂😂")).toBe(true);
+    expect(isEmojiOnly(" 👨‍👩‍👧❤️🔥 ")).toBe(true); // a family is one character
+    expect(isEmojiOnly("😂😂😂😂")).toBe(false);
+    expect(isEmojiOnly("lol 😂")).toBe(false);
+    expect(isEmojiOnly("12")).toBe(false);
+    expect(isEmojiOnly("")).toBe(false);
+  });
+
+  test("the row gets the emoji class", () => {
+    const list = draw({ messages: [said("a", "Maya", "😂😂")] });
+    expect(list.querySelector(".msg")?.classList.contains("emoji")).toBe(true);
+  });
+});
+
+describe("the new messages chip", () => {
+  test("never counts at the bottom; counts what lands below a reader who scrolled up", () => {
+    expect(unseenAfter(0, true, 3)).toBe(0);
+    expect(unseenAfter(2, true, 1)).toBe(0);
+    expect(unseenAfter(0, false, 1)).toBe(1);
+    expect(unseenAfter(1, false, 2)).toBe(3);
+    expect(unseenAfter(0, false, 0)).toBe(0); // a room notice or a resend is not a new message
+  });
+
+  test("says how many", () => {
+    expect(newBelowLabel(1)).toBe("1 new message");
+    expect(newBelowLabel(2)).toBe("2 new messages");
   });
 });

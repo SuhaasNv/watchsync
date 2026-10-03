@@ -83,17 +83,23 @@ test("the pill's chat button opens and closes chat; Esc and close give focus bac
   await chatButton(tab).click();
   await expect(panel(tab)).toBeVisible();
   await expect(frame(tab).getByText(`Room ${code}`)).toBeVisible();
-  await expect(frame(tab).getByText("Messages from the room show up here.")).toBeVisible();
+  await expect(
+    frame(tab).getByText("What you and the room say shows up here, with the movie time."),
+  ).toBeVisible();
   await expect(messageBox(tab)).toBeFocused();
   await expect(chatButton(tab)).toHaveAttribute("aria-label", "Close chat");
   await expect(chatButton(tab)).toHaveAttribute("aria-expanded", "true");
-  // About 320 px, over the right edge of the page (once its slide-in has settled).
+  // 320 to 360 px (26% of the window), over the right edge of the page, once settled.
   const edges = async () => {
     const box = await panel(tab).boundingBox();
-    return { width: box?.width, right: (box?.x ?? 0) + (box?.width ?? 0) };
+    return {
+      width: Math.round(box?.width ?? 0),
+      right: Math.round((box?.x ?? 0) + (box?.width ?? 0)),
+    };
   };
-  const right = (tab.viewportSize()?.width ?? 0) - 16;
-  await expect.poll(edges).toEqual({ width: 320, right });
+  const vw = tab.viewportSize()?.width ?? 0;
+  const width = Math.round(Math.min(360, Math.max(320, vw * 0.26)));
+  await expect.poll(edges).toEqual({ width, right: vw - 16 });
 
   // The same button closes it: one way in and out.
   await chatButton(tab).click();
@@ -154,7 +160,14 @@ test("leaving the room removes chat and its button", async ({ ext }) => {
 
 test("the popup shows the chat shortcut", async ({ ext }) => {
   const { pop } = await inRoom(ext);
-  await expect(pop.getByText(/^Open chat on the player with .+W$/)).toBeVisible();
+  // The shortcut sits inside the Open chat row; with the room's tab open there is no hint
+  // line under it (the popup opened before the tab, so it looks again).
+  await pop.reload();
+  const open = pop.getByRole("button", { name: "Open chat", exact: true });
+  await expect(open).toBeEnabled();
+  await expect(open.locator(".key")).toHaveText(/W$/);
+  await expect(open).toHaveAttribute("title", /^Open chat on the player with .+W$/);
+  await expect(pop.getByText("Open the title on a supported service first.")).toHaveCount(0);
 });
 
 // ---- Privacy (DEC-042): keys typed in chat never reach the service page ----
@@ -293,14 +306,14 @@ const onTop = (tab: Page) =>
   });
 
 /**
- * No part of the panel over the player's control strips: it keeps 72 px at the top and 120 px
+ * No part of the panel over the player's control strips: it keeps 64 px at the top and 96 px
  * at the bottom, and the corners where players put their buttons answer for the player.
  */
 async function clearOfControls(tab: Page) {
   const box = await panel(tab).boundingBox();
   const height = await tab.evaluate(() => window.innerHeight);
-  expect(box?.y).toBeGreaterThanOrEqual(72);
-  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(height - 120);
+  expect(box?.y).toBeGreaterThanOrEqual(64);
+  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(height - 96);
   const hits = await tab.evaluate(() => {
     const player = document.fullscreenElement ?? document.querySelector("video");
     const r = player?.getBoundingClientRect();
@@ -473,7 +486,9 @@ test("Space and Enter on chat controls act on them, never on the player", async 
   const clicksOnPill = await reached(tab); // the pill lives in the page: its clicks bubble
   await chatButton(tab).click();
   await settled(tab);
-  await frame(tab).getByText("Messages from the room show up here.").click();
+  await frame(tab)
+    .getByText("What you and the room say shows up here, with the movie time.")
+    .click();
   expect(await reached(tab)).toBe(clicksOnPill + 1);
 
   // The stand-in does hear the page's own keys.

@@ -24,7 +24,8 @@ root.innerHTML = `<style>
     transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   /* Chat is open on the right edge: notices move aside, not over it. On a narrow window
      there is no room beside it: passing notices wait, prompts and lasting lines stay. */
-  @media (min-width: 720px) { .wrap.beside { transform: translateX(-328px); } }
+  @media (min-width: 720px) {
+    .wrap.beside { transform: translateX(calc(-8px - clamp(320px, 26vw, 360px))); } }
   @media (max-width: 719.98px) { .wrap.beside .notices .card:not(.sticky) { display: none; } }
   .notices, .asks { display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     width: 100%; }
@@ -55,6 +56,11 @@ root.innerHTML = `<style>
     box-shadow: 0 0 0 2px #151d21; }
   .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px;
     justify-content: flex-end; margin-top: 12px; }
+  /* A lasting line's action (Try now): small and quiet, at the right of its words. */
+  .card.inline { grid-template-columns: 32px minmax(0, 1fr) auto; }
+  .card.inline .actions { grid-column: auto; align-self: center; margin: 0 0 0 4px; }
+  .card.inline .actions button { height: 28px; min-height: 24px; padding: 0 10px;
+    font-size: 13px; font-weight: 600; border-radius: 10px; }
   button { height: 36px; border: 0; border-radius: 12px; padding: 0 14px; font: inherit;
     font-weight: 650; cursor: pointer; background: rgba(214, 236, 240, 0.1); color: #ecf2f1;
     display: inline-flex; align-items: center; gap: 6px; transition: background 120ms; }
@@ -91,9 +97,11 @@ root.innerHTML = `<style>
   .pill button.bare { width: 32px; padding: 0; justify-content: center; background: transparent;
     color: #a9b8b9; }
   .pill button.bare:hover { background: rgba(214, 236, 240, 0.1); color: #ecf2f1; }
-  .pill button.chat { position: relative; }
+  /* Icon and a visible "Chat"; yellow only while messages wait unread. */
+  .pill button.chat { position: relative; padding: 0 12px 0 10px; }
   .pill button.chat[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
-  .pill button.chat[aria-disabled="true"]:hover { background: transparent; color: #a9b8b9; }
+  .pill button.chat[aria-disabled="true"]:hover { background: rgba(214, 236, 240, 0.1); }
+  .pill button.chat.primary .count { background: #ecf2f1; color: #0c1215; }
   /* Unread messages on the chat button (UC-014); 9+ past nine. */
   .count { position: absolute; top: -3px; right: -3px; box-sizing: border-box; min-width: 16px;
     height: 16px; padding: 0 4px; border-radius: 8px; background: #ffd25a; color: #1b1503;
@@ -223,7 +231,7 @@ export function notice(
     return;
   }
   const made = card(message, look);
-  made.card.classList.add("sticky");
+  made.card.classList.add("sticky", "inline");
   setActions(made.card, actions, false);
   notices.append(made.card);
   sticky.set(key, made);
@@ -405,7 +413,8 @@ const SHORTCUT = /Mac/.test(navigator.platform) ? "Control+Shift+W" : "Alt+Shift
 
 // The one way into chat on the page (with the shortcut). One lasting button, so focus can
 // come back to it after chat closes even though the pill redraws in between.
-const chat = button("Open chat", () => lastModel?.onChat(chat), { icon: "chat", bare: true });
+// Icon plus a visible "Chat"; the accessible name (set in drawChat) says more and contains it.
+const chat = button("Chat", () => lastModel?.onChat(chat), { icon: "chat" });
 chat.classList.add("chat");
 chat.setAttribute("aria-keyshortcuts", SHORTCUT);
 // Space or Enter on this button opens chat; it mustn't also play or pause the player.
@@ -432,6 +441,7 @@ function drawChat() {
   if (off) chat.setAttribute("aria-disabled", "true");
   else chat.removeAttribute("aria-disabled");
   count.hidden = unread === 0 || off;
+  chat.classList.toggle("primary", !count.hidden);
   count.textContent = unread > 9 ? "9+" : String(unread);
 }
 
@@ -540,7 +550,8 @@ export function renderPill(model: PillModel | null) {
           }),
         ]
       : [];
-  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, chat, fold);
+  // Chat first after the faces: the one control people reach for most.
+  pill.replaceChildren(faces, sep, chat, toggle, ...syncAll, ...together, fold);
   if (chatFocused) chat.focus();
   wake();
 }
