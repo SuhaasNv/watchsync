@@ -55,6 +55,11 @@ root.innerHTML = `<style>
     box-shadow: 0 0 0 2px #151d21; }
   .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px;
     justify-content: flex-end; margin-top: 12px; }
+  /* A lasting line's action (Try now): small and quiet, at the right of its words. */
+  .card.inline { grid-template-columns: 32px minmax(0, 1fr) auto; }
+  .card.inline .actions { grid-column: auto; align-self: center; margin: 0 0 0 4px; }
+  .card.inline .actions button { height: 28px; min-height: 24px; padding: 0 10px;
+    font-size: 13px; font-weight: 600; border-radius: 10px; }
   button { height: 36px; border: 0; border-radius: 12px; padding: 0 14px; font: inherit;
     font-weight: 650; cursor: pointer; background: rgba(214, 236, 240, 0.1); color: #ecf2f1;
     display: inline-flex; align-items: center; gap: 6px; transition: background 120ms; }
@@ -225,7 +230,7 @@ export function notice(
     return;
   }
   const made = card(message, look);
-  made.card.classList.add("sticky");
+  made.card.classList.add("sticky", "inline");
   setActions(made.card, actions, false);
   notices.append(made.card);
   sticky.set(key, made);

@@ -530,11 +530,15 @@ function RoomScreen({ state }: { state: AppState }) {
       />
       <div className="body">
         {state.unreachable && state.connection === "reconnecting" && (
-          <div className="row">
+          <div className="row center">
             <p className="hint grow" role="status">
               {UNREACHABLE}
             </p>
-            <button className="btn" type="button" onClick={() => send({ kind: "retryNow" })}>
+            <button
+              className="btn compact"
+              type="button"
+              onClick={() => send({ kind: "retryNow" })}
+            >
               Try now
             </button>
           </div>

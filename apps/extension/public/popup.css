@@ -319,6 +319,23 @@ p {
   background: var(--raised);
   color: var(--text);
 }
+/* A small, secondary action beside a line of text (Try now, US-121). */
+.btn.compact {
+  height: 28px;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(214, 236, 240, 0.1);
+  box-shadow: none;
+}
+.btn.compact:hover:not(:disabled) {
+  background: rgba(214, 236, 240, 0.17);
+}
+.row.center {
+  align-items: center;
+}
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
