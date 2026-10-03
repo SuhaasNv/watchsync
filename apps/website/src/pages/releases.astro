@@ -2,10 +2,13 @@
 import changelog from "../../../../CHANGELOG.md?raw";
 import Base from "../layouts/Base.astro";
 import { renderMarkdown } from "../lib/markdown";
-import { RELEASES_URL } from "../lib/site";
+import { withoutUnreleased } from "../lib/releases";
+import { CHANNEL, RELEASES_URL } from "../lib/site";
 
 // The changelog in the repository, rendered at build time: shown when GitHub can't be reached.
-const changelogHtml = renderMarkdown(changelog.replace(/^# Changelog\s*/, ""), {
+// The public site leaves out the version still being tested on dev.
+const shown = CHANNEL === "dev" ? changelog : withoutUnreleased(changelog);
+const changelogHtml = renderMarkdown(shown.replace(/^# Changelog\s*/, ""), {
   headingOffset: 1,
 });
 ---

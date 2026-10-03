@@ -108,3 +108,17 @@ export function formatDate(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
+
+/**
+ * The changelog without sections still being tested on dev (`## [0.2.0] - unreleased`,
+ * `## [Unreleased]`): the public site shows released versions only.
+ */
+export function withoutUnreleased(changelog: string): string {
+  const out: string[] = [];
+  let skipping = false;
+  for (const line of changelog.split(/\r?\n/)) {
+    if (line.startsWith("## [")) skipping = /unreleased/i.test(line);
+    if (!skipping) out.push(line);
+  }
+  return out.join("\n");
+}

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { checksumFor, parseDevBuild, parseReleases, safeGithubUrl, versionLabel } from "./releases";
+import {
+  checksumFor,
+  parseDevBuild,
+  parseReleases,
+  safeGithubUrl,
+  versionLabel,
+  withoutUnreleased,
+} from "./releases";
 
 const release = {
   tag_name: "v0.1.0-rc.1",
@@ -104,5 +111,22 @@ describe("the rolling dev build", () => {
     expect(parseDevBuild([dev])?.name).toBe("WatchSync Dev 0.2.0-rc.1 (8b22d75)");
     expect(parseDevBuild([{ ...dev, tag_name: "v0.1.1" }])).toBeNull();
     expect(parseDevBuild({ message: "rate limit" })).toBeNull();
+  });
+});
+
+describe("withoutUnreleased", () => {
+  const md =
+    "# Changelog\n\n## [0.2.0] - unreleased\n\n- chat\n\n## [0.1.1] - 2026-10-03\n\n- fix\n\n## [0.1.0] - 2026-10-02\n\n- first";
+
+  it("drops the unreleased section and keeps the released ones", () => {
+    const out = withoutUnreleased(md);
+    expect(out).not.toMatch(/0\.2\.0|chat/);
+    expect(out).toMatch(/\[0\.1\.1\][\s\S]*fix[\s\S]*\[0\.1\.0\][\s\S]*first/);
+  });
+
+  it("also drops a plain [Unreleased] heading", () => {
+    expect(withoutUnreleased("## [Unreleased]\n- x\n## [1.0.0] - d\n- y")).toBe(
+      "## [1.0.0] - d\n- y",
+    );
   });
 });
