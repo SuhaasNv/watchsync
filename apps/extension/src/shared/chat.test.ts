@@ -1,15 +1,19 @@
 import {
   type ChatMessagePayload,
+  type ClientMessageOf,
   envelope,
+  isClientMessage,
   isServerMessage,
   type ServerMessageOf,
 } from "@watchsync/protocol";
 import { describe, expect, it } from "vitest";
+import cases from "../../../../packages/protocol/src/chat-text-cases.json";
 import {
   CHAT_KEEP,
   type Chat,
   chatAfter,
   chatOpened,
+  isChatText,
   NO_CHAT,
   normalizeChatText,
   safeMovieTime,
@@ -113,6 +117,22 @@ describe("chat buffer and unread count (US-042, US-044)", () => {
   it("shows more than 9 as 9+", () => {
     expect([0, 1, 9, 10, 250].map(unreadLabel)).toEqual(["0", "1", "9", "9+", "9+"]);
   });
+});
+
+describe("the pre-send check agrees with the room service (shared cases)", () => {
+  const sendable = (text: string) =>
+    isClientMessage(
+      envelope<ClientMessageOf<"CHAT.SEND">>("CHAT.SEND", {
+        text,
+        movieTime: null,
+        titleId: null,
+        clientId: "c-1",
+      }),
+    ) && isChatText(text);
+  it.each(cases.accepted)("sends %j", (text) => expect(sendable(text)).toBe(true));
+  it.each([...cases.refused, ...cases.serverRefused])("refuses %j", (text) =>
+    expect(sendable(text)).toBe(false),
+  );
 });
 
 describe("what a tab sends", () => {

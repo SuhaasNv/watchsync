@@ -130,8 +130,13 @@ describe("sending (US-042)", () => {
     const tab = port();
     relay.onTabEvent(tab, chatEvent("x".repeat(501), "c-1"));
     relay.onTabEvent(tab, chatEvent("hi", "not a client id"));
+    // The schema lets these through; the room service's own check wouldn't.
+    relay.onTabEvent(tab, chatEvent(`hi${String.fromCodePoint(0x200d)}`, "c-2"));
+    relay.onTabEvent(tab, chatEvent(String.fromCodePoint(0x3164), "c-3"));
     expect(sent).toEqual([]);
     expect(failures(tab).map((m) => m.kind === "chatFailed" && m.reason)).toEqual([
+      "invalid",
+      "invalid",
       "invalid",
       "invalid",
     ]);

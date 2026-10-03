@@ -12,7 +12,7 @@ export type Seconds = number;
 export type Rate = number;
 export type TitleId = string | null;
 /**
- * A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.
+ * A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters, except the zero-width joiner and non-joiner that emoji sequences and some scripts need (the room service and the extension also check that each sits between two visible characters, and that variation selectors follow one) (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.
  */
 export type ChatText = string;
 /**

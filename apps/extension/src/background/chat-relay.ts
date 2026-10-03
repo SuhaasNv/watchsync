@@ -16,6 +16,7 @@ import {
   type Chat,
   chatAfter,
   chatOpened,
+  isChatText,
   NO_CHAT,
   normalizeChatText,
   safeMovieTime,
@@ -120,7 +121,9 @@ export function chatRelay(deps: RelayDeps) {
         titleId: e.titleId,
         clientId,
       });
-      if (!isClientMessage(message)) return fail(port, e.text, clientId, "invalid");
+      // What the room would refuse is never sent (or queued): the tab says why at once.
+      if (!isClientMessage(message) || !isChatText(message.payload.text))
+        return fail(port, e.text, clientId, "invalid");
       settle(clientId); // a Retry starts over, with the same clientId
       const link = deps.link();
       const sent = link === "open" && queued().length === 0 && deps.send(message);

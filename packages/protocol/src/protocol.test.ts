@@ -147,6 +147,12 @@ describe("chat messages (UC-014)", () => {
     expect(isClientMessage(chat({ text }))).toBe(false);
     expect(isServerMessage(server("CHAT.MESSAGE", relayed({ text })))).toBe(false);
   });
+  // Where a joiner or selector sits, and whether anything is visible, is checked by the room
+  // service and the extension before sending, not by the schema: it lets these through, so it
+  // never refuses anything the room service keeps.
+  it.each(cases.serverRefused)("leaves %j to the room service's own check", (text) => {
+    expect(isClientMessage(chat({ text }))).toBe(true);
+  });
 
   it("counts length in code points, so 500 emoji fit and 501 don't", () => {
     // Each emoji is two UTF-16 units; a UTF-16 count would refuse 500 of them.

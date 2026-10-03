@@ -321,12 +321,33 @@ def test_line_breaks_are_kept_up_to_ten() -> None:
     "text, accepted",
     [(t, True) for t in CASES["accepted"]]
     + [(t, False) for t in CASES["refused"]]
+    + [(t, False) for t in CASES["serverRefused"]]
     + [("x" * 500, True), ("x" * 501, False), (chr(0x1F600) * 500, True)]
     + [(chr(0x1F600) * 501, False)],
 )
 def test_the_service_and_the_extension_agree_on_chat_text(text: str, accepted: bool) -> None:
     sendable = is_client_message(msg("CHAT.SEND", chat_send(text))) and is_chat_text(text)
     assert sendable == accepted, ascii(text)
+    if text in CASES["serverRefused"]:  # the schema lets it through; the service's check doesn't
+        assert is_client_message(msg("CHAT.SEND", chat_send(text))), ascii(text)
+
+
+def test_emoji_sequences_and_joined_scripts_are_relayed_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Joiners and variation selectors between visible characters stay in the text: emoji
+    sequences (rainbow flag, families with skin tones) and Indic or Persian joins."""
+    monkeypatch.setattr(main, "chat_limiter", main.Limiter(100, 5))
+    host = create()
+    guest = join(host["code"])
+    joined = [t for t in CASES["accepted"] if chr(0x200C) in t or chr(0x200D) in t]
+    assert len(joined) >= 5
+    with connected(host) as (hws, _), connected(guest) as (gws, _):
+        for text in joined:
+            assert chats(say(hws, text)) == [text], ascii(text)
+        assert chats(until_pong(gws)) == joined
+        for text in CASES["serverRefused"]:
+            assert refusal(say(hws, text))["reason"] == "invalid", ascii(text)
 
 
 def test_nothing_clients_would_refuse_is_kept_or_sent(monkeypatch: pytest.MonkeyPatch) -> None:

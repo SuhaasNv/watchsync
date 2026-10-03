@@ -46,22 +46,41 @@ def is_join_request(data: Any) -> bool:
 _chat_text = re.compile(_schema["$defs"]["ChatText"]["pattern"])
 _name = re.compile(_schema["$defs"]["Name"]["pattern"])
 # Letters and symbols that draw nothing: Hangul fillers and the blank braille pattern.
-BLANKS = frozenset("\u115f\u1160\u3164\uffa0\u2800")
+BLANKS = frozenset(chr(c) for c in (0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800))
+# Zero-width non-joiner and joiner: emoji sequences and some scripts need them, but only
+# between two visible characters (the lead's decision, 3 October 2026).
+JOINERS = frozenset((chr(0x200C), chr(0x200D)))
+# Text and emoji presentation selectors: only right after a visible character.
+SELECTORS = frozenset((chr(0xFE0E), chr(0xFE0F)))
 MAX_MARKS = 8  # combining marks in a row; more pile up over the lines around them
+
+
+def _bare(c: str | None) -> bool:
+    """Nothing a joiner or selector can attach to: the start or end, a space or line break,
+    a control character, a blank, or another joiner."""
+    return c is None or c.isspace() or unicodedata.category(c) == "Cc" or c in BLANKS | JOINERS
 
 
 def is_chat_text(text: str) -> bool:
     """Chat text the room keeps and relays: the ChatText pattern over the whole text, no
     control character but a line break, at least one visible character (a letter, number,
-    punctuation or symbol that draws something; emoji are symbols), and no more than
-    MAX_MARKS combining marks in a row."""
+    punctuation or symbol that draws something; emoji are symbols), no more than MAX_MARKS
+    combining marks in a row, each joiner between two characters it can join (not first,
+    last or doubled), and each variation selector right after one. The extension runs the
+    same check before sending (apps/extension/src/shared/chat.ts isChatText)."""
     if _chat_text.fullmatch(text) is None:
         return False
     marks = 0
     visible = False
-    for c in text:
+    for i, c in enumerate(text):
         category = unicodedata.category(c)
         if category == "Cc" and c != "\n":
+            return False
+        before = text[i - 1] if i > 0 else None
+        after = text[i + 1] if i + 1 < len(text) else None
+        if c in JOINERS and (_bare(before) or _bare(after)):
+            return False
+        if c in SELECTORS and (_bare(before) or before in SELECTORS):
             return False
         marks = marks + 1 if category in ("Mn", "Me") else 0
         if marks > MAX_MARKS:

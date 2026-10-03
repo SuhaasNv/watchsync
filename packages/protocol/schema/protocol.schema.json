@@ -21,11 +21,11 @@
     "Rate": { "type": "number", "minimum": 0.25, "maximum": 4 },
     "TitleId": { "type": ["string", "null"], "maxLength": 200 },
     "ChatText": {
-      "description": "A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.",
+      "description": "A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters, except the zero-width joiner and non-joiner that emoji sequences and some scripts need (the room service and the extension also check that each sits between two visible characters, and that variation selectors follow one) (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.",
       "type": "string",
       "minLength": 1,
       "maxLength": 500,
-      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*(?:\\n[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*){0,10}$"
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*(?:\\n[^\\u0000-\\u001F\\u007F-\\u009F\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*){0,10}$"
     },
     "ClientId": {
       "description": "The sender's own id for one chat message, the same on every retry, so the room never keeps it twice and the sender can match the echo.",
