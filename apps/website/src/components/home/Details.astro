@@ -158,7 +158,12 @@
           <h3>Six reactions</h3>
           <p>Tap a few times and friends see that many float up, up to five.</p>
         </div>
-        <div class="mock" aria-hidden="true">
+        <div class="mock burst" aria-hidden="true" data-burst>
+          <span class="rise">
+            <span class="up">🔥</span><span class="up">🔥</span><span class="up">🔥</span><span
+              class="up">🔥</span
+            ><span class="up">🔥</span>
+          </span>
           <p class="chips">
             <span class="b">Love</span><span class="b">Laugh</span><span class="b">Cry</span
             ><span class="b primary">Fire</span><span class="b">Shocked</span><span class="b"
@@ -438,6 +443,78 @@
     border-radius: 4px;
     background: var(--acc);
   }
+  /* Six reactions: five fires float up once from the chips when the row scrolls into view,
+     each from its own spot and for its own time (up to five, like the real thing). */
+  .burst {
+    position: relative;
+    overflow: hidden;
+  }
+  .rise {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .up {
+    position: absolute;
+    left: var(--x);
+    bottom: 62px;
+    font-size: 22px;
+    line-height: 1;
+    opacity: 0;
+  }
+  .up:nth-child(1) {
+    --x: 53%;
+    --d: 0s;
+    --t: 1.7s;
+    --dy: -46px;
+  }
+  .up:nth-child(2) {
+    --x: 60%;
+    --d: 0.12s;
+    --t: 2.1s;
+    --dy: -56px;
+  }
+  .up:nth-child(3) {
+    --x: 66%;
+    --d: 0.24s;
+    --t: 1.5s;
+    --dy: -38px;
+  }
+  .up:nth-child(4) {
+    --x: 56%;
+    --d: 0.38s;
+    --t: 1.9s;
+    --dy: -60px;
+  }
+  .up:nth-child(5) {
+    --x: 63%;
+    --d: 0.5s;
+    --t: 2.3s;
+    --dy: -50px;
+  }
+  .burst.go .up {
+    animation: up var(--t) ease-out var(--d) 1 both;
+  }
+  @keyframes up {
+    0% {
+      opacity: 0;
+      transform: translateY(0) scale(0.7);
+    }
+    14%,
+    65% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(var(--dy)) scale(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rise {
+      display: none;
+    }
+  }
   .chips {
     display: flex;
     flex-wrap: wrap;
@@ -481,3 +558,16 @@
     }
   }
 </style>
+
+<script>
+  // Plays the reactions row's burst once, when it first scrolls into view.
+  const burst = document.querySelector<HTMLElement>("[data-burst]");
+  if (burst && "IntersectionObserver" in window) {
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      burst.classList.add("go");
+      io.disconnect();
+    });
+    io.observe(burst);
+  }
+</script>
