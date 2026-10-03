@@ -49,6 +49,12 @@
       }
     },
 
+    "Emoji": {
+      "description": "The six reactions (US-045): love, laugh, cry, fire, shocked, clap.",
+      "type": "string",
+      "enum": ["❤️", "😂", "😭", "🔥", "😱", "👏"]
+    },
+
     "Media": {
       "description": "What the room is watching.",
       "type": "object",
@@ -292,6 +298,24 @@
       }
     },
 
+    "ReactionSend": {
+      "description": "A reaction (US-045). Taps on the same one within 250 ms arrive as one with a count. Never stored.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "REACTION.SEND" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["emoji", "count"],
+          "properties": {
+            "emoji": { "$ref": "#/$defs/Emoji" },
+            "count": { "type": "integer", "minimum": 1, "maximum": 5 }
+          }
+        }
+      }
+    },
+
     "ClientMessage": {
       "oneOf": [
         { "$ref": "#/$defs/PresenceUpdate" },
@@ -303,7 +327,8 @@
         { "$ref": "#/$defs/StartReady" },
         { "$ref": "#/$defs/StartForce" },
         { "$ref": "#/$defs/RestoreRoom" },
-        { "$ref": "#/$defs/ChatSend" }
+        { "$ref": "#/$defs/ChatSend" },
+        { "$ref": "#/$defs/ReactionSend" }
       ]
     },
 
@@ -488,6 +513,26 @@
       }
     },
 
+    "ReactionShow": {
+      "description": "A reaction to float over the video, sent to everyone in the room including the sender (US-045).",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "REACTION.SHOW" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fromId", "name", "emoji", "count"],
+          "properties": {
+            "fromId": { "type": "string" },
+            "name": { "$ref": "#/$defs/Name" },
+            "emoji": { "$ref": "#/$defs/Emoji" },
+            "count": { "type": "integer", "minimum": 1, "maximum": 5 }
+          }
+        }
+      }
+    },
+
     "ServerMessage": {
       "oneOf": [
         { "$ref": "#/$defs/RoomState" },
@@ -499,7 +544,8 @@
         { "$ref": "#/$defs/StartState" },
         { "$ref": "#/$defs/ChatMessage" },
         { "$ref": "#/$defs/ChatHistory" },
-        { "$ref": "#/$defs/ChatRejected" }
+        { "$ref": "#/$defs/ChatRejected" },
+        { "$ref": "#/$defs/ReactionShow" }
       ]
     }
   }

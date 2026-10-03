@@ -282,3 +282,47 @@ textarea:disabled {
     opacity: 0;
   }
 }
+/* Reactions (US-045): six 36px buttons, 12px radius, under the message box. */
+.reactions {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 12px 12px;
+}
+.reaction {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+}
+.reaction:hover {
+  background: rgba(214, 236, 240, 0.1);
+}
+/* Dropped (offline or past the limit): a short shake (US-046). */
+.reaction.dropped {
+  animation: shake 320ms ease-out;
+}
+@keyframes shake {
+  25% {
+    transform: translateX(-3px);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Still: a brief dim in place instead of a shake. */
+  .reaction.dropped {
+    animation: dim 320ms ease-out;
+  }
+}
+@keyframes dim {
+  50% {
+    opacity: 0.4;
+  }
+}

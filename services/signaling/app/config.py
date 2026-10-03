@@ -47,6 +47,8 @@ CHAT_ROOM_PER_10S = int(os.environ.get("CHAT_ROOM_PER_10S", "20"))
 # messages go first. Bounds memory and what each join is sent.
 CHAT_ROOM_BYTES = int(os.environ.get("CHAT_ROOM_BYTES", str(64 * 1024)))
 CHAT_TOTAL_BYTES = int(os.environ.get("CHAT_TOTAL_BYTES", str(32 * 1024 * 1024)))
+# Reactions per person per 5 seconds (US-046); the extras are dropped without a reply.
+REACTIONS_PER_5S = int(os.environ.get("REACTIONS_PER_5S", "8"))
 # Behind Railway's edge, the client address arrives in X-Real-IP (set by the edge).
 TRUST_PROXY = os.environ.get("TRUST_PROXY") == "1"
 # Request bodies are tiny ({"name": ...}); anything bigger is refused.

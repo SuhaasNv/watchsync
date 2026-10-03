@@ -1,5 +1,13 @@
 // Messages between the extension's own contexts (popup, content scripts, background).
-import type { AnyServerMessage, Media, Participant, Playback, Service } from "@watchsync/protocol";
+import type {
+  AnyServerMessage,
+  Emoji,
+  Media,
+  Participant,
+  Playback,
+  Service,
+} from "@watchsync/protocol";
+import { isEmoji, MAX_COUNT } from "./reactions";
 import type { Update } from "./update";
 
 export interface Session {
@@ -82,7 +90,12 @@ export type Push =
    * offline: no echo 30 s after it was first sent, not in a room, or too many waiting (Retry,
    * with the same clientId, can work); invalid: the text can't be sent as it is (no Retry).
    */
-  | { kind: "chatFailed"; reason: "offline" | "invalid"; text: string; clientId: string };
+  | { kind: "chatFailed"; reason: "offline" | "invalid"; text: string; clientId: string }
+  /**
+   * A reaction this person sent was dropped, never queued or retried: no connection, or past
+   * the per-person limit. To the chat frames, so the button can say so (US-046).
+   */
+  | { kind: "reactionDropped"; emoji: Emoji; reason: "offline" | "limit" };
 
 /**
  * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first
@@ -96,13 +109,20 @@ export type SidebarEvent =
    * Send a chat message (UC-014). The background adds the movie time: the frame can't see
    * the player. clientId is the frame's id for it (crypto.randomUUID()), the same on Retry.
    */
-  | { kind: "chat"; text: string; clientId: string };
+  | { kind: "chat"; text: string; clientId: string }
+  /** A reaction button: taps within 250 ms come as one with a count (US-045). */
+  | { kind: "react"; emoji: Emoji; count: number };
 
 export function isSidebarEvent(v: unknown): v is SidebarEvent {
   if (typeof v !== "object" || v === null) return false;
   const kind = Reflect.get(v, "kind");
   const str = (k: string) => typeof Reflect.get(v, k) === "string";
   if (kind === "chat") return str("text") && str("clientId");
+  if (kind === "react") {
+    const count = Reflect.get(v, "count");
+    const whole = typeof count === "number" && Number.isInteger(count);
+    return isEmoji(Reflect.get(v, "emoji")) && whole && count >= 1 && count <= MAX_COUNT;
+  }
   return kind === "close" || (kind === "hello" && str("nonce"));
 }
 
@@ -141,7 +161,9 @@ export type TabEvent =
       clientId: string;
     }
   /** The chat was opened: everything in it is seen, and the unread count clears. */
-  | { kind: "chatOpened" };
+  | { kind: "chatOpened" }
+  /** A reaction (US-045); the chat frame sends the same as a SidebarEvent. */
+  | { kind: "react"; emoji: Emoji; count: number };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {

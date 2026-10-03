@@ -26,6 +26,7 @@ import {
 } from "./overlay";
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
 import { providerFor } from "./providers";
+import { reactionsBesideChat, retireReactions, showReaction, showReactions } from "./reactions";
 import {
   chatFrameLost,
   chatFrameReady,
@@ -216,6 +217,11 @@ function onPush(m: Push) {
     });
     return;
   }
+  if (m.kind === "server" && m.message.type === "REACTION.SHOW") {
+    const r = m.message.payload;
+    showReaction({ ...r, mine: r.fromId === room?.session?.participantId });
+    return;
+  }
   if (m.kind === "server" && m.message.type === "START.STATE") {
     onStart(m.message.payload);
     return;
@@ -265,6 +271,7 @@ function onPush(m: Push) {
   // Unread on the chat button (US-044); while chat is open, everything in it is seen.
   if (isSidebarOpen() && room.unread > 0) post({ kind: "chatOpened" });
   else setChatBadge(room.unread);
+  showReactions(room.session !== null && room.connection !== "idle");
   showConnection();
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
@@ -412,6 +419,7 @@ onSidebarChange((open) => {
   drawPill();
   noticesBesideSidebar(open);
   if (open) post({ kind: "chatOpened" }); // the unread count clears in every tab
+  reactionsBesideChat(open);
 });
 // Fail closed: the page kept pointing the chat frame elsewhere (DEC-042).
 onChatOff(() => {
@@ -818,6 +826,7 @@ function retire() {
   window.removeEventListener("focus", wake);
   retireOverlay();
   retireSidebar();
+  retireReactions();
 }
 
 /** When this tab's title went missing; 0 while it has one. */

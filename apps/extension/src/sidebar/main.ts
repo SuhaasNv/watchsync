@@ -6,6 +6,7 @@ import { CHAT_KEEP, isChatText } from "../shared/chat";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
 import { announcement, capText, namesFor, type Outgoing, renderLog } from "./chat-view";
+import { mountReactions } from "./reactions";
 
 function byId<T extends HTMLElement>(id: string, type: new () => T): T {
   const el = document.getElementById(id);
@@ -149,7 +150,14 @@ function showNotice(text: string) {
   notice.hidden = false;
 }
 
+// Under the message box; a reaction never waits for a connection.
+const reactions = mountReactions(composer, (emoji, count) => {
+  if (port) post({ kind: "react", emoji, count });
+  else reactions.dropped(emoji, "offline");
+});
+
 function onPush(m: Push) {
+  if (m.kind === "reactionDropped") return reactions.dropped(m.emoji, m.reason);
   if (m.kind === "state") {
     state = m.state;
     const room = m.state.session?.code;

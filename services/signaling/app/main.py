@@ -78,7 +78,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await asyncio.sleep(60)
             rooms.sweep()
             limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
-            for limiter in (*limiters, failed_join_limiter, chat_limiter, room_chat_limiter):
+            chats = (chat_limiter, room_chat_limiter, reaction_limiter)
+            for limiter in (*limiters, failed_join_limiter, *chats):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
@@ -151,6 +152,7 @@ failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
 chat_limiter = Limiter(config.CHAT_PER_5S, 5)
 # Per room, everyone together (keyed by room code).
 room_chat_limiter = Limiter(config.CHAT_ROOM_PER_10S, 10)
+reaction_limiter = Limiter(config.REACTIONS_PER_5S, 5)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
@@ -486,6 +488,11 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await restore_room(room, payload["media"], payload["playback"], payload["knownAt"])
     elif msg["type"] == "CHAT.SEND":
         await chat_send(room, p, payload)
+    elif msg["type"] == "REACTION.SEND":
+        # Members only; over the limit the extras are dropped silently (US-046). Never stored.
+        if room.participants.get(p.id) is p and reaction_limiter.allow(p.id):
+            shown = {"fromId": p.id, "name": p.name, "emoji": payload["emoji"]}
+            await broadcast(room, "REACTION.SHOW", shown | {"count": payload["count"]})
 
 
 async def restore_room(
@@ -845,6 +852,7 @@ async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, i
         if sockets.get(p.id) is ws:  # not replaced by a newer connection
             del sockets[p.id]
             message_limiter.forget(p.id)
+            reaction_limiter.forget(p.id)
             p.connected = False
             p.hold = None  # don't keep the room waiting for someone who's gone
             if not left:

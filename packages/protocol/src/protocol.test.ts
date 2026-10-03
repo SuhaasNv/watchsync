@@ -205,7 +205,9 @@ describe("chat messages (UC-014)", () => {
   });
 
   it("refuses server types it doesn't know, as the shipped extension does with chat", () => {
+    // REACTION.SHOW was the example until UC-015 added it; any type not in the schema is refused.
     const show = { fromId: "p1", name: "Maya", emoji: "🔥", count: 1 };
-    expect(isServerMessage(server("REACTION.SHOW", show))).toBe(false);
+    expect(isServerMessage(server("REACTION.BURST", show))).toBe(false);
+    expect(isServerMessage(server("REACTION.SHOW", show))).toBe(true);
   });
 });
