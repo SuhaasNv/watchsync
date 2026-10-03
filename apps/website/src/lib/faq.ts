@@ -46,6 +46,16 @@ export const FAQ: Faq[] = [
     a: "<p>Up to eight.</p>",
   },
   {
+    id: "chat",
+    q: "Can we chat while we watch?",
+    a: "<p>Yes. Chat opens in a side panel next to the player, and each message shows the movie time it was sent at.</p>",
+  },
+  {
+    id: "chat-saved",
+    q: "Is my chat saved anywhere?",
+    a: "<p>Only in memory while the room exists. It is never written to disk and is gone when the room ends.</p>",
+  },
+  {
     id: "live",
     q: "Can we watch live sports?",
     a: "<p>Not yet. Live streams aren't synced, and WatchSync tells you when you're on one. Films, shows and anything else on demand work.</p>",
