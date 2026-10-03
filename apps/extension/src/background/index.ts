@@ -29,6 +29,9 @@ import {
   type UpdateCheck,
 } from "../shared/update";
 import { injectOpenTabs } from "./inject";
+import { restoreMessage } from "./restore";
+import { RESTARTING, Retry } from "./retry";
+import { updateGate } from "./updates";
 
 const API = __API_URL__;
 
@@ -45,12 +48,12 @@ const state: AppState = {
   notice: null,
   mediaMove: null,
   update: null,
+  updating: false,
+  unreachable: false,
 };
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
 let lastTicket: Session | null = null;
-let attempt = 0;
-let retry: ReturnType<typeof setTimeout> | undefined;
 let socket: WebSocket | null = null;
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 const samples: ClockSample[] = [];
@@ -178,15 +181,25 @@ function sendServer(msg: AnyClientMessage) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
-// 1, 2, 4, 8, then every 10 s: short enough that a friend back on Wi-Fi rejoins quickly
-// (BUG-018), with jitter so a room's clients don't all retry at once after a redeploy.
-const backoff = (n: number) => Math.min(10_000, 1000 * 2 ** n) * (1 + Math.random() * 0.3);
+// Backoff 1, 2, 4, 8, then every 10 s with jitter: a friend back on Wi-Fi rejoins quickly
+// (BUG-018) and a room's clients don't all retry at once. After 2 minutes down, the page and
+// popup say so plainly (test builds: 15 s, so end-to-end tests can see it).
+const retry = new Retry(
+  () => connect(),
+  () => {
+    if (state.connection !== "reconnecting") return;
+    state.unreachable = retry.status().unreachable;
+    changed();
+  },
+  __MOCK__ ? 15_000 : 120_000,
+);
+/** The service told us it was restarting since we last heard the room (US-120). */
+let sawRestart = false;
 
-/** Someone opened the popup or a service page while we wait to retry: try right away. */
+/** Network back, the popup or a service tab opened or came into view, or Try now. */
 function retryNow() {
   if (state.connection !== "reconnecting" || !state.session) return;
-  clearTimeout(retry);
-  connect();
+  retry.now();
 }
 // The browser saying the network is back is the best moment to retry.
 self.addEventListener("online", retryNow);
@@ -194,12 +207,19 @@ self.addEventListener("online", retryNow);
 function connect() {
   const s = state.session;
   if (!s) return;
-  clearTimeout(retry);
   if (state.connection !== "reconnecting") state.connection = "connecting";
   changed();
-  const ws = new WebSocket(
-    `${API.replace(/^http/, "ws")}/ws/rooms/${s.code}?token=${encodeURIComponent(s.token)}`,
-  );
+  // The token goes as a subprotocol next to ours, never in the URL, so no log that prints
+  // URLs holds it. A token that isn't a valid subprotocol would throw: the room refuses us.
+  const token = /^[A-Za-z0-9_.-]+$/.test(s.token) ? [s.token] : [];
+  // A try still hanging (Try now, a tab coming into view) is dropped, never left open.
+  const hanging = socket;
+  socket = null;
+  hanging?.close();
+  const ws = new WebSocket(`${API.replace(/^http/, "ws")}/ws/rooms/${s.code}`, [
+    "watchsync.v1",
+    ...token,
+  ]);
   socket = ws;
   ws.onmessage = (e) => {
     let msg: unknown;
@@ -229,8 +249,11 @@ function connect() {
       // A newer connection of ours took over (worker restart); it owns the room now.
       state.connection = "idle";
     } else if (state.session) {
+      // Network trouble, flooding (4001) or a restart (4002/1012): a restart retries within
+      // 1 to 3 s for a minute, the rest back off (retry.ts).
       state.connection = "reconnecting";
-      retry = setTimeout(connect, backoff(attempt++));
+      if (RESTARTING.has(e.code)) sawRestart = true;
+      Object.assign(state, retry.closed(e.code));
     }
     changed();
   };
@@ -245,16 +268,30 @@ const order = (id: string) => {
 
 function onServer(msg: AnyServerMessage) {
   switch (msg.type) {
-    case "ROOM.STATE":
+    case "ROOM.STATE": {
+      const known = { media: state.media, playback: state.playback };
       state.connection = "connected";
       state.mediaMove = null;
       state.notice = null;
-      attempt = 0;
+      retry.reset();
+      state.updating = false;
+      state.unreachable = false;
       state.participants = msg.payload.participants;
       for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
       state.playback = msg.payload.playback;
+      // Back in a room the restarted service brought back from our token (US-120): it
+      // knows who we are but not what we watched. Tell it what we knew.
+      const restore = restoreMessage(
+        known,
+        msg.payload.media,
+        sawRestart,
+        Date.now() + state.clockOffset,
+      );
+      sawRestart = false;
+      if (restore) sendServer(restore);
       break;
+    }
     case "ROOM.PARTICIPANT": {
       const { participant, event } = msg.payload;
       const others = state.participants.filter((p) => p.id !== participant.id);
@@ -292,12 +329,19 @@ function onServer(msg: AnyServerMessage) {
 }
 
 function reset() {
-  clearTimeout(retry);
+  retry.reset();
   socket?.close(); // onclose ignores it: socket is no longer this one
   socket = null;
   seen.clear();
-  attempt = 0;
-  Object.assign(state, { participants: [], media: null, playback: null, connection: "idle" });
+  sawRestart = false;
+  Object.assign(state, {
+    participants: [],
+    media: null,
+    playback: null,
+    connection: "idle",
+    updating: false,
+    unreachable: false,
+  });
 }
 
 async function startSession(ticket: Session) {
@@ -320,7 +364,13 @@ async function endSession(notice: string | null) {
   await chrome.storage.session.remove(["session", "lastTicket"]);
   await chrome.storage.local.remove("lastRoom");
   changed();
+  updates.left();
 }
+
+// An update mid-room would clear the room ticket and drop us out: wait until we're out. The
+// reload waits a moment so the popup gets its answer first.
+const updates = updateGate(() => setTimeout(() => chrome.runtime.reload(), 500));
+chrome.runtime.onUpdateAvailable.addListener(() => updates.available(state.session !== null));
 
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).
@@ -420,6 +470,9 @@ async function handleNow(req: Request): Promise<Reply> {
       case "follow":
         state.following = req.following;
         sendPresence();
+        break;
+      case "retryNow":
+        retryNow();
         break;
     }
     changed();
@@ -523,6 +576,7 @@ chrome.runtime.onConnect.addListener((port) => {
         return sendServer(envelope("START.REQUEST", { position: e.position, titleId: e.titleId }));
       if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
+      if (e.kind === "retryNow") return retryNow();
       const tabId = port.sender?.tab?.id;
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).

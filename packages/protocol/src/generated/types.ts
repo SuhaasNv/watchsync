@@ -82,8 +82,22 @@ export type StartForce = Envelope & {
   type?: "START.FORCE";
   payload?: {};
 };
+/**
+ * After the room service restarted (US-120): the room's title and clock as this client last knew them, position re-projected to now. Sent only by a client the old service told it was restarting. For a few seconds after the room is back the most recent knowledge (knownAt) wins; the server stamps updatedAt.
+ */
+export type RestoreRoom = Envelope & {
+  type?: "ROOM.RESTORE";
+  payload?: {
+    media: Media | null;
+    playback: Playback | null;
+    /**
+     * The old service's time (ms) of the room clock this client last heard; 0 if none.
+     */
+    knownAt: number;
+  };
+};
 export type ClientMessage =
-  PresenceUpdate | PlaybackUpdate | Ping | Leave | HoldUpdate | StartRequest | StartReady | StartForce;
+  PresenceUpdate | PlaybackUpdate | Ping | Leave | HoldUpdate | StartRequest | StartReady | StartForce | RestoreRoom;
 /**
  * Full snapshot sent on connect and reconnect.
  */
@@ -201,6 +215,7 @@ export interface ProtocolRoot {
   StartRequest?: StartRequest;
   StartReady?: StartReady;
   StartForce?: StartForce;
+  RestoreRoom?: RestoreRoom;
   ClientMessage?: ClientMessage;
   RoomState?: RoomState;
   ParticipantChanged?: ParticipantChanged;
@@ -253,7 +268,7 @@ export interface CreateRoomRequest {
 export interface JoinRoomRequest {
   name: Name;
   /**
-   * Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041).
+   * Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041). Signed tokens (DEC-031) hold a dot.
    */
   token?: string;
 }

@@ -76,9 +76,9 @@
       "properties": {
         "name": { "$ref": "#/$defs/Name" },
         "token": {
-          "description": "Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041).",
+          "description": "Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041). Signed tokens (DEC-031) hold a dot.",
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          "pattern": "^[A-Za-z0-9_.-]{1,1100}$"
         }
       }
     },
@@ -221,6 +221,28 @@
         "payload": { "type": "object", "additionalProperties": false }
       }
     },
+    "RestoreRoom": {
+      "description": "After the room service restarted (US-120): the room's title and clock as this client last knew them, position re-projected to now. Sent only by a client the old service told it was restarting. For a few seconds after the room is back the most recent knowledge (knownAt) wins; the server stamps updatedAt.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.RESTORE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["media", "playback", "knownAt"],
+          "properties": {
+            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] },
+            "playback": { "anyOf": [{ "$ref": "#/$defs/Playback" }, { "type": "null" }] },
+            "knownAt": {
+              "description": "The old service's time (ms) of the room clock this client last heard; 0 if none.",
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
 
     "ClientMessage": {
       "oneOf": [
@@ -231,7 +253,8 @@
         { "$ref": "#/$defs/HoldUpdate" },
         { "$ref": "#/$defs/StartRequest" },
         { "$ref": "#/$defs/StartReady" },
-        { "$ref": "#/$defs/StartForce" }
+        { "$ref": "#/$defs/StartForce" },
+        { "$ref": "#/$defs/RestoreRoom" }
       ]
     },
 

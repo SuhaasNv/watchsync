@@ -30,6 +30,25 @@ describe("protocol validators", () => {
     ).toBe(false);
   });
 
+  it("accepts a room restore with or without a title and clock (US-120)", () => {
+    const media = { service: "mock", titleId: "ep1", titleName: null, titleUrl: null } as const;
+    const playback = { status: "paused", position: 2530, rate: 1, updatedAt: 1, titleId: "ep1" };
+    const restore = (payload: Record<string, unknown>) => ({
+      id: "1",
+      type: "ROOM.RESTORE",
+      timestamp: 1,
+      payload,
+    });
+    expect(isClientMessage(restore({ media, playback, knownAt: 1 }))).toBe(true);
+    expect(isClientMessage(restore({ media: null, playback: null, knownAt: 0 }))).toBe(true);
+    expect(isClientMessage(restore({ media, knownAt: 1 }))).toBe(false);
+    expect(isClientMessage(restore({ media, playback }))).toBe(false); // knownAt is required
+    expect(isClientMessage(restore({ media, playback, knownAt: -1 }))).toBe(false);
+    expect(isClientMessage(restore({ media, playback, knownAt: 1, chat: [] }))).toBe(false);
+    const behind = { ...playback, position: -1 };
+    expect(isClientMessage(restore({ media, playback: behind, knownAt: 1 }))).toBe(false);
+  });
+
   it("does not accept server messages as client messages", () => {
     const pong = { id: "1", timestamp: 1, type: "SYS.PONG", payload: { t1: 1, serverTime: 2 } };
     expect(isServerMessage(pong)).toBe(true);

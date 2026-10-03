@@ -15,6 +15,15 @@ from app.protocol import is_server_message
 client = TestClient(main.app)
 
 
+@pytest.fixture(autouse=True, scope="module")
+def one_loop() -> Iterator[None]:
+    """Every socket's handler on one event loop. Otherwise each socket gets its own, and a
+    message one handler sends to another person's socket crosses loops: its wake-up can be
+    lost and the test hangs, more often the longer validation takes."""
+    with client:
+        yield
+
+
 def create(name: str = "Suhaas") -> dict[str, str]:
     r = client.post("/api/v1/rooms", json={"name": name})
     assert r.status_code == 201, r.text

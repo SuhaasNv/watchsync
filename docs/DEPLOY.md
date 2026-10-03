@@ -27,11 +27,26 @@ Scaling: environments differ only in variables. If one room-service instance is 
 ## How it runs
 
 - Image: `Dockerfile.signaling`, built from the repo root because the service reads the shared schema in `packages/protocol/schema`.
-- One uvicorn worker, because rooms live in memory (DEC-003). A redeploy ends every room.
+- One uvicorn worker, because rooms live in memory (DEC-003). A redeploy no longer ends the rooms (DEC-031, UC-046): on SIGTERM the service closes every connection with code 4002 ("restarting"), the extension says "WatchSync is updating, back in a moment" and retries every 1 to 3 s, and the new process brings each room back from its people's signed tokens (same code, same names; the first person back restores the title and position). Chat history does not come back. Rooms are restored only within `RESTORE_WINDOW_SECONDS` (default 600) of the new process starting.
+- `ROOM_SIGNING_SECRET` (required in production, at least 32 bytes; the service refuses to start without it): signs room tokens. Generate it once with `openssl rand -base64 48`, set it as a service variable on Railway (each environment its own), and keep it across deploys. Changing it ends every open room: old tokens stop verifying and the extension tells people the room has ended. Never commit it, never log it.
 - Logs: no access log and `--log-level warning`, because WebSocket URLs carry room tokens (BUG-003).
 - The process runs as a non-root user. WebSocket frames are capped at 16 KB and request bodies at 2 KB.
 - `TRUST_PROXY=1` (set in `Dockerfile.signaling`): per-client limits key on `X-Real-IP` instead of the TCP peer, which on Railway is always the edge. See "Client addresses" below.
-- Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
+- Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `WS_PER_IP=20` open WebSockets per client, `WS_IDLE_SECONDS=120` before a socket that sends nothing (not even the extension's 20 s pings) is closed with 1001, `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
+
+### Room tokens
+
+A token is the room code, the person's id, their name and when it was issued, signed with `ROOM_SIGNING_SECRET` (HMAC-SHA256); anyone can read it, nobody can forge one. The extension sends it in the `Sec-WebSocket-Protocol` header (`watchsync.v1, <token>`), so it is not in any URL or access log; `?token=` still works for v0.1.x extensions until v0.8. After a restart a token brings its room back from nothing only if it is under `TOKEN_MAX_AGE_SECONDS` (default 86400) old and not dated in the future (5 minutes of clock tolerance), within `RESTORE_WINDOW_SECONDS` of the start, within `MAX_ROOMS`, and within `RESTORES_PER_IP` rooms per client address (default 3). A room already back keeps taking its people's valid tokens after the window (a laptop that wakes up later). Someone who left a room brought back in this process can't come back with their old token. A live connection is checked against the room's own list, so a long night isn't cut off by the age limit.
+
+What the room was watching comes from its people (ROOM.RESTORE), sent only by an extension the old service told it was restarting. For 10 seconds after a room is back, the most recent knowledge wins (the old service's time of the clock each one last heard), so a friend who was behind and reconnects first can't rewind everyone; a play, pause or jump made in the new process always wins.
+
+The extension holds a Chrome update while it is in a room (an update clears the session storage that holds the room ticket) and applies it when the person leaves the room; otherwise Chrome applies it at the next browser start.
+
+Accepted risks (security audit, October 2026):
+
+- Which rooms ended, and who left, is kept in memory only (no disk, no database). After a restart, a token kept from a room that ended before it can bring that room back, and a token kept by someone who left can put them back in it while the room lives, within the age limit (24 h; bringing a room back from nothing also within the restore window). The extension drops its token when a room ends or the person leaves, so this takes someone deliberately keeping one. `test_a_room_ended_before_a_restart_is_bounded_by_token_age` pins the bound with two real processes.
+- The token carries the person's display name in readable form. It no longer travels in URLs, so it doesn't reach logs.
+- The service needs up to 2 seconds after SIGTERM to tell every connection it is restarting. Railway must leave more than that between SIGTERM and killing the process (owner to confirm in the service settings).
 
 ### Client addresses
 
@@ -51,14 +66,14 @@ Service settings, set on Railway rather than in a file:
 
 | Setting | Value |
 |---|---|
-| Variables | `PORT=8080`, `PUBLIC_URL`, `RAILWAY_DOCKERFILE_PATH=Dockerfile.signaling` |
+| Variables | `PORT=8080`, `PUBLIC_URL`, `RAILWAY_DOCKERFILE_PATH=Dockerfile.signaling`, `ROOM_SIGNING_SECRET` (secret, see above) |
 | Healthcheck | `/health`, 30 s |
 | Restart | on failure, up to 10 retries |
 | Sleep | off (sleeping would end the rooms) |
 
 ## Deploy
 
-Ask the owner first: a deploy ends every open room.
+Ask the owner first. Before the first deploy of v0.2, set `ROOM_SIGNING_SECRET` on the service, or the new version won't start (the old one keeps running). With it set, open rooms come back by themselves within seconds; tokens issued by v0.1.x are not signed, so rooms open during that one deploy still end.
 
 ```bash
 railway link --project watchsync --service room-service --environment production

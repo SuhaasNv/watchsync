@@ -14,6 +14,7 @@ import {
   SERVICE_LABEL,
   safeTitleUrl,
   send,
+  UNREACHABLE,
 } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
 
@@ -469,11 +470,23 @@ function RoomScreen({ state }: { state: AppState }) {
         right={
           <span className={`badge ${state.connection}`} role="status">
             <span className="dot" aria-hidden="true" />
-            {CONNECTION[state.connection]}
+            {state.updating && state.connection === "reconnecting"
+              ? "Updating…"
+              : CONNECTION[state.connection]}
           </span>
         }
       />
       <div className="body">
+        {state.unreachable && state.connection === "reconnecting" && (
+          <div className="row">
+            <p className="hint grow" role="status">
+              {UNREACHABLE}
+            </p>
+            <button className="btn" type="button" onClick={() => send({ kind: "retryNow" })}>
+              Try now
+            </button>
+          </div>
+        )}
         {alone ? (
           <section className="invite-card" aria-labelledby="invite-title">
             <p className="invite-title" id="invite-title">

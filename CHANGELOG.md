@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Rooms survive a WatchSync server update: the room comes back by itself with the same code, people, title and position (UC-046, DEC-031).
+- While the server updates, the page says "WatchSync is updating, back in a moment" and reconnects within a few seconds; after 2 minutes without a connection it says "Can't reach WatchSync. Still trying." with Try now.
+- Chrome extension updates wait until you leave the room, so an auto-update never drops you mid-film.
+
+### Security
+- Room tokens are signed, expire after 24 hours, and travel in the connection header instead of the URL (older extensions still connect the old way until v0.8).
+- Restored rooms count toward the room limits; idle and per-address connection limits.
+
+### Known issues
+- The room service needs `ROOM_SIGNING_SECRET` set on every Railway environment before this version is deployed, or it will not start.
+- Not yet checked against the real Railway deploy and the three streaming services.
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed

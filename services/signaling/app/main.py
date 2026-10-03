@@ -5,7 +5,10 @@ import contextlib
 import ipaddress
 import json
 import re
+import signal
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
+from types import FrameType
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
@@ -33,8 +36,54 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
+    put_back = close_first_on_sigterm()
     yield
+    put_back()
     task.cancel()
+    await close_for_restart()  # anything still open as the app stops (US-121)
+
+
+def close_first_on_sigterm() -> Callable[[], None]:
+    """A deploy stops the service with SIGTERM. Uvicorn answers it by closing every WebSocket
+    with 1012 before the app's own shutdown runs, so close them with RESTARTING first, then
+    hand the signal on. Returns what puts the previous handler back."""
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None  # signals reach only the main thread (tests run the app elsewhere)
+    loop = asyncio.get_running_loop()
+    previous = signal.getsignal(signal.SIGTERM)
+    tasks: set[asyncio.Task[None]] = set()
+
+    async def close_then_exit(sig: int, frame: FrameType | None) -> None:
+        await close_for_restart()
+        if callable(previous):
+            previous(sig, frame)
+        else:  # no handler before ours: the default, end the process
+            put_back()
+            signal.raise_signal(signal.SIGTERM)
+
+    def start() -> None:
+        tasks.add(loop.create_task(close_then_exit(signal.SIGTERM, None)))
+
+    def on_sigterm(_sig: int, _frame: FrameType | None) -> None:
+        loop.call_soon_threadsafe(start)
+
+    def put_back() -> None:
+        signal.signal(signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+
+    signal.signal(signal.SIGTERM, on_sigterm)
+    return put_back
+
+
+async def close_for_restart() -> None:
+    """Tell every open connection the service is restarting, so the extension says so and
+    comes straight back instead of backing off (US-121)."""
+
+    async def close(ws: WebSocket) -> None:
+        with contextlib.suppress(Exception):
+            await ws.close(code=RESTARTING)
+
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(asyncio.gather(*(close(ws) for ws in list(sockets.values()))), 2)
 
 
 # No public API docs in production (security audit F2).
@@ -55,9 +104,13 @@ failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
-# newer connection of the same person (stop), anything else = network trouble (reconnect).
+# newer connection of the same person (stop), 4002 = restarting (reconnect fast), anything
+# else = network trouble (reconnect).
 REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
+RESTARTING = 4002  # the service is restarting (a deploy); the extension retries within seconds
+# After a room comes back, how long its people's ROOM.RESTOREs are weighed (newest wins).
+RESTORE_SETTLE_MS = 10_000
 FLOOD_LIMIT = 100
 ERROR_STATUS = {
     "not_found": 404,
@@ -70,6 +123,8 @@ ERROR_STATUS = {
 # up to a poll later; a pause this recent from the same person was the ad's.
 AD_PAUSE_MS = 2000
 sockets: dict[str, WebSocket] = {}
+# Open WebSockets per client address (WS_PER_IP).
+open_sockets: dict[str, int] = {}
 # Per participant id: the pending "left" for someone whose connection closed.
 away: dict[str, asyncio.Task[None]] = {}
 
@@ -373,6 +428,33 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await start_progress(room)
     elif msg["type"] == "START.FORCE" and room.start is not None:
         await start_go(room)
+    elif msg["type"] == "ROOM.RESTORE":
+        await restore_room(room, payload["media"], payload["playback"], payload["knownAt"])
+
+
+async def restore_room(
+    room: Room, media: dict[str, Any] | None, playback: dict[str, Any] | None, known_at: float
+) -> None:
+    """People back in a room brought back after a restart say what it was watching and
+    where (US-120). For the first RESTORE_SETTLE_MS, the most recent knowledge wins (the old
+    server's time of the clock each knew), so a friend who was offline and comes back first
+    can't rewind everyone; never over a change someone made here since. Everyone gets the
+    room afresh and their drift check brings them together."""
+    if room.restored_at is None or now_ms() - room.restored_at > RESTORE_SETTLE_MS:
+        return
+    if room.playback is not None and room.playback is not room.restored_playback:
+        return  # someone played, paused or jumped here already: that is the room's clock now
+    if room.restore_known_at is not None and known_at <= room.restore_known_at:
+        return
+    room.restore_known_at = known_at
+    if media is not None:
+        room.media = safe_media(media)
+    if playback is not None:
+        room.playback = {**playback, "updatedAt": now_ms()}
+        room.restored_playback = room.playback
+    for x in list(room.participants.values()):
+        if x.connected:
+            await send(x, "ROOM.STATE", room.snapshot(x.id))
 
 
 def show(media: dict[str, Any]) -> str | None:
@@ -538,21 +620,50 @@ def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
     }
 
 
+# The extension sends its room token as a WebSocket subprotocol next to this one, so the
+# token stays out of URLs and the logs that print them (security audit, UC-046).
+SUBPROTOCOL = "watchsync.v1"
+
+
+def socket_token(ws: WebSocket) -> tuple[str, str | None]:
+    """The room token and the subprotocol to accept: from Sec-WebSocket-Protocol
+    ("watchsync.v1, <token>"), else from ?token= as v0.1.x extensions send it."""
+    offered = [x.strip() for x in ws.headers.get("sec-websocket-protocol", "").split(",")]
+    if SUBPROTOCOL in offered:
+        others = [x for x in offered if x and x != SUBPROTOCOL]
+        return (others[0] if len(others) == 1 else ""), SUBPROTOCOL
+    # TODO(v0.8): drop ?token= once no v0.1.x extension is left.
+    return ws.query_params.get("token", ""), None
+
+
 @app.websocket("/ws/rooms/{code}")
 async def room_socket(ws: WebSocket, code: str) -> None:
-    if not connect_limiter.allow(client_ip(ws)):
-        await ws.accept()
+    token, subprotocol = socket_token(ws)
+    # Accept first, always with the subprotocol the browser asked for (else Chrome fails the
+    # handshake): a close before accept reaches browsers as 1006, which looks like a network
+    # drop and makes the extension retry forever (BUG-009).
+    ip = client_ip(ws)
+    if open_sockets.get(ip, 0) >= config.WS_PER_IP or not connect_limiter.allow(ip):
+        await ws.accept(subprotocol)
         await ws.close(code=status.WS_1013_TRY_AGAIN_LATER)  # the extension backs off
         return
-    found = rooms.authenticate(code, ws.query_params.get("token", ""))
+    open_sockets[ip] = open_sockets.get(ip, 0) + 1
+    try:
+        await serve(ws, code, token, subprotocol, ip)
+    finally:
+        open_sockets[ip] -= 1
+        if not open_sockets[ip]:
+            del open_sockets[ip]
+
+
+async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, ip: str) -> None:
+    found = rooms.authenticate(code, token, ip)
     if found is None:
-        # Accept first: a close before accept reaches browsers as 1006, which looks like a
-        # network drop and makes the extension retry forever (BUG-009).
-        await ws.accept()
+        await ws.accept(subprotocol)
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     room, p = found
-    await ws.accept()
+    await ws.accept(subprotocol)
     old = sockets.get(p.id)
     sockets[p.id] = ws
     if old is not None:  # the same person reconnected (network change, restart): newest wins
@@ -573,7 +684,11 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     dropped = 0
     try:
         while True:
-            raw = await ws.receive()
+            try:
+                raw = await asyncio.wait_for(ws.receive(), config.WS_IDLE_SECONDS)
+            except TimeoutError:  # silent too long: not a live extension (it pings)
+                await ws.close(code=status.WS_1001_GOING_AWAY)
+                break
             if raw["type"] == "websocket.disconnect":
                 break
             try:
