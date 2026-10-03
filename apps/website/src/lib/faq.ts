@@ -56,21 +56,6 @@ export const FAQ: Faq[] = [
     a: "<p>Only in memory while the room exists. It is never written to disk and is gone when the room ends.</p>",
   },
   {
-    id: "chat-typing",
-    q: "Will typing in chat pause my video?",
-    a: "<p>No. Space, k, f, m and the arrow keys stay in your message.</p>",
-  },
-  {
-    id: "chat-open",
-    q: "How do I open chat?",
-    a: "<p>Press Chat on the pill, or open it from the popup. The shortcut is Alt+Shift+W, or Control+Shift+W on a Mac.</p>",
-  },
-  {
-    id: "reactions",
-    q: "What are the reactions?",
-    a: "<p>Six one-tap reactions: love, laugh, cry, fire, shocked and clap. Tap several times and friends see that many float up.</p>",
-  },
-  {
     id: "live",
     q: "Can we watch live sports?",
     a: "<p>Not yet. Live streams aren't synced, and WatchSync tells you when you're on one. Films, shows and anything else on demand work.</p>",
