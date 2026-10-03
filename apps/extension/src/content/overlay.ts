@@ -39,8 +39,6 @@ root.innerHTML = `<style>
     animation: in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .card.out { opacity: 0; transform: translateY(4px);
     transition: opacity 160ms ease-in, transform 160ms ease-in; }
-  /* A question: a warm edge so it reads as "needs you", unlike a passing notice. */
-  .card.ask { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 210, 90, 0.4); }
   .text { min-width: 0; padding-top: 6px; }
   .msg { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
   .detail { margin: 2px 0 0; color: #a9b8b9; font-size: 13px; line-height: 18px; }
@@ -54,8 +52,10 @@ root.innerHTML = `<style>
   .badge { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px;
     border-radius: 50%; display: grid; place-items: center; background: #ecf2f1; color: #0c1215;
     box-shadow: 0 0 0 2px #151d21; }
+  /* A question is the same card as a notice, plus one row of buttons side by side. */
   .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px;
-    justify-content: flex-end; margin-top: 12px; }
+    justify-content: flex-end; margin-top: 8px; }
+  .actions button { height: 32px; padding: 0 12px; font-size: 14px; }
   /* A lasting line's action (Try now): small and quiet, at the right of its words. */
   .card.inline { grid-template-columns: 32px minmax(0, 1fr) auto; }
   .card.inline .actions { grid-column: auto; align-self: center; margin: 0 0 0 4px; }
