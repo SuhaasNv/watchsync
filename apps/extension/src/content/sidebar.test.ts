@@ -372,10 +372,13 @@ describe("the pill's chat button", () => {
     expect(chat().getAttribute("aria-label")).toBe("Open chat (Alt+Shift+W), 3 unread");
     const count = chat().querySelector<HTMLElement>(".count");
     expect(count?.textContent).toBe("3");
+    expect(chat().textContent).toContain("Chat"); // a visible label, with the count on it
+    expect(chat().classList.contains("primary")).toBe(true); // stands out only while unread
     s.setCollapsedBadge(12);
     expect(count?.textContent).toBe("9+");
     s.setCollapsedBadge(0);
     expect(count?.hidden).toBe(true);
+    expect(chat().classList.contains("primary")).toBe(false);
   });
 
   test("not on the page outside a room", async () => {

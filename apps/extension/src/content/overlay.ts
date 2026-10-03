@@ -91,9 +91,11 @@ root.innerHTML = `<style>
   .pill button.bare { width: 32px; padding: 0; justify-content: center; background: transparent;
     color: #a9b8b9; }
   .pill button.bare:hover { background: rgba(214, 236, 240, 0.1); color: #ecf2f1; }
-  .pill button.chat { position: relative; }
+  /* Icon and a visible "Chat"; yellow only while messages wait unread. */
+  .pill button.chat { position: relative; padding: 0 12px 0 10px; }
   .pill button.chat[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
-  .pill button.chat[aria-disabled="true"]:hover { background: transparent; color: #a9b8b9; }
+  .pill button.chat[aria-disabled="true"]:hover { background: rgba(214, 236, 240, 0.1); }
+  .pill button.chat.primary .count { background: #ecf2f1; color: #0c1215; }
   /* Unread messages on the chat button (UC-014); 9+ past nine. */
   .count { position: absolute; top: -3px; right: -3px; box-sizing: border-box; min-width: 16px;
     height: 16px; padding: 0 4px; border-radius: 8px; background: #ffd25a; color: #1b1503;
@@ -401,7 +403,8 @@ const SHORTCUT = /Mac/.test(navigator.platform) ? "Control+Shift+W" : "Alt+Shift
 
 // The one way into chat on the page (with the shortcut). One lasting button, so focus can
 // come back to it after chat closes even though the pill redraws in between.
-const chat = button("Open chat", () => lastModel?.onChat(chat), { icon: "chat", bare: true });
+// Icon plus a visible "Chat"; the accessible name (set in drawChat) says more and contains it.
+const chat = button("Chat", () => lastModel?.onChat(chat), { icon: "chat" });
 chat.classList.add("chat");
 chat.setAttribute("aria-keyshortcuts", SHORTCUT);
 // Space or Enter on this button opens chat; it mustn't also play or pause the player.
@@ -428,6 +431,7 @@ function drawChat() {
   if (off) chat.setAttribute("aria-disabled", "true");
   else chat.removeAttribute("aria-disabled");
   count.hidden = unread === 0 || off;
+  chat.classList.toggle("primary", !count.hidden);
   count.textContent = unread > 9 ? "9+" : String(unread);
 }
 
@@ -535,7 +539,8 @@ export function renderPill(model: PillModel | null) {
         }),
       ]
     : [];
-  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, chat, fold);
+  // Chat first after the faces: the one control people reach for most.
+  pill.replaceChildren(faces, sep, chat, toggle, ...syncAll, ...together, fold);
   if (chatFocused) chat.focus();
   wake();
 }
