@@ -25,6 +25,7 @@ Chat and reactions: talk with your room while you watch, without leaving the fil
 - Typing in chat no longer gets cut off when a streaming site's player grabs focus: the chat box takes focus back and the player's shortcuts stay out of your message.
 - Skipping no longer risks pulling the room back when the player has to load the new spot, and one skip is sent as one update.
 - Everyone's clocks line up faster and more precisely when a room starts and after a reconnect, so players stay closer together.
+- Skipping with the arrow keys or clicking the timeline no longer leaves a friend a fraction of a second behind: the player allows for how long the seek takes and corrects itself once it lands, so you don't need to press Start with 3-2-1 again.
 
 ### Security
 - The chat panel runs in an extension frame, so the streaming page can't read what you type.

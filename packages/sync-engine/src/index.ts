@@ -122,3 +122,4 @@ export const PING_STEADY_MS = 20_000;
 export function nextPingDelay(sent: number): number {
   return sent < PING_BURST ? PING_BURST_GAP_MS : PING_STEADY_MS;
 }
+export * from "./drift";

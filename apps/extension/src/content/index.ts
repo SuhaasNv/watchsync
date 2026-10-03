@@ -1,7 +1,16 @@
 // Content script on supported service pages: reports what this tab has open and
 // keeps it on the room's title.
 import type { Media, Playback } from "@watchsync/protocol";
-import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
+import {
+  DEFAULT_SYNC,
+  DRIFT_TOLERANCE_SEC,
+  decide,
+  expectedPosition,
+  improved,
+  STUCK_FOR_MS,
+  toleranceAt,
+  WIDE_FOR_MS,
+} from "@watchsync/sync-engine";
 import {
   closedText,
   jumpedText,
@@ -36,12 +45,17 @@ import {
 } from "./overlay";
 import {
   apply,
+  cancelSettle,
   clock,
   coalesce,
+  correctQuietly,
   hold,
   isEcho,
+  isSettling,
   listen,
+  type RoomView,
   seekQuietly,
+  stopSettling,
   watchSeeking,
 } from "./playback";
 import { providerFor } from "./providers";
@@ -248,6 +262,7 @@ function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
     const { playback, action, byId, byName } = m.message.payload;
     lastActor = { id: byId, name: byName };
+    cancelSettle(); // the room moved: whatever the last seek was settling toward is stale
     if (!provider || !mine || playback.titleId !== mine.titleId) return;
     if (!room?.following) return; // watching on my own (US-027)
     if (isLive()) return; // live streams aren't synced in v0.1 (US-032)
@@ -260,7 +275,7 @@ function onPush(m: Push) {
     const prev = room.playback?.updatedAt === playback.updatedAt ? clockBefore : room.playback;
     const was =
       prev && prev.titleId === playback.titleId ? expectedPosition(prev, serverNow) : before;
-    apply(provider, playback, serverNow, action === "sync").catch((e: unknown) =>
+    apply(provider, playback, serverNow, action === "sync", roomView).catch((e: unknown) =>
       toast(e instanceof Error ? e.message : "We couldn't control the player here.", 6000, {
         icon: "alert",
         tone: "bad",
@@ -347,12 +362,15 @@ function onPush(m: Push) {
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
-  if (m.state.playback?.updatedAt !== room?.playback?.updatedAt)
+  if (m.state.playback?.updatedAt !== room?.playback?.updatedAt) {
     clockBefore = room?.playback ?? null;
+    cancelSettle();
+  }
   room = m.state;
   if (!room.session) {
     // Left or ended: a move still waiting to be sent, or a notice still waiting to show,
     // belongs to a room that is gone.
+    cancelSettle();
     userMoves.cancel();
     forgetNotices();
   }
@@ -405,6 +423,31 @@ let drift = 0;
 /** "Stay here": the drift and room clock the person chose to keep, so we don't nag. */
 let stayed: { drift: number; updatedAt: number } | null = null;
 let nextCorrection = 0;
+/** Until when the wider tolerance applies: a player that a correction didn't bring closer. */
+let widenedUntil = 0;
+/** The last correction's drift (absolute, seconds), to see whether it helped at the next check. */
+let lastCorrection: { drift: number; updatedAt: number; at: number } | null = null;
+/** A correction is judged at the next check only if that comes this soon after it, ms. */
+const JUDGE_WITHIN_MS = 10_000;
+
+/** What the post-seek settle reads from, and reports to, this tab. */
+const roomView: RoomView = {
+  clock: () => {
+    const playback = room?.playback;
+    if (!room?.session || !room.following || !mine || !playback) return null;
+    if (playback.titleId !== mine.titleId) return null;
+    return { playback, offset: room.clockOffset };
+  },
+  busy: () => holdReason !== null || startPhase !== null || isLive(),
+  corrected: (drift) => {
+    // Judged like the check's own corrections, and the check waits its turn.
+    lastCorrection = { drift, updatedAt: room?.playback?.updatedAt ?? 0, at: Date.now() };
+    nextCorrection = Math.max(nextCorrection, Date.now() + 3000);
+  },
+  stuck: () => {
+    widenedUntil = Date.now() + STUCK_FOR_MS;
+  },
+};
 /** Since when this player has been playing while the room is paused, or the reverse. */
 let playStateSince = 0;
 
@@ -611,6 +654,7 @@ function checkDrift() {
   const local = provider.getState();
   const v = provider.video();
   if (!local || !v || v.seeking || isEcho() || Date.now() < nextCorrection) return;
+  if (isSettling()) return; // a seek is landing: the settle measures it, not this check
   if (holdReason || startPhase || isLive()) return; // not drift: waits, countdowns, live
   if (local.playing !== (playback.status === "playing")) {
     // A press right after the room moved this player is taken as our own echo and never
@@ -626,12 +670,27 @@ function checkDrift() {
   // A speed tool running this player at another speed than the room (past 4x, BUG-034):
   // positions can't line up, and jumping it back would swallow the person's next press.
   if (Math.abs(local.rate - playback.rate) > 0.01) return showBehind(null);
-  const expected = expectedPosition(playback, Date.now() + room.clockOffset);
-  const action = decide(local.position, expected, DEFAULT_SYNC);
+  const now = Date.now();
+  const expected = expectedPosition(playback, now + room.clockOffset);
+  const gap = Math.abs(local.position - expected);
+  // A correction that left the player no closer means it can't land any closer (a coarse
+  // player): widen the tolerance for a while instead of jumping it again and again.
+  if (lastCorrection && now - lastCorrection.at <= JUDGE_WITHIN_MS) {
+    if (lastCorrection.updatedAt === playback.updatedAt && !improved(lastCorrection.drift, gap))
+      widenedUntil = now + WIDE_FOR_MS;
+  }
+  lastCorrection = null;
+  const tolerance = toleranceAt(
+    widenedUntil,
+    now,
+    provider.driftToleranceSec ?? DRIFT_TOLERANCE_SEC,
+  );
+  const action = decide(local.position, expected, { ...DEFAULT_SYNC, toleranceSec: tolerance });
   if (action === "none") return showBehind(null);
   if (action === "seek") {
-    nextCorrection = Date.now() + 3000; // let the player settle before judging again
-    seekQuietly(provider, expected).catch(() => {});
+    nextCorrection = now + 3000; // let the player settle before judging again
+    lastCorrection = { drift: gap, updatedAt: playback.updatedAt, at: now };
+    correctQuietly(provider, playback, now + room.clockOffset).catch(() => {});
     return showBehind(null);
   }
   drift = local.position - expected;
@@ -879,7 +938,7 @@ function catchUp(tries = 5) {
     if (tries > 0) setTimeout(() => catchUp(tries - 1), 1000);
     return;
   }
-  apply(provider, playback, Date.now() + (room?.clockOffset ?? 0)).catch(() => {});
+  apply(provider, playback, Date.now() + (room?.clockOffset ?? 0), false, roomView).catch(() => {});
 }
 
 function connect() {
@@ -920,11 +979,17 @@ function wake() {
  */
 const userMoves = coalesce((move) => {
   if (holdReason || !room?.session || !room.following || !mine) return;
+  // The move's position was read at its last event, up to a coalescing window ago, and the room
+  // stamps this message when it arrives: a player that is playing on has moved since, so send
+  // where it is now. One that is still seeking or loading reports its event position.
+  const v = provider?.video();
+  const st = provider?.getState();
+  const live = Boolean(move.playing && st?.playing && v && !v.seeking && v.readyState >= 3);
   post({
     kind: "playback",
     action: move.action,
     status: move.playing ? "playing" : "paused",
-    position: move.position,
+    position: live && st ? Math.min(86_400, Math.max(0, st.position)) : move.position,
     rate: move.rate,
     titleId: mine.titleId,
   });
@@ -937,6 +1002,7 @@ const stops: (() => void)[] = [];
 function retire() {
   for (const t of timers) clearInterval(t);
   for (const stop of stops) stop();
+  stopSettling();
   userMoves.cancel();
   forgetNotices();
   document.removeEventListener("visibilitychange", wake);
@@ -999,6 +1065,7 @@ if (provider) {
   );
   stops.push(
     listen(provider, (action, playing, position, rate) => {
+      cancelSettle(); // the person acted: the room is about to follow them, not the other way
       if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions
       if (room?.session && room.following && mine)
         userMoves.push({ action, playing, position, rate });

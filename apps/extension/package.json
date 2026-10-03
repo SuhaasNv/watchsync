@@ -1,7 +1,7 @@
 {
   "name": "@watchsync/extension",
   "version": "0.2.0",
-  "prerelease": "rc.1",
+  "prerelease": "rc.2",
   "private": true,
   "type": "module",
   "scripts": {
