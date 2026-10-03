@@ -39,15 +39,24 @@ Point release x.y.1         v0.2.1 from main                         everyone
 ```
 dev     merge work, CI green, push dev (owner's yes)
         label the build "prerelease": "rc.1"        → dev-latest "WatchSync Dev 0.2.0-rc.1"
+        a protocol change: the dev room service deploys before any build that uses it
         test on real Netflix / Prime / JioHotstar with a friend; fix on dev, new rc if needed
-main    owner says dev is stable:
+main    owner says dev is stable; CI green on the exact dev commit being released:
         merge dev into main (owner's yes). In the merge commit: delete the "prerelease" line,
-        date the CHANGELOG [X.Y.Z] section.       → Railway deploys the room service + website
-        verify live: /health shows X.Y.Z, a room can be created and joined
-tag     tag vX.Y.Z on that merge commit (owner's yes)
+        date the CHANGELOG [X.Y.Z] section.
+        dry run: git tag vX.Y.Z && node scripts/release-guard.mjs vX.Y.Z; git tag -d vX.Y.Z
+        push main                                  → Railway deploys the room service + website
+        verify live: both deployments succeeded, /health shows X.Y.Z, and a check only the
+        new server passes (a room created and joined; a new message field accepted)
+tag     tag vX.Y.Z on that merge commit right away (owner's yes): until then the public site
+        describes features its download doesn't have
         → the release workflow runs the guard, builds the zip, publishes the release
-next    bump dev to the next version and label it ("prerelease": "beta.1" or "rc.1")
+next    when the next version's work starts: merge main back into dev, bump the version and
+        label it ("prerelease": "beta.1" or "rc.1")
 ```
+
+The dev site's release notes list the dev build among the releases by date, newest first, so a
+release sits above the candidate it came from until dev moves on.
 
 Before a release: CHANGELOG `## [X.Y.Z]` section in plain words (no planning IDs), the version equal
 in `apps/extension/package.json`, `services/signaling/pyproject.toml` and
