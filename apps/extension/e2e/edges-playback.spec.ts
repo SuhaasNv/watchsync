@@ -97,6 +97,39 @@ test("two changes at the same moment end with both in the same place", async ({ 
   }
 });
 
+test("a Prime-style skip is one update: the friend jumps once and the room doesn't rewind", async ({
+  ext,
+}) => {
+  const { hostTab, friend, tab } = await bothWatching(ext);
+  try {
+    // Measured on Prime: pause and seeking in the same millisecond with the new position
+    // already in place, seeked about 65 ms later, play a few ms after that.
+    await hostTab.evaluate(async () => {
+      const v = document.querySelector("video");
+      if (!v) return;
+      v.currentTime = 60;
+      v.pause();
+      await new Promise((r) => v.addEventListener("seeked", r, { once: true }));
+      await v.play();
+    });
+    await expect(tab.getByText("Suhaas skipped ahead to 1:00")).toBeVisible({ timeout: 3000 });
+    // Past the notice's wait for a skip that follows a pause: nothing else is said.
+    await tab.waitForTimeout(1500);
+    await expect(tab.getByText(/skipped ahead/)).toHaveCount(1);
+    await expect(tab.getByText("Suhaas paused")).toHaveCount(0);
+    await expect(tab.getByText("Suhaas pressed play")).toHaveCount(0);
+    await expect.poll(() => playing(tab)).toBe(true);
+    await expect.poll(() => gap(tab, hostTab), { timeout: 1500 }).toBeLessThan(1.5);
+    // The room is where the skip put it, still playing, and stays so.
+    await hostTab.waitForTimeout(3000);
+    expect(await position(hostTab)).toBeGreaterThanOrEqual(60);
+    expect(await playing(hostTab)).toBe(true);
+    expect(await gap(tab, hostTab)).toBeLessThan(1.5);
+  } finally {
+    await friend.context.close();
+  }
+});
+
 test("a jump while the friend is loading lands everyone at the new spot", async ({ ext }) => {
   const { hostTab, friend, tab } = await bothWatching(ext);
   try {
