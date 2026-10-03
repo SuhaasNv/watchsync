@@ -50,6 +50,11 @@ jobs:
       - name: Room service for end-to-end
         working-directory: services/signaling
         run: uv sync --frozen
+      - name: Playwright's browser, cached
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/extension/.browsers
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Extension end-to-end (mock player), shard ${{ matrix.shard }} of 6
         working-directory: apps/extension
         run: |
@@ -74,6 +79,11 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @watchsync/website build
+      - name: Playwright's browser, cached (website)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/website/.browsers
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Website end-to-end (every page, axe WCAG 2.2 AA, 375 to 1440 px)
         working-directory: apps/website
         run: |
@@ -81,6 +91,12 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm e2e
       - name: The dev channel builds too
         run: PUBLIC_CHANNEL=dev pnpm --filter @watchsync/website exec astro build --outDir /tmp/dev-site
+
+  # The two Docker images build beside the tests instead of after them.
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Website image builds
         run: docker build -f Dockerfile.website -t watchsync-website .
       - name: Room service image builds
