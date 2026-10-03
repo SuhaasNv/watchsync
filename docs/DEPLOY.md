@@ -12,9 +12,9 @@ Dev is for experimenting and testing with friends; it may break. Production is `
 | Railway environment | `dev` (forked from production) | `production` |
 | Room service | its own subdomain (repository variable `DEV_API_URL`), `PUBLIC_URL` to match, **sleep on** | `join.watchsync.space`, sleep off (sleeping ends rooms) |
 | Website | its own subdomain (repository variable `DEV_SITE_URL`), `PUBLIC_CHANNEL=dev` (testing strip, noindex, dev download), **sleep on** | `watchsync.space` and `www`, `PUBLIC_SITE_URL=https://watchsync.space` |
-| Deploys | Railway auto-deploys `dev` on each push (CI runs beside it) | Railway deploys `main`; `main` only moves in a Ship use case |
+| Deploys | Railway auto-deploys `dev` after CI passes | Railway deploys `main`; `main` only moves in a Ship use case |
 | Extension | "WatchSync Dev": `pnpm --filter @watchsync/extension zip:dev` with `WATCHSYNC_API` set; DEV badge; checks `dev-latest` for updates | "WatchSync": `pnpm --filter @watchsync/extension zip` |
-| Download | rolling pre-release `dev-latest` (`.github/workflows/dev.yml`, on each push to `dev`, without waiting for CI) | GitHub Release `vX.Y.Z` (`release.yml`, tag must be on `main`) |
+| Download | rolling pre-release `dev-latest` (`.github/workflows/dev.yml` after CI on `dev`) | GitHub Release `vX.Y.Z` (`release.yml`, tag must be on `main`) |
 
 Invite links use the room service's domain (`__API_URL__/j/CODE`), so a production build against `https://join.watchsync.space` copies links like `https://join.watchsync.space/j/ABC234`.
 

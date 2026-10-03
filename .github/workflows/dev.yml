@@ -1,14 +1,14 @@
 name: Dev build
 
-# Every push to dev refreshes the "WatchSync Dev" zip testers download (DEC-026): one rolling
-# pre-release, tag dev-latest, pointed at the commit it was built from. It does not wait for
-# CI (about 15 minutes of browser tests): CI runs beside it on the same push and shows red if
-# something is wrong, and testers know it is a testing build. A release still runs the full CI
-# first (release.yml). The extension's update check compares that commit with its own.
-# Production never reads it: /releases/latest skips pre-releases.
+# Every push to dev that passes CI refreshes the "WatchSync Dev" zip testers download
+# (DEC-026): one rolling pre-release, tag dev-latest, pointed at the commit it was built from.
+# The extension's update check compares that commit with its own. Production never reads it:
+# /releases/latest skips pre-releases.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
     branches: [dev]
+    types: [completed]
 
 concurrency:
   group: dev-build
@@ -19,15 +19,17 @@ permissions:
 
 jobs:
   publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write # replace the dev-latest release and its tag
     env:
-      SHA: ${{ github.sha }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
       WATCHSYNC_API: ${{ vars.DEV_API_URL }}
       WATCHSYNC_SITE: ${{ vars.DEV_SITE_URL }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { ref: "${{ github.event.workflow_run.head_sha }}" }
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: pnpm }
