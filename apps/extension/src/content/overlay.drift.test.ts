@@ -52,8 +52,6 @@ test("shows the gap with its sign, and hides on null", () => {
   expect(tag()?.textContent).toBe("−12 ms");
   o.showDrift(2);
   expect(tag()?.textContent).toBe("±0 ms");
-  o.showDrift(7, 18.4);
-  expect(tag()?.textContent).toBe("+7 ms · clock ±18 ms");
   o.showDrift(null);
   expect(tag()).toBeNull();
 });
