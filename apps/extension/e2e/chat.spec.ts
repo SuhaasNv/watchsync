@@ -39,7 +39,7 @@ test("two people chat both ways with movie times; text is inert; typing never pl
     // Opening clears it; the message carries Suhaas's movie time.
     await chatButton(tab).click();
     await expect(chatButton(tab)).not.toHaveAttribute("aria-label", /unread/);
-    await expect(header(tab, "Suhaas")).toHaveText(/Suhaas · 1:\d\d$/);
+    await expect(header(tab, "Suhaas")).toHaveText(/Suhaas 1:\d\d$/);
     await expect(log(tab).getByText("hi", { exact: true })).toBeVisible();
 
     // Script-like text is shown as typed and does nothing; Space and k stay in the box.
@@ -55,7 +55,7 @@ test("two people chat both ways with movie times; text is inert; typing never pl
     await box(tab).press("Enter");
     const sent = `${evil} \nsecond line`;
     await expect(log(hostTab).getByText(sent)).toBeVisible();
-    await expect(header(hostTab, "Asha")).toHaveText(/Asha · 1:\d\d$/);
+    await expect(header(hostTab, "Asha")).toHaveText(/Asha 1:\d\d$/);
     expect(await frame(hostTab).locator("img").count()).toBe(0);
     expect(await hostTab.title()).not.toBe("owned");
     expect(await playing(tab)).toBe(true);
