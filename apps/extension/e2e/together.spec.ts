@@ -118,10 +118,10 @@ test("start together counts down and starts every player at once", async ({ ext 
             once: true,
           });
       });
-    // Playing, the pill offers Pause together; paused, Start together.
-    await hostTab.getByRole("button", { name: "Pause together" }).click();
+    // Playing, the pill offers Pause everyone; paused, Start with 3-2-1.
+    await hostTab.getByRole("button", { name: "Pause everyone" }).click();
     await expect.poll(() => playing(tab)).toBe(false);
-    await hostTab.getByRole("button", { name: "Start together" }).click();
+    await hostTab.getByRole("button", { name: "Start with 3-2-1" }).click();
     await expect(tab.getByText(/Starting together in [123]/)).toBeVisible({ timeout: 5000 });
     await stamp(tab);
     await stamp(hostTab);

@@ -163,9 +163,9 @@ test("moving to the next episode during the start countdown lands both on it, in
 }) => {
   const { hostTab, friend, tab } = await bothWatching(ext);
   try {
-    await hostTab.getByRole("button", { name: "Pause together" }).click();
+    await hostTab.getByRole("button", { name: "Pause everyone" }).click();
     await expect.poll(() => playing(tab)).toBe(false);
-    await hostTab.getByRole("button", { name: "Start together" }).click();
+    await hostTab.getByRole("button", { name: "Start with 3-2-1" }).click();
     await expect(tab.getByText(/Starting together in [123]/)).toBeVisible({ timeout: 5000 });
     await hostTab.getByRole("link", { name: "Next episode" }).click();
     await tab.waitForURL(`${MOCK}/watch/ep2`, { timeout: 6000 });
@@ -177,7 +177,7 @@ test("moving to the next episode during the start countdown lands both on it, in
   }
 });
 
-test("Sync everyone while the friend is on an ad waits for the ad", async ({ ext }) => {
+test("Bring everyone here while the friend is on an ad waits for the ad", async ({ ext }) => {
   const { hostTab, friend, tab } = await bothWatching(ext);
   try {
     await tab.evaluate(() => {
@@ -186,14 +186,22 @@ test("Sync everyone while the friend is on an ad waits for the ad", async ({ ext
       el.textContent = "Ad 0:30";
       document.body.append(el);
     });
+    const bring = hostTab
+      .getByRole("region", { name: "WatchSync room" })
+      .getByRole("button", { name: "Bring everyone here" });
+    // Right as the room's pause for the ad reaches Suhaas, his player lands 30 s on, inside
+    // the echo window: he is off from the room, so Bring everyone here shows. (The wait
+    // card takes the prompt's place, so the drift prompt itself isn't checked.)
+    await expect.poll(() => playing(hostTab), { intervals: [50] }).toBe(false);
+    await hostTab.evaluate(() => {
+      const v = document.querySelector("video");
+      if (v) v.currentTime += 30;
+    });
     await expect(hostTab.getByText(/Asha is on an ad/)).toBeVisible({ timeout: 4000 });
-    await hostTab.waitForTimeout(1600);
+    await expect(bring).toBeVisible({ timeout: 4000 });
     const at = await position(hostTab);
     await seek(tab, 200); // the ad moves Asha's player somewhere else
-    await hostTab
-      .getByRole("region", { name: "WatchSync room" })
-      .getByRole("button", { name: "Sync everyone" })
-      .click();
+    await bring.click();
     await hostTab.waitForTimeout(1500);
     expect(await playing(hostTab)).toBe(false); // still waiting for the ad, not playing
     await expect(hostTab.getByText(/Asha is on an ad/)).toBeVisible();
