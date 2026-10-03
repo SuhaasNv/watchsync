@@ -15,9 +15,10 @@ const root = host.attachShadow({ mode: __MOCK__ ? "open" : "closed" });
 // important rules from inside the shadow root win over the page's, inline ones included.
 root.innerHTML = `<style>
   :host { all: initial !important; }
-  /* Below the pill and above the player's bottom controls, so neither is covered. One under
-     the overlay, so a waiting or Sync prompt stays visible over it on narrow windows. */
-  .panel { position: fixed; z-index: 2147483646; right: 16px; top: 72px; bottom: 120px;
+  /* Just below the pill (top 16px, 40px tall) and above the player's bottom controls, so
+     neither is covered, with room for as many messages as fit. One under the overlay, so a
+     waiting or Sync prompt stays visible over it on narrow windows. */
+  .panel { position: fixed; z-index: 2147483646; right: 16px; top: 64px; bottom: 96px;
     width: 320px; max-width: calc(100vw - 32px); min-height: 160px; box-sizing: border-box;
     border-radius: 16px; overflow: hidden; background: rgb(18 26 30 / 0.97);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(214, 236, 240, 0.1);

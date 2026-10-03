@@ -293,14 +293,14 @@ const onTop = (tab: Page) =>
   });
 
 /**
- * No part of the panel over the player's control strips: it keeps 72 px at the top and 120 px
+ * No part of the panel over the player's control strips: it keeps 64 px at the top and 96 px
  * at the bottom, and the corners where players put their buttons answer for the player.
  */
 async function clearOfControls(tab: Page) {
   const box = await panel(tab).boundingBox();
   const height = await tab.evaluate(() => window.innerHeight);
-  expect(box?.y).toBeGreaterThanOrEqual(72);
-  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(height - 120);
+  expect(box?.y).toBeGreaterThanOrEqual(64);
+  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(height - 96);
   const hits = await tab.evaluate(() => {
     const player = document.fullscreenElement ?? document.querySelector("video");
     const r = player?.getBoundingClientRect();
