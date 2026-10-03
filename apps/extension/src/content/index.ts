@@ -3,6 +3,14 @@
 import type { Media } from "@watchsync/protocol";
 import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
 import {
+  closedText,
+  jumpedText,
+  leftText,
+  movedText,
+  playedText,
+  rejoinedText,
+} from "../shared/activity";
+import {
   type AppState,
   type Push,
   SERVICE_LABEL,
@@ -183,8 +191,6 @@ function sayArrival() {
     .catch(() => {});
 }
 
-const NOTICE = { play: "pressed play", pause: "paused", sync: "synced everyone" } as const;
-
 function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
     const { playback, action, byId, byName } = m.message.payload;
@@ -206,11 +212,11 @@ function onPush(m: Push) {
     if (action === "play" && waitShownAt) return; // drawWait says "Back together"
     if (byId === room.session?.participantId) return; // never a notice about myself (BUG-022)
     if (action !== "seek")
-      return toast(`${byName} ${NOTICE[action]}`, 3000, { who: byName, icon: action });
+      return toast(playedText(byName, action), 3000, { who: byName, icon: action });
     const to = expectedPosition(playback, serverNow);
     if (Math.abs(to - before) < 1) return; // already there; nothing visibly moved
     const ahead = to > before;
-    toast(`${byName} ${ahead ? "skipped ahead" : "went back"} to ${clock(to)}`, 4000, {
+    toast(jumpedText(byName, ahead, to), 4000, {
       who: byName,
       icon: ahead ? "ahead" : "back",
     });
@@ -228,7 +234,7 @@ function onPush(m: Push) {
     else if (room?.session && !room.following && mine) {
       // Watching on my own: the room's move doesn't take me along, but I should know.
       const title = nameOf(media) ?? "a title";
-      toast(how === "next" ? `${byName} moved on to ${title}` : `${byName} opened ${title}`, 6000, {
+      toast(movedText(byName, how, title), 6000, {
         who: byName,
         icon: "title",
         detail: "You're watching on your own, so you stay here.",
@@ -239,9 +245,9 @@ function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
     const { participant, event } = m.message.payload;
     if (event === "left")
-      toast(`${participant.name} left`, 4000, { who: participant.name, icon: "leave" });
+      toast(leftText(participant.name), 4000, { who: participant.name, icon: "leave" });
     if (event === "rejoined")
-      toast(`${participant.name} rejoined`, 4000, { who: participant.name, icon: "rejoin" });
+      toast(rejoinedText(participant.name), 4000, { who: participant.name, icon: "rejoin" });
     return;
   }
   if (m.kind === "report") {
@@ -297,7 +303,7 @@ function noticeClosedShows(before: AppState | null, after: AppState) {
   for (const p of after.participants) {
     const was = before.participants.find((x) => x.id === p.id);
     if (p.id !== me && p.connected && was?.titleId === roomTitle && p.titleId === null)
-      toast(`${p.name} closed the show`, 4000, { who: p.name, icon: "leave" });
+      toast(closedText(p.name), 4000, { who: p.name, icon: "leave" });
   }
 }
 

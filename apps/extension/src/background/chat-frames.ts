@@ -53,11 +53,15 @@ export class ChatFrames {
   }
 }
 
+/** What the chat feed shows as room notices (US-113), besides chat itself. */
+const FEED = new Set(["PLAYBACK.STATE", "ROOM.PARTICIPANT", "ROOM.MEDIA"]);
+
 /**
  * Which ports a server message goes to. Chat goes only to admitted chat frames, never to a
- * service page's content script (DEC-042); everything else goes where it always has.
+ * service page's content script (DEC-042); the frames also get the room events their feed
+ * shows; everything else goes where it always has.
  */
 export function wantsServerMessage(portName: string, type: string): boolean {
   if (type.startsWith("CHAT.")) return portName === "sidebar";
-  return portName !== "sidebar";
+  return portName !== "sidebar" || FEED.has(type);
 }

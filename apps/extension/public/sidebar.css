@@ -282,3 +282,13 @@ textarea:disabled {
     opacity: 0;
   }
 }
+/* Room notices in the feed (US-113): plain secondary lines, set apart from chat rows. */
+.activity {
+  margin: 4px 8px;
+  padding: 2px 0;
+  color: #a9b8b9;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  unicode-bidi: isolate;
+}

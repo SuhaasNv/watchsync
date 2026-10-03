@@ -59,6 +59,8 @@ export interface LogModel {
   people: Person[];
   /** Id of the one message to animate in (a live message while the reader is at the bottom). */
   fresh: string | null;
+  /** Room notices (US-113), placed among the messages by server time. */
+  activity?: { id: string; text: string; at: number }[];
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string) {
@@ -99,7 +101,15 @@ export function renderLog(list: HTMLElement, model: LogModel): void {
   const groups: HTMLElement[] = [];
   let last: ChatMessagePayload | null = null;
   let group: HTMLElement | null = null;
+  const lines = [...(model.activity ?? [])];
+  const notice = (a: { text: string }) => {
+    const p = el("p", "activity", a.text);
+    p.dir = "auto";
+    groups.push(p);
+    group = null; // a notice ends a run of messages
+  };
   for (const m of model.messages.slice(-CHAT_KEEP)) {
+    for (let a = lines[0]; a && a.at < m.serverTime; a = lines[0]) notice(lines.shift() ?? a);
     const joined =
       group && last && last.fromId === m.fromId && m.serverTime - last.serverTime <= GROUP_MS;
     if (!joined || !group) {
@@ -113,6 +123,7 @@ export function renderLog(list: HTMLElement, model: LogModel): void {
     group.append(r);
     last = m;
   }
+  for (const a of lines) notice(a);
   if (model.outgoing.length > 0) {
     const mine = el("div", "group mine");
     mine.append(header("You", youName(model), null));

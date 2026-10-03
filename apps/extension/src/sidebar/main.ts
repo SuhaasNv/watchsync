@@ -5,6 +5,7 @@ import type { AnyServerMessage, ChatMessagePayload } from "@watchsync/protocol";
 import { CHAT_KEEP, isChatText } from "../shared/chat";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
+import { ActivityFeed } from "./activity";
 import { announcement, capText, namesFor, type Outgoing, renderLog } from "./chat-view";
 
 function byId<T extends HTMLElement>(id: string, type: new () => T): T {
@@ -46,6 +47,13 @@ let covered = false;
 let seenVisible = false;
 let burst: { name: string; text: string }[] = [];
 let frame = 0;
+const feed = new ActivityFeed();
+const roomView = () => ({
+  you: you(),
+  media: state?.media ?? null,
+  playback: state?.playback ?? null,
+  participants: state?.participants ?? [],
+});
 
 const you = () => state?.session?.participantId ?? null;
 /** The room has ended (not merely: the room's state hasn't arrived yet). */
@@ -58,8 +66,9 @@ function draw() {
     you: you(),
     people: state?.participants ?? [],
     fresh,
+    activity: feed.items,
   });
-  empty.hidden = messages.length > 0 || outgoing.length > 0;
+  empty.hidden = messages.length > 0 || outgoing.length > 0 || feed.items.length > 0;
 }
 
 function toBottom() {
@@ -107,6 +116,8 @@ function drawComposer() {
 }
 
 function onServer(msg: AnyServerMessage) {
+  // Room notices: drawn with the next frame, silent (the on-page notice says it, US-113).
+  if (feed.onServer(msg, roomView())) return later();
   if (msg.type === "CHAT.HISTORY") {
     const had = messages.length > 0;
     messages = msg.payload.messages.slice(-CHAT_KEEP);
@@ -152,6 +163,7 @@ function showNotice(text: string) {
 function onPush(m: Push) {
   if (m.kind === "state") {
     state = m.state;
+    feed.sync(roomView());
     const room = m.state.session?.code;
     code.textContent = room ? `Room ${room}` : "";
     drawComposer();
