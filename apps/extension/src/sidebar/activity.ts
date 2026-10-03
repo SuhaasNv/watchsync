@@ -1,17 +1,9 @@
-// Room notices in the chat feed (US-113): what happened in the room, in the same words as the
-// on-page notices, from this frame's load on (the room service keeps no activity). Never
-// counted as unread and never announced here: the on-page notice already says it.
+// Room notices in the chat feed (US-113): who came, went or changed title, in the same words as
+// the on-page notices, from this frame's load on (the room service keeps no activity). Play,
+// pause and jumps are on-page notices only (owner, 3 Oct). Never counted as unread and never
+// announced here: the on-page notice already says it.
 import type { AnyServerMessage, Media, Participant, Playback } from "@watchsync/protocol";
-import { expectedPosition } from "@watchsync/sync-engine";
-import {
-  closedText,
-  joinedText,
-  jumpedText,
-  leftText,
-  movedText,
-  playedText,
-  rejoinedText,
-} from "../shared/activity";
+import { closedText, joinedText, leftText, movedText, rejoinedText } from "../shared/activity";
 
 export interface ActivityItem {
   id: string;
@@ -34,32 +26,18 @@ export interface RoomView {
 
 export class ActivityFeed {
   items: ActivityItem[] = [];
-  private clock: Playback | null = null;
   private titles = new Map<string, string | null>();
   private left = new Map<string, ActivityItem>();
   private n = 0;
 
   /** The room as the frame last heard it, before any message changes it. */
   sync(room: RoomView) {
-    this.clock ??= room.playback;
     for (const p of room.participants) if (!this.titles.has(p.id)) this.titles.set(p.id, p.titleId);
   }
 
   /** Adds the line a server message makes, if any. True when the feed changed. */
   onServer(msg: AnyServerMessage, room: RoomView): boolean {
     const at = msg.timestamp;
-    if (msg.type === "PLAYBACK.STATE") {
-      const { playback, action, byId, byName, serverTime } = msg.payload;
-      const before = this.clock;
-      this.clock = playback;
-      if (byId === room.you) return false; // never a notice about myself (BUG-022)
-      if (action !== "seek") return this.add(playedText(byName, action), at);
-      if (!before) return false;
-      const from = expectedPosition(before, serverTime);
-      const to = expectedPosition(playback, serverTime);
-      if (Math.abs(to - from) < 1) return false; // nothing visibly moved
-      return this.add(jumpedText(byName, to > from, to), at);
-    }
     if (msg.type === "ROOM.MEDIA") {
       const { byId, byName, how, media } = msg.payload;
       if (byId === room.you) return false;

@@ -45,19 +45,13 @@ const playback = (action: string, at: number, byId = "p1") =>
 const event = (event: string, p: Participant, timestamp: number) =>
   msg("ROOM.PARTICIPANT", { participant: p, event }, timestamp);
 
-test("play, pause and jumps read as the on-page notices; my own are left out", () => {
+test("play, pause and jumps stay out of the feed", () => {
   const feed = new ActivityFeed();
   feed.sync(view());
-  feed.onServer(playback("pause", 100), view());
-  feed.onServer(playback("seek", 2530), view());
-  feed.onServer(playback("seek", 60), view());
-  feed.onServer(playback("seek", 60.5), view()); // nothing visibly moved
-  feed.onServer(playback("play", 60, "me"), view());
-  expect(feed.items.map((i) => i.text)).toEqual([
-    "Maya paused",
-    "Maya skipped ahead to 42:10",
-    "Maya went back to 1:00",
-  ]);
+  expect(feed.onServer(playback("pause", 100), view())).toBe(false);
+  expect(feed.onServer(playback("seek", 2530), view())).toBe(false);
+  expect(feed.onServer(playback("play", 60), view())).toBe(false);
+  expect(feed.items).toEqual([]);
 });
 
 test("joins, leaves, closing the show and the next episode; leave and return merge", () => {
@@ -101,13 +95,13 @@ test("notices sit among chat messages in time order, styled apart", () => {
     people: [],
     fresh: null,
     activity: [
-      { id: "a1", text: "Maya paused", at: 2000 },
+      { id: "a1", text: "Maya left", at: 2000 },
       { id: "a2", text: "Asha joined", at: 4000 },
     ],
   });
   expect([...list.children].map((c) => `${c.className}:${c.textContent}`)).toEqual([
     "group:MMayamsg 1",
-    "activity:Maya paused",
+    "activity:Maya left",
     "group:MMayamsg 2",
     "activity:Asha joined",
   ]);

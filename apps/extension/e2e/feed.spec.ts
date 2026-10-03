@@ -20,12 +20,12 @@ test("room notices show in the feed in time order, apart from chat, and not as u
     await expect(log(hostTab)).toBeAttached();
     await chatButton(hostTab).click(); // closed again: notices must not count as unread
 
-    await tab.evaluate(() => document.querySelector("video")?.pause());
-    await expect(hostTab.getByText("Asha paused")).toBeVisible(); // the on-page notice
+    await tab.close(); // Asha closes the show
+    await expect(hostTab.getByText("Asha closed the show")).toBeVisible(); // the on-page notice
     await expect(chatButton(hostTab)).not.toHaveAttribute("aria-label", /unread/);
 
     await chatButton(hostTab).click();
-    const line = log(hostTab).locator(".activity", { hasText: "Asha paused" });
+    const line = log(hostTab).locator(".activity", { hasText: "Asha closed the show" });
     await expect(line).toBeVisible();
     await expect(line).toHaveCSS("text-align", "center");
     await frame(hostTab).getByRole("textbox", { name: "Message" }).fill("brb");
@@ -35,9 +35,11 @@ test("room notices show in the feed in time order, apart from chat, and not as u
     const order = await log(hostTab)
       .locator(".activity, .msg")
       .evaluateAll((els) => els.map((e) => e.textContent ?? ""));
-    expect(order.indexOf("Asha paused")).toBeLessThan(order.findIndex((t) => t.startsWith("brb")));
+    expect(order.indexOf("Asha closed the show")).toBeLessThan(
+      order.findIndex((t) => t.startsWith("brb")),
+    );
     // Not said again in chat's own spoken region: the page's notice already said it.
-    await expect(frame(hostTab).locator("#say")).not.toHaveText(/paused/);
+    await expect(frame(hostTab).locator("#say")).not.toHaveText(/closed the show/);
   } finally {
     await friend.context.close();
   }
@@ -64,14 +66,17 @@ test("Show pop-ups off hides them on my page only; the feed keeps them (US-114)"
       worker.evaluate(async () => (await chrome.storage.local.get("roomNotices")).roomNotices);
     await expect.poll(saved).toBe(false); // a setting: every room from now on
 
-    await tab.evaluate(() => document.querySelector("video")?.pause());
-    await expect(log(hostTab).locator(".activity", { hasText: "Asha paused" })).toBeVisible();
-    await expect(hostTab.locator("watchsync-overlay").getByText("Asha paused")).toHaveCount(0);
+    // Asha's notices are hers: still on.
+    await hostTab.evaluate(() => document.querySelector("video")?.pause());
+    await expect(tab.getByText("Suhaas paused")).toBeVisible();
 
-    // Asha's notices are hers: still on. (Past the echo window of the synced pause.)
-    await hostTab.waitForTimeout(2000);
-    await hostTab.evaluate(() => document.querySelector("video")?.play());
-    await expect(tab.getByText("Suhaas pressed play")).toBeVisible();
+    await tab.close(); // Asha closes the show: in my feed, not as a pop-up on my page
+    await expect(
+      log(hostTab).locator(".activity", { hasText: "Asha closed the show" }),
+    ).toBeVisible();
+    await expect(
+      hostTab.locator("watchsync-overlay").getByText("Asha closed the show"),
+    ).toHaveCount(0);
   } finally {
     await friend.context.close();
   }
