@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { ICONS, type IconName } from "../shared/icons";
 import {
   type AppState,
+  type ChatTabRequest,
   cleanName,
   codeFrom,
   ERRORS,
@@ -443,6 +444,44 @@ function useChatShortcut() {
   return shortcut;
 }
 
+const NO_TAB = "Open the title on a supported service first.";
+
+/** Opens chat on the tab playing the room's title (US-115); off with a reason when none is open. */
+function OpenChat() {
+  const [hasTab, setHasTab] = useState<boolean | null>(null);
+  useEffect(() => {
+    const ask: ChatTabRequest = { kind: "hasChatTab" };
+    chrome.runtime
+      .sendMessage(ask)
+      .then((r: unknown) => setHasTab(r === true))
+      .catch(() => setHasTab(false));
+  }, []);
+  const open = async () => {
+    const r = await send({ kind: "openChat" });
+    if (r.ok) window.close();
+    else setHasTab(false);
+  };
+  return (
+    <div>
+      <button
+        className="btn grow"
+        type="button"
+        disabled={hasTab !== true}
+        aria-describedby={hasTab === false ? "open-chat-why" : undefined}
+        onClick={() => void open()}
+      >
+        <Icon name="chat" />
+        Open chat
+      </button>
+      {hasTab === false && (
+        <p className="hint" id="open-chat-why">
+          {NO_TAB}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RoomScreen({ state }: { state: AppState }) {
   const copy = useFocusOnShow<HTMLButtonElement>();
   const [copied, setCopied] = useState("");
@@ -529,6 +568,7 @@ function RoomScreen({ state }: { state: AppState }) {
           {people}
         </section>
         <OpenTitle state={state} me={s.participantId} />
+        <OpenChat />
         {shortcut && <p className="hint">Open chat on the player with {shortcut}</p>}
         <span className="grow" />
         {!alone && (

@@ -16,6 +16,7 @@ import {
   type AppState,
   type ChatNonceReply,
   type ChatNonceRequest,
+  type ChatTabRequest,
   cleanName,
   isSidebarEvent,
   nameProblem,
@@ -532,6 +533,9 @@ async function handleNow(req: Request): Promise<Reply> {
       case "retryNow":
         retryNow();
         break;
+      case "openChat":
+        if (!(await openChat())) throw new Error("no_tab");
+        break;
     }
     changed();
     return { ok: true, state: shared() };
@@ -575,17 +579,54 @@ if (__MOCK__)
 
 const chatFrames = new ChatFrames();
 
-chrome.runtime.onMessage.addListener((req: Request | ChatNonceRequest, sender, reply) => {
-  if (sender.id !== chrome.runtime.id) return false;
-  if (req.kind === "chatNonce") {
-    // Only a tab's content script (its top frame) gets a pass for its chat frame.
-    const nonce = chatFrames.issue(sender);
-    reply((nonce ? { nonce } : null) satisfies ChatNonceReply);
-    return false;
-  }
-  handle(req).then(reply);
+/** The title each service tab last reported, for Open chat (US-115). */
+const tabTitles = new Map<number, string | null>();
+
+/** Service tabs with our content script running, newest first. */
+async function serviceTabs(): Promise<chrome.tabs.Tab[]> {
+  const ids = new Set<number>();
+  for (const p of ports) if (p.name === "tab" && p.sender?.tab?.id) ids.add(p.sender.tab.id);
+  const tabs = await Promise.all([...ids].map((id) => chrome.tabs.get(id).catch(() => null)));
+  return tabs
+    .filter((t): t is chrome.tabs.Tab => t !== null)
+    .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
+}
+
+/**
+ * Brings forward the tab playing the room's title (else the most recent service tab) and
+ * opens chat there with focus in it (US-115). False when there is no service tab.
+ */
+async function openChat(): Promise<boolean> {
+  const tabs = await serviceTabs();
+  const title = state.media?.titleId;
+  const tab = tabs.find((t) => t.id !== undefined && title && tabTitles.get(t.id) === title);
+  const target = tab ?? tabs[0];
+  if (target?.id === undefined) return false;
+  await chrome.tabs.update(target.id, { active: true });
+  await chrome.windows.update(target.windowId, { focused: true });
+  toTab(target.id, { kind: "openSidebar" });
   return true;
-});
+}
+
+chrome.runtime.onMessage.addListener(
+  (req: Request | ChatNonceRequest | ChatTabRequest, sender, reply) => {
+    if (sender.id !== chrome.runtime.id) return false;
+    if (req.kind === "hasChatTab") {
+      serviceTabs()
+        .then((tabs) => reply(tabs.length > 0))
+        .catch(() => reply(false));
+      return true;
+    }
+    if (req.kind === "chatNonce") {
+      // Only a tab's content script (its top frame) gets a pass for its chat frame.
+      const nonce = chatFrames.issue(sender);
+      reply((nonce ? { nonce } : null) satisfies ChatNonceReply);
+      return false;
+    }
+    handle(req).then(reply);
+    return true;
+  },
+);
 
 /** The tab we were watching in is gone: say "nothing open" now (BUG-026). */
 function presenceTabClosed() {
@@ -612,6 +653,7 @@ function titleTabGone() {
 // Closing the tab: no need to wait out the 3 s page-load allowance below.
 chrome.tabs.onRemoved.addListener((tabId) => {
   chatFrames.forget(tabId);
+  tabTitles.delete(tabId);
   if (tabId === presenceTabId) presenceTabClosed();
 });
 // The retry: every 15 s make sure that tab still exists, so a missed close event can't
@@ -722,6 +764,7 @@ chrome.runtime.onConnect.addListener((port) => {
         return changed();
       }
       const tabId = port.sender?.tab?.id;
+      if (tabId !== undefined) tabTitles.set(tabId, e.media?.titleId ?? null);
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).
       if (!e.media && presence.media && presenceTabId !== undefined && tabId !== presenceTabId)
