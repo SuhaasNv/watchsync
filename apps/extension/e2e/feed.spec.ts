@@ -43,7 +43,7 @@ test("room notices show in the feed in time order, apart from chat, and not as u
   }
 });
 
-test("Room notices off hides them on my page only; the feed keeps them (US-114)", async ({
+test("Show pop-ups off hides them on my page only; the feed keeps them (US-114)", async ({
   ext,
 }) => {
   const { hostTab, friend } = await room(ext);
@@ -53,7 +53,7 @@ test("Room notices off hides them on my page only; the feed keeps them (US-114)"
     await expect.poll(() => playing(tab)).toBe(true);
     await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
     await chatButton(hostTab).click();
-    const toggle = frame(hostTab).getByRole("checkbox", { name: "Room notices" });
+    const toggle = frame(hostTab).getByRole("checkbox", { name: "Show pop-ups" });
     await expect(toggle).toBeChecked();
     // By keyboard: a click can land beside it while the panel still slides in.
     await toggle.press("Space");
