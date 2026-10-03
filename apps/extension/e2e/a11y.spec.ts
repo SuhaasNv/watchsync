@@ -80,7 +80,7 @@ test("chat: closed and open", async ({ ext }) => {
 
   await chat.click();
   const frame = tab.frameLocator("watchsync-sidebar iframe");
-  await expect(frame.getByRole("button", { name: "Close chat" })).toBeFocused();
+  await expect(frame.getByRole("textbox", { name: "Message" })).toBeFocused();
   await audit(tab, "watchsync-sidebar"); // the panel and the chat frame inside it
   await audit(tab, "watchsync-overlay");
 });

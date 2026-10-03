@@ -89,12 +89,21 @@ export type Push =
  * message is "hello" with the one-time pass the tab's content script put in the frame's
  * address; the background serves the port only if it matches.
  */
-export type SidebarEvent = { kind: "hello"; nonce: string } | { kind: "close" };
+export type SidebarEvent =
+  | { kind: "hello"; nonce: string }
+  | { kind: "close" }
+  /**
+   * Send a chat message (UC-014). The background adds the movie time: the frame can't see
+   * the player. clientId is the frame's id for it (crypto.randomUUID()), the same on Retry.
+   */
+  | { kind: "chat"; text: string; clientId: string };
 
 export function isSidebarEvent(v: unknown): v is SidebarEvent {
   if (typeof v !== "object" || v === null) return false;
   const kind = Reflect.get(v, "kind");
-  return kind === "close" || (kind === "hello" && typeof Reflect.get(v, "nonce") === "string");
+  const str = (k: string) => typeof Reflect.get(v, k) === "string";
+  if (kind === "chat") return str("text") && str("clientId");
+  return kind === "close" || (kind === "hello" && str("nonce"));
 }
 
 /** Content script → background: a one-time pass for the chat frame it is about to load. */

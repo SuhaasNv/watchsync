@@ -12,8 +12,21 @@
       <button type="button" class="close" id="close" aria-label="Close chat" title="Close chat"></button>
     </header>
     <section class="body" id="body" aria-label="Chat">
-      <p class="empty">Messages from the room show up here.</p>
+      <p class="notice" id="notice" hidden></p>
+      <p class="empty" id="empty">Messages from the room show up here.</p>
+      <div class="log" id="log" role="log" aria-live="off" aria-label="Messages"></div>
+      <div class="end" id="end"></div>
     </section>
+    <button type="button" class="more" id="more" hidden>New messages</button>
+    <form class="composer" id="composer">
+      <p class="hint" id="hint" hidden></p>
+      <div class="row">
+        <textarea id="box" rows="1" dir="auto" aria-label="Message" aria-describedby="count hint" placeholder="Message" data-focus-first></textarea>
+        <button type="submit" class="send" id="send" disabled>Send</button>
+      </div>
+      <p class="count" id="count" hidden></p>
+    </form>
+    <div class="sr" id="say" aria-live="polite"></div>
     <script src="sidebar.js"></script>
   </body>
 </html>

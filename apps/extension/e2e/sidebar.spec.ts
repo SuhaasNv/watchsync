@@ -18,6 +18,16 @@ const chatButton = (tab: Page) => tab.getByRole("button", { name: /^(Open|Close)
 const panel = (tab: Page) => tab.getByRole("region", { name: "WatchSync", exact: true });
 const frame = (tab: Page) => tab.frameLocator("watchsync-sidebar iframe");
 const closeButton = (tab: Page) => frame(tab).getByRole("button", { name: "Close chat" });
+/** From the message box back to the close button by keyboard (the message list, which
+ * scrolls, is a stop on the way). */
+async function backToClose(tab: Page) {
+  for (let i = 0; i < 3; i++) {
+    await tab.keyboard.press("Shift+Tab");
+    if (await closeButton(tab).evaluate((b) => b === document.activeElement)) return;
+  }
+}
+/** Where focus goes when chat opens (UC-014). */
+const messageBox = (tab: Page) => frame(tab).getByRole("textbox", { name: "Message" });
 
 /**
  * The panel's slide-in has ended. Playwright's own wait for a still element can't see it: it
@@ -74,7 +84,7 @@ test("the pill's chat button opens and closes chat; Esc and close give focus bac
   await expect(panel(tab)).toBeVisible();
   await expect(frame(tab).getByText(`Room ${code}`)).toBeVisible();
   await expect(frame(tab).getByText("Messages from the room show up here.")).toBeVisible();
-  await expect(closeButton(tab)).toBeFocused();
+  await expect(messageBox(tab)).toBeFocused();
   await expect(chatButton(tab)).toHaveAttribute("aria-label", "Close chat");
   await expect(chatButton(tab)).toHaveAttribute("aria-expanded", "true");
   // About 320 px, over the right edge of the page (once its slide-in has settled).
@@ -91,7 +101,7 @@ test("the pill's chat button opens and closes chat; Esc and close give focus bac
   await expect(chatButton(tab)).toHaveAttribute("aria-expanded", "false");
 
   await chatButton(tab).click();
-  await expect(closeButton(tab)).toBeFocused();
+  await expect(messageBox(tab)).toBeFocused();
   await tab.keyboard.press("Escape");
   await expect(panel(tab)).toBeHidden();
   await expect(chatButton(tab)).toBeFocused();
@@ -114,7 +124,7 @@ test("the shortcut opens chat with focus inside, and closes it again", async ({ 
   await tab.getByRole("button", { name: "Full screen" }).focus();
   await pressShortcut(ext, tab);
   await expect(panel(tab)).toBeVisible();
-  await expect(closeButton(tab)).toBeFocused();
+  await expect(messageBox(tab)).toBeFocused();
   await pressShortcut(ext, tab);
   await expect(panel(tab)).toBeHidden();
   await expect(tab.getByRole("button", { name: "Full screen" })).toBeFocused();
@@ -162,9 +172,11 @@ test("a page listening on window in the capture phase hears nothing typed in cha
   });
   await playerKeys(tab);
   await chatButton(tab).click();
-  await expect(closeButton(tab)).toBeFocused();
-  await tab.keyboard.type("hello");
-  await tab.keyboard.press("Space"); // on the close button: closes chat
+  await expect(messageBox(tab)).toBeFocused();
+  await tab.keyboard.type("hello k");
+  await tab.keyboard.press("Space");
+  await expect(messageBox(tab)).toHaveValue("hello k ");
+  await tab.keyboard.press("Escape");
   await expect(panel(tab)).toBeHidden();
   const heard = await tab.evaluate(() => Reflect.get(window, "heard"));
   expect(heard).toEqual([]);
@@ -199,7 +211,7 @@ test("a scripted click in the chat frame does nothing; only the person's own doe
 }) => {
   const { tab } = await inRoom(ext);
   await chatButton(tab).click();
-  await expect(closeButton(tab)).toBeFocused();
+  await expect(messageBox(tab)).toBeFocused();
   const f = await chatFrame(tab);
   await f.evaluate(() => {
     document.getElementById("close")?.click();
@@ -306,7 +318,7 @@ async function clearOfControls(tab: Page) {
 test("chat stays open, loaded and usable in and out of full screen", async ({ ext }) => {
   const { tab } = await inRoom(ext);
   await chatButton(tab).click();
-  await expect(closeButton(tab)).toBeFocused();
+  await expect(messageBox(tab)).toBeFocused();
   // Something only this load of the frame has: a reload would lose it.
   const f = await chatFrame(tab);
   await f.evaluate(() => {
@@ -324,13 +336,13 @@ test("chat stays open, loaded and usable in and out of full screen", async ({ ex
   await closeButton(tab).click();
   await expect(panel(tab)).toBeHidden();
   await chatButton(tab).click();
-  await expect(closeButton(tab)).toBeFocused();
+  await expect(messageBox(tab)).toBeFocused();
 
   await tab.evaluate(() => document.exitFullscreen());
   await expect.poll(() => inFullscreen(tab)).toBe(null);
   await expect.poll(() => onTop(tab)).toBe(true);
   await expect(frame(tab).getByText("kept message")).toBeVisible();
-  await expect(closeButton(tab)).toBeFocused(); // moving out of full screen kept focus
+  await expect(messageBox(tab)).toBeFocused(); // moving out of full screen kept focus
 });
 
 test("opened inside full screen, chat shows there", async ({ ext }) => {
@@ -339,7 +351,7 @@ test("opened inside full screen, chat shows there", async ({ ext }) => {
   await expect.poll(() => inFullscreen(tab)).toBe("player");
   await chatButton(tab).click();
   await expect.poll(() => onTop(tab)).toBe(true);
-  await expect(closeButton(tab)).toBeFocused();
+  await expect(messageBox(tab)).toBeFocused();
   await clearOfControls(tab);
 });
 
@@ -436,11 +448,15 @@ test("Space and Enter on chat controls act on them, never on the player", async 
 
   await chatButton(tab).focus();
   await tab.keyboard.press("Enter");
+  await expect(messageBox(tab)).toBeFocused();
+  await backToClose(tab);
   await expect(closeButton(tab)).toBeFocused();
   await tab.keyboard.press("Space");
   await expect(panel(tab)).toBeHidden();
   await expect(chatButton(tab)).toBeFocused();
   await tab.keyboard.press("Space");
+  await expect(messageBox(tab)).toBeFocused();
+  await backToClose(tab);
   await expect(closeButton(tab)).toBeFocused();
   await tab.keyboard.press("Enter");
   await expect(panel(tab)).toBeHidden();
@@ -484,6 +500,8 @@ test("by keyboard: reachable, visible focus, states announced, 24 px targets", a
 
   await tab.keyboard.press("Enter");
   await expect(panel(tab)).toBeVisible();
+  await expect(messageBox(tab)).toBeFocused();
+  await backToClose(tab);
   await expect(closeButton(tab)).toBeFocused();
   expect(await closeButton(tab).evaluate(ring)).toBe(halo);
   await expect(chatButton(tab)).toHaveAttribute("aria-expanded", "true");

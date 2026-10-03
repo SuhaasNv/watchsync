@@ -622,6 +622,21 @@ setInterval(() => {
 }, 15_000);
 
 /**
+ * Where this person's player is, for a chat message's movie time: the room's clock when the
+ * tab we watch in is on the room's title and not in an ad; otherwise no time (name only).
+ */
+function myTime(): { movieTime: number | null; titleId: string | null } {
+  const titleId = presence.media?.titleId ?? null;
+  const pb = state.playback;
+  const me = state.participants.find((p) => p.id === state.session?.participantId);
+  if (titleId === null || !pb || pb.titleId !== titleId || me?.hold === "ad")
+    return { movieTime: null, titleId };
+  const now = Date.now() + state.clockOffset;
+  const elapsed = pb.status === "playing" ? ((now - pb.updatedAt) / 1000) * pb.rate : 0;
+  return { movieTime: Math.max(0, pb.position + elapsed), titleId };
+}
+
+/**
  * A chat frame's port is served only after it says hello with the pass its tab's content
  * script was given (DEC-042); anything else, or silence, is disconnected unserved.
  */
@@ -643,10 +658,15 @@ function admitChatFrame(port: chrome.runtime.Port) {
     });
     // Its close goes only to the content script of the tab it sits in.
     port.onMessage.addListener((m: unknown) => {
-      if (isSidebarEvent(m) && m.kind === "close")
-        toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
+      if (!isSidebarEvent(m)) return;
+      if (m.kind === "close") toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
+      if (m.kind === "chat")
+        chat.onTabEvent(port, { kind: "chat", text: m.text, clientId: m.clientId, ...myTime() });
     });
-    ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
+    ready.then(() => {
+      port.postMessage({ kind: "state", state: shared() } satisfies Push);
+      chat.onPortConnected(port); // the room's earlier messages, once known
+    });
   };
   port.onMessage.addListener(hello);
 }
@@ -712,8 +732,5 @@ chrome.runtime.onConnect.addListener((port) => {
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
-  ready.then(() => {
-    port.postMessage({ kind: "state", state: shared() } satisfies Push);
-    chat.onPortConnected(port);
-  });
+  ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
 });

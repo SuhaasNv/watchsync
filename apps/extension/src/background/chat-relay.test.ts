@@ -34,7 +34,7 @@ function setup(link: Link = "open") {
     connected: (port: RelayPort) => open.has(port),
   };
   const relay = chatRelay(deps);
-  const port = (name = "tab") => {
+  const port = (name = "sidebar") => {
     const p = new FakePort(name);
     open.add(p);
     return p;
@@ -300,8 +300,8 @@ describe("unread count (US-044)", () => {
   });
 });
 
-describe("history for a tab that opens", () => {
-  it("is replayed to tabs only, and only once the room has sent it", () => {
+describe("history for a chat frame that opens", () => {
+  it("is replayed to chat frames only, and only once the room has sent it", () => {
     const { relay, port } = setup();
     const early = port();
     relay.onPortConnected(early); // a worker restart: nothing known yet
@@ -309,7 +309,7 @@ describe("history for a tab that opens", () => {
     relay.onServer(history([said("a")]));
     relay.onServer(message(said("b")));
     const tab = port();
-    const popup = port("popup");
+    const popup = port("tab"); // a service page's content script never gets chat
     relay.onPortConnected(tab);
     relay.onPortConnected(popup);
     expect(popup.got).toEqual([]);

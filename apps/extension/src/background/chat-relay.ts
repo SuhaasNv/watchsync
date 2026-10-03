@@ -164,9 +164,9 @@ export function chatRelay(deps: RelayDeps) {
       return "all";
     },
 
-    /** A tab that opens (or reloads) gets the earlier messages, once the room has sent them. */
+    /** A chat frame that opens (or reloads) gets the earlier messages, once the room sent them. */
     onPortConnected(port: RelayPort) {
-      if (port.name !== "tab" || !historyKnown) return;
+      if (port.name !== "sidebar" || !historyKnown) return; // chat goes to chat frames only
       const { messages } = chat;
       const history = envelope<ServerMessageOf<"CHAT.HISTORY">>("CHAT.HISTORY", { messages });
       port.postMessage({ kind: "server", message: history });
