@@ -1,6 +1,7 @@
 // Builds the MV3 extension into dist/. Usage: node build.mjs [--watch] [--zip]
 // Env: WATCHSYNC_API (room service URL), WATCHSYNC_MOCK=1 (adds the local mock player for tests),
-// WATCHSYNC_CHANNEL=dev (the "WatchSync Dev" build for testers, DEC-026; default prod).
+// WATCHSYNC_CHANNEL=dev (the "WatchSync Dev" build for testers, DEC-026; default prod),
+// WATCHSYNC_OUT (output folder, default dist; the restart e2e builds a second copy).
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as esbuild from "esbuild";
@@ -8,6 +9,7 @@ import * as esbuild from "esbuild";
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const api = (process.env.WATCHSYNC_API ?? "http://localhost:8000").replace(/\/$/, "");
 const mock = process.env.WATCHSYNC_MOCK === "1";
+const out = process.env.WATCHSYNC_OUT ?? "dist";
 const watch = process.argv.includes("--watch");
 const zip = process.argv.includes("--zip");
 const channel = process.env.WATCHSYNC_CHANNEL === "dev" ? "dev" : "prod";
@@ -65,10 +67,10 @@ if (manifest.description.length > 132)
     `manifest description is ${manifest.description.length} characters; the store allows 132`,
   );
 
-rmSync("dist", { recursive: true, force: true });
-mkdirSync("dist");
-cpSync("public", "dist", { recursive: true });
-writeFileSync("dist/manifest.json", JSON.stringify(manifest, null, 2));
+rmSync(out, { recursive: true, force: true });
+mkdirSync(out);
+cpSync("public", out, { recursive: true });
+writeFileSync(`${out}/manifest.json`, JSON.stringify(manifest, null, 2));
 // The website for this channel; the dev site's address comes from CI (repository variable
 // DEV_SITE_URL), not the source.
 const site =
@@ -76,8 +78,8 @@ const site =
     ? process.env.WATCHSYNC_SITE
     : "https://watchsync.space";
 // The welcome page links to the website's privacy notice.
-const welcome = readFileSync("dist/welcome.html", "utf8");
-writeFileSync("dist/welcome.html", welcome.replaceAll("__SITE_URL__", site));
+const welcome = readFileSync(`${out}/welcome.html`, "utf8");
+writeFileSync(`${out}/welcome.html`, welcome.replaceAll("__SITE_URL__", site));
 
 const common = {
   bundle: true,
@@ -107,7 +109,7 @@ const builds = [
   },
 ];
 for (const b of builds) {
-  const opts = { ...common, ...b, outdir: "dist" };
+  const opts = { ...common, ...b, outdir: out };
   if (watch) await (await esbuild.context(opts)).watch();
   else await esbuild.build(opts);
 }
@@ -119,7 +121,7 @@ if (zip && mock) {
 if (zip) {
   const name =
     channel === "dev" ? "watchsync-extension-dev.zip" : `watchsync-extension-v${pkg.version}.zip`;
-  execFileSync("zip", ["-qr", `../${name}`, "."], { cwd: "dist" });
+  execFileSync("zip", ["-qr", `../${name}`, "."], { cwd: out });
   console.log(`packed ${name} (${channel}, API ${api})`);
 } else {
   console.log(`built dist/ (API ${api}${mock ? ", mock player" : ""})${watch ? ", watching" : ""}`);

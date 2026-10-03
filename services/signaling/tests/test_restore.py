@@ -1,17 +1,26 @@
-"""Rooms survive a server update (UC-046, DEC-031): signed tokens, restore after a restart."""
+"""Rooms survive a server update (UC-046, DEC-031): signed tokens, restore after a restart,
+and the "restarting" close on shutdown."""
 
+import asyncio
 import base64
 import json
 import os
+import signal
+import socket
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from websockets.exceptions import ConnectionClosed
+from websockets.sync.client import connect as ws_connect
 
 from app import config, main
 from app.rooms import Rooms, read_token, sign_token
@@ -281,7 +290,7 @@ def test_restore_is_ignored_in_a_room_that_never_restarted() -> None:
         assert room.media is None and room.playback is None
 
 
-# Startup
+# Startup and shutdown
 
 
 def run_config(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -305,3 +314,90 @@ def test_production_needs_a_signing_secret() -> None:
     ok = run_config({"ENVIRONMENT": "production", "ROOM_SIGNING_SECRET": "x" * 32})
     assert ok.returncode == 0, ok.stderr
     assert run_config({}).returncode == 0  # development makes its own
+
+
+class FakeSocket:
+    def __init__(self) -> None:
+        self.code: int | None = None
+
+    async def close(self, code: int = 1000) -> None:
+        self.code = code
+
+
+def test_shutdown_closes_sockets_with_restarting(monkeypatch: pytest.MonkeyPatch) -> None:
+    ws = FakeSocket()
+    monkeypatch.setattr(main, "sockets", {"p1": ws})
+    before = signal.getsignal(signal.SIGTERM)
+
+    async def run() -> None:
+        async with main.lifespan(main.app):
+            pass
+
+    asyncio.run(run())
+    assert ws.code == main.RESTARTING == 4002
+    assert signal.getsignal(signal.SIGTERM) == before  # our SIGTERM hook was taken down
+
+
+def test_sigterm_closes_sockets_before_the_server_stops(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Uvicorn's own SIGTERM handler closes WebSockets with 1012: ours must run first."""
+    ws = FakeSocket()
+    monkeypatch.setattr(main, "sockets", {"p1": ws})
+    seen: list[int | None] = []
+
+    def server_handler(_sig: int, _frame: FrameType | None) -> None:
+        seen.append(ws.code)
+
+    old = signal.signal(signal.SIGTERM, server_handler)
+    try:
+
+        async def run() -> None:
+            async with main.lifespan(main.app):
+                os.kill(os.getpid(), signal.SIGTERM)
+                for _ in range(100):
+                    if seen:
+                        break
+                    await asyncio.sleep(0.01)
+
+        asyncio.run(run())
+    finally:
+        signal.signal(signal.SIGTERM, old)
+    assert seen == [4002]
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port: int = s.getsockname()[1]
+        return port
+
+
+def test_a_real_server_closes_with_restarting_on_sigterm() -> None:
+    port = free_port()
+    env = os.environ | {"ROOM_SIGNING_SECRET": "r" * 32, "ENVIRONMENT": "development"}
+    server = subprocess.Popen(  # noqa: S603 (fixed arguments)
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)],
+        cwd=SERVICE,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        base = f"http://127.0.0.1:{port}"
+        for _ in range(100):
+            try:
+                if httpx.get(f"{base}/health").status_code == 200:
+                    break
+            except httpx.TransportError:
+                time.sleep(0.1)
+        t = httpx.post(f"{base}/api/v1/rooms", json={"name": "Suhaas"}).json()
+        with ws_connect(f"ws://127.0.0.1:{port}/ws/rooms/{t['code']}?token={t['token']}") as ws:
+            assert json.loads(ws.recv(timeout=5))["type"] == "ROOM.STATE"
+            server.send_signal(signal.SIGTERM)
+            with pytest.raises(ConnectionClosed) as closed:
+                ws.recv(timeout=5)
+            assert closed.value.rcvd is not None and closed.value.rcvd.code == 4002
+        # Uvicorn shuts down, then re-raises the signal it caught: a normal SIGTERM exit.
+        assert server.wait(timeout=10) in (0, -signal.SIGTERM)
+    finally:
+        server.kill()
+        server.wait()

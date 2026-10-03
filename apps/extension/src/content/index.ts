@@ -267,15 +267,23 @@ let nextCorrection = 0;
 /** Since when this player has been playing while the room is paused, or the reverse. */
 let playStateSince = 0;
 
-let lost = false;
+/** The line shown while the room connection is down, or null while it's up. */
+let lost: string | null = null;
 
-/** A calm line while the room connection is down, and one when it's back (no positions). */
+/**
+ * A calm line while the room connection is down, and one when it's back (no positions).
+ * The line changes only when its words do, so a screen reader hears it once, not per retry.
+ */
 function showConnection() {
   const down = Boolean(room?.session) && room?.connection === "reconnecting";
-  if (down === lost) return;
-  lost = down;
-  if (down)
-    return notice("connection", "Connection lost. Reconnecting…", { icon: "sync", tone: "warn" });
+  const line = !down
+    ? null
+    : room?.updating
+      ? "WatchSync is updating, back in a moment" // the service is restarting (US-121)
+      : "Connection lost. Reconnecting…";
+  if (line === lost) return;
+  lost = line;
+  if (line) return notice("connection", line, { icon: "sync", tone: "warn" });
   notice("connection", null);
   if (room?.session && room.connection === "connected")
     toast("Back with the room", 3000, { icon: "check", tone: "ok" });

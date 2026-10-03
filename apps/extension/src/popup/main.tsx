@@ -469,7 +469,9 @@ function RoomScreen({ state }: { state: AppState }) {
         right={
           <span className={`badge ${state.connection}`} role="status">
             <span className="dot" aria-hidden="true" />
-            {CONNECTION[state.connection]}
+            {state.updating && state.connection === "reconnecting"
+              ? "Updating…"
+              : CONNECTION[state.connection]}
           </span>
         }
       />

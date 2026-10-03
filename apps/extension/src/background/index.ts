@@ -50,6 +50,7 @@ const state: AppState = {
   notice: null,
   mediaMove: null,
   update: null,
+  updating: false,
 };
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
@@ -186,6 +187,11 @@ function sendServer(msg: AnyClientMessage) {
 // 1, 2, 4, 8, then every 10 s: short enough that a friend back on Wi-Fi rejoins quickly
 // (BUG-018), with jitter so a room's clients don't all retry at once after a redeploy.
 const backoff = (n: number) => Math.min(10_000, 1000 * 2 ** n) * (1 + Math.random() * 0.3);
+/** The room service is restarting (a deploy, US-121): it closes with 4002, uvicorn with 1012. */
+const RESTARTING = new Set([4002, 1012]);
+const UPDATE_GRACE = 60_000;
+/** When the room service said it was restarting; null when it didn't. */
+let updatingSince: number | null = null;
 
 /** Someone opened the popup or a service page while we wait to retry: try right away. */
 function retryNow() {
@@ -235,7 +241,14 @@ function connect() {
       state.connection = "idle";
     } else if (state.session) {
       state.connection = "reconnecting";
-      retry = setTimeout(connect, backoff(attempt++));
+      if (RESTARTING.has(e.code)) updatingSince ??= Date.now();
+      // Back within seconds while it updates (1 to 3 s, jittered so a room's clients spread
+      // out); past 60 s, the normal reconnect messages and backoff.
+      state.updating = updatingSince !== null && Date.now() - updatingSince < UPDATE_GRACE;
+      retry = setTimeout(
+        connect,
+        state.updating ? 1000 + Math.random() * 2000 : backoff(attempt++),
+      );
     }
     changed();
   };
@@ -268,6 +281,8 @@ function onServer(msg: AnyServerMessage) {
       state.mediaMove = null;
       state.notice = null;
       attempt = 0;
+      updatingSince = null;
+      state.updating = false;
       state.participants = msg.payload.participants;
       for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
@@ -319,7 +334,14 @@ function reset() {
   socket = null;
   seen.clear();
   attempt = 0;
-  Object.assign(state, { participants: [], media: null, playback: null, connection: "idle" });
+  updatingSince = null;
+  Object.assign(state, {
+    participants: [],
+    media: null,
+    playback: null,
+    connection: "idle",
+    updating: false,
+  });
 }
 
 async function startSession(ticket: Session) {

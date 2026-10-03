@@ -56,18 +56,19 @@ export const isWelcome = (page: Page) => page.url().endsWith("/welcome.html");
 
 /**
  * A Chromium profile with the built extension loaded. Each test gets its own. A new profile
- * is a first install, so the welcome tab opens; it is closed unless `keepWelcome`.
+ * is a first install, so the welcome tab opens; it is closed unless `keepWelcome`. `build`
+ * loads another build of the extension (one made against another room service).
  */
 export async function launchWithExtension(
   userDataDir = "",
-  { keepWelcome = false } = {},
+  { keepWelcome = false, build = dist } = {},
 ): Promise<{
   context: BrowserContext;
   extensionId: string;
 }> {
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
-    args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
+    args: [`--disable-extensions-except=${build}`, `--load-extension=${build}`],
   });
   await serveMockPlayer(context);
   if (!keepWelcome) {

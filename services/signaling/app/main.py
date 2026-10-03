@@ -5,7 +5,10 @@ import contextlib
 import ipaddress
 import json
 import re
+import signal
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
+from types import FrameType
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
@@ -33,8 +36,54 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
+    put_back = close_first_on_sigterm()
     yield
+    put_back()
     task.cancel()
+    await close_for_restart()  # anything still open as the app stops (US-121)
+
+
+def close_first_on_sigterm() -> Callable[[], None]:
+    """A deploy stops the service with SIGTERM. Uvicorn answers it by closing every WebSocket
+    with 1012 before the app's own shutdown runs, so close them with RESTARTING first, then
+    hand the signal on. Returns what puts the previous handler back."""
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None  # signals reach only the main thread (tests run the app elsewhere)
+    loop = asyncio.get_running_loop()
+    previous = signal.getsignal(signal.SIGTERM)
+    tasks: set[asyncio.Task[None]] = set()
+
+    async def close_then_exit(sig: int, frame: FrameType | None) -> None:
+        await close_for_restart()
+        if callable(previous):
+            previous(sig, frame)
+        else:  # no handler before ours: the default, end the process
+            put_back()
+            signal.raise_signal(signal.SIGTERM)
+
+    def start() -> None:
+        tasks.add(loop.create_task(close_then_exit(signal.SIGTERM, None)))
+
+    def on_sigterm(_sig: int, _frame: FrameType | None) -> None:
+        loop.call_soon_threadsafe(start)
+
+    def put_back() -> None:
+        signal.signal(signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+
+    signal.signal(signal.SIGTERM, on_sigterm)
+    return put_back
+
+
+async def close_for_restart() -> None:
+    """Tell every open connection the service is restarting, so the extension says so and
+    comes straight back instead of backing off (US-121)."""
+
+    async def close(ws: WebSocket) -> None:
+        with contextlib.suppress(Exception):
+            await ws.close(code=RESTARTING)
+
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(asyncio.gather(*(close(ws) for ws in list(sockets.values()))), 2)
 
 
 # No public API docs in production (security audit F2).
@@ -55,9 +104,11 @@ failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
-# newer connection of the same person (stop), anything else = network trouble (reconnect).
+# newer connection of the same person (stop), 4002 = restarting (reconnect fast), anything
+# else = network trouble (reconnect).
 REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
+RESTARTING = 4002  # the service is restarting (a deploy); the extension retries within seconds
 FLOOD_LIMIT = 100
 ERROR_STATUS = {
     "not_found": 404,

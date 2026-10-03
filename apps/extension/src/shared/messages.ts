@@ -28,6 +28,11 @@ export interface AppState {
   notice: string | null;
   /** A newer release than this install, from the daily GitHub check (UC-012). */
   update: Update | null;
+  /**
+   * The room service closed us because it is restarting for an update (US-121): while
+   * reconnecting, say WatchSync is updating instead of "Reconnecting". Off after 60 s.
+   */
+  updating: boolean;
 }
 
 /** One-shot requests to the background (chrome.runtime.sendMessage). */
