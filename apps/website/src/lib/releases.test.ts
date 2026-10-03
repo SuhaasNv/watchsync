@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checksumFor, parseReleases, safeGithubUrl, versionLabel } from "./releases";
+import { checksumFor, parseDevBuild, parseReleases, safeGithubUrl, versionLabel } from "./releases";
 
 const release = {
   tag_name: "v0.1.0-rc.1",
@@ -83,5 +83,26 @@ describe("checksumFor", () => {
       checksumFor(`- watchsync-extension.zip: ${hash}0`, "watchsync-extension.zip"),
     ).toBeNull();
     expect(checksumFor("### Added\n- Rooms", "watchsync-extension.zip")).toBeNull();
+  });
+});
+
+describe("the rolling dev build", () => {
+  const dev = {
+    name: "WatchSync Dev 0.2.0-rc.1 (8b22d75)",
+    tag_name: "dev-latest",
+    html_url: "https://github.com/SuhaasNv/watchsync/releases/tag/dev-latest",
+    prerelease: true,
+    body: "A testing build.",
+    assets: [],
+  };
+
+  it("is left out of the published releases", () => {
+    expect(parseReleases([dev])).toEqual([]);
+  });
+
+  it("is found by parseDevBuild, and only that", () => {
+    expect(parseDevBuild([dev])?.name).toBe("WatchSync Dev 0.2.0-rc.1 (8b22d75)");
+    expect(parseDevBuild([{ ...dev, tag_name: "v0.1.1" }])).toBeNull();
+    expect(parseDevBuild({ message: "rate limit" })).toBeNull();
   });
 });

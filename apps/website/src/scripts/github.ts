@@ -1,4 +1,4 @@
-import { parseReleases, type Release } from "../lib/releases";
+import { parseDevBuild, parseReleases, type Release } from "../lib/releases";
 import { RELEASES_API } from "../lib/site";
 
 const CACHE_KEY = "ws-releases";
@@ -35,15 +35,15 @@ export class GithubError extends Error {
   }
 }
 
-let pending: Promise<Release[]> | null = null;
+let pending: Promise<unknown> | null = null;
 
 /**
- * The published releases, newest first. GitHub allows 60 unauthenticated requests an hour,
- * so one answer is shared by the whole tab for ten minutes.
+ * GitHub's releases list, shared by the whole tab for ten minutes: it allows 60 unauthenticated
+ * requests an hour.
  */
-export function fetchReleases(): Promise<Release[]> {
+function fetchRaw(): Promise<unknown> {
   const cached = readCache();
-  if (cached !== null) return Promise.resolve(parseReleases(cached));
+  if (cached !== null) return Promise.resolve(cached);
   pending ??= (async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
@@ -58,7 +58,7 @@ export function fetchReleases(): Promise<Release[]> {
       }
       const data: unknown = await res.json();
       writeCache(data);
-      return parseReleases(data);
+      return data;
     } finally {
       clearTimeout(timer);
     }
@@ -67,4 +67,14 @@ export function fetchReleases(): Promise<Release[]> {
     pending = null;
     throw e;
   });
+}
+
+/** The published releases, newest first. */
+export function fetchReleases(): Promise<Release[]> {
+  return fetchRaw().then(parseReleases);
+}
+
+/** The rolling dev build (dev site only), or null. */
+export function fetchDevBuild(): Promise<Release | null> {
+  return fetchRaw().then(parseDevBuild);
 }

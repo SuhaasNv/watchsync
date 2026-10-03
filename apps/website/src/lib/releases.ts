@@ -46,12 +46,14 @@ function parseAsset(value: unknown): ReleaseAsset | null {
   return name && url ? { name, url } : null;
 }
 
-function parseRelease(value: unknown): Release | null {
+const DEV_TAG = "dev-latest";
+
+function parseRelease(value: unknown, dev = false): Release | null {
   if (!isRecord(value) || value.draft === true) return null;
   const tag = str(value.tag_name);
   const url = safeGithubUrl(value.html_url);
-  // The rolling dev build (DEC-026) is for testers, not a release with notes.
-  if (!tag || !url || tag === "dev-latest") return null;
+  // The rolling dev build (DEC-026) is a tester build, not a release: only the dev site asks for it.
+  if (!tag || !url || (tag === DEV_TAG) !== dev) return null;
   const assets = Array.isArray(value.assets)
     ? value.assets.map(parseAsset).filter((a): a is ReleaseAsset => a !== null)
     : [];
@@ -68,7 +70,13 @@ function parseRelease(value: unknown): Release | null {
 
 export function parseReleases(json: unknown): Release[] {
   if (!Array.isArray(json)) return [];
-  return json.map(parseRelease).filter((r): r is Release => r !== null);
+  return json.map((v) => parseRelease(v)).filter((r): r is Release => r !== null);
+}
+
+/** The rolling dev build (tag dev-latest), or null when there is none. */
+export function parseDevBuild(json: unknown): Release | null {
+  if (!Array.isArray(json)) return null;
+  return json.map((v) => parseRelease(v, true)).find((r) => r !== null) ?? null;
 }
 
 /**
