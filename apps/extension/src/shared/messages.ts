@@ -33,6 +33,8 @@ export interface AppState {
    * reconnecting, say WatchSync is updating instead of "Reconnecting". Off after 60 s.
    */
   updating: boolean;
+  /** Still not back after 2 minutes: say so plainly and offer Try now (retries go on). */
+  unreachable: boolean;
 }
 
 /** One-shot requests to the background (chrome.runtime.sendMessage). */
@@ -44,7 +46,9 @@ export type Request =
   | { kind: "leave" }
   | { kind: "rejoin" }
   | { kind: "forgetRoom" }
-  | { kind: "follow"; following: boolean };
+  | { kind: "follow"; following: boolean }
+  /** Try the room connection again now (the long-outage notice's Try now). */
+  | { kind: "retryNow" };
 
 export type Reply = { ok: true; state: AppState } | { ok: false; error: string; state: AppState };
 
@@ -70,7 +74,9 @@ export type TabEvent =
   | { kind: "hold"; reason: "buffering" | "ad" | null; position: number; adLeft: number | null }
   | { kind: "start"; position: number; titleId: string | null }
   | { kind: "startReady" }
-  | { kind: "startForce" };
+  | { kind: "startForce" }
+  /** The tab came back into view: if the connection is down, try it again now. */
+  | { kind: "retryNow" };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {
@@ -158,5 +164,8 @@ export function codeFrom(text: string): string {
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 6);
 }
+
+/** The long-outage line, in the page and the popup (retry policy, v0.2). */
+export const UNREACHABLE = "Can't reach WatchSync. Still trying.";
 
 export const send = (req: Request): Promise<Reply> => chrome.runtime.sendMessage(req);

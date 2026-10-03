@@ -30,6 +30,7 @@ import {
 } from "../shared/update";
 import { injectOpenTabs } from "./inject";
 import { restoreMessage } from "./restore";
+import { RESTARTING, Retry } from "./retry";
 import { updateGate } from "./updates";
 
 const API = __API_URL__;
@@ -48,12 +49,11 @@ const state: AppState = {
   mediaMove: null,
   update: null,
   updating: false,
+  unreachable: false,
 };
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
 let lastTicket: Session | null = null;
-let attempt = 0;
-let retry: ReturnType<typeof setTimeout> | undefined;
 let socket: WebSocket | null = null;
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 const samples: ClockSample[] = [];
@@ -181,22 +181,25 @@ function sendServer(msg: AnyClientMessage) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
-// 1, 2, 4, 8, then every 10 s: short enough that a friend back on Wi-Fi rejoins quickly
-// (BUG-018), with jitter so a room's clients don't all retry at once after a redeploy.
-const backoff = (n: number) => Math.min(10_000, 1000 * 2 ** n) * (1 + Math.random() * 0.3);
-/** The room service is restarting (a deploy, US-121): it closes with 4002, uvicorn with 1012. */
-const RESTARTING = new Set([4002, 1012]);
-const UPDATE_GRACE = 60_000;
-/** When the room service said it was restarting; null when it didn't. */
-let updatingSince: number | null = null;
+// Backoff 1, 2, 4, 8, then every 10 s with jitter: a friend back on Wi-Fi rejoins quickly
+// (BUG-018) and a room's clients don't all retry at once. After 2 minutes down, the page and
+// popup say so plainly (test builds: 15 s, so end-to-end tests can see it).
+const retry = new Retry(
+  () => connect(),
+  () => {
+    if (state.connection !== "reconnecting") return;
+    state.unreachable = retry.status().unreachable;
+    changed();
+  },
+  __MOCK__ ? 15_000 : 120_000,
+);
 /** The service told us it was restarting since we last heard the room (US-120). */
 let sawRestart = false;
 
-/** Someone opened the popup or a service page while we wait to retry: try right away. */
+/** Network back, the popup or a service tab opened or came into view, or Try now. */
 function retryNow() {
   if (state.connection !== "reconnecting" || !state.session) return;
-  clearTimeout(retry);
-  connect();
+  retry.now();
 }
 // The browser saying the network is back is the best moment to retry.
 self.addEventListener("online", retryNow);
@@ -204,12 +207,15 @@ self.addEventListener("online", retryNow);
 function connect() {
   const s = state.session;
   if (!s) return;
-  clearTimeout(retry);
   if (state.connection !== "reconnecting") state.connection = "connecting";
   changed();
   // The token goes as a subprotocol next to ours, never in the URL, so no log that prints
   // URLs holds it. A token that isn't a valid subprotocol would throw: the room refuses us.
   const token = /^[A-Za-z0-9_.-]+$/.test(s.token) ? [s.token] : [];
+  // A try still hanging (Try now, a tab coming into view) is dropped, never left open.
+  const hanging = socket;
+  socket = null;
+  hanging?.close();
   const ws = new WebSocket(`${API.replace(/^http/, "ws")}/ws/rooms/${s.code}`, [
     "watchsync.v1",
     ...token,
@@ -243,18 +249,11 @@ function connect() {
       // A newer connection of ours took over (worker restart); it owns the room now.
       state.connection = "idle";
     } else if (state.session) {
+      // Network trouble, flooding (4001) or a restart (4002/1012): a restart retries within
+      // 1 to 3 s for a minute, the rest back off (retry.ts).
       state.connection = "reconnecting";
-      if (RESTARTING.has(e.code)) {
-        updatingSince ??= Date.now();
-        sawRestart = true;
-      }
-      // Back within seconds while it updates (1 to 3 s, jittered so a room's clients spread
-      // out); past 60 s, the normal reconnect messages and backoff.
-      state.updating = updatingSince !== null && Date.now() - updatingSince < UPDATE_GRACE;
-      retry = setTimeout(
-        connect,
-        state.updating ? 1000 + Math.random() * 2000 : backoff(attempt++),
-      );
+      if (RESTARTING.has(e.code)) sawRestart = true;
+      Object.assign(state, retry.closed(e.code));
     }
     changed();
   };
@@ -274,9 +273,9 @@ function onServer(msg: AnyServerMessage) {
       state.connection = "connected";
       state.mediaMove = null;
       state.notice = null;
-      attempt = 0;
-      updatingSince = null;
+      retry.reset();
       state.updating = false;
+      state.unreachable = false;
       state.participants = msg.payload.participants;
       for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
@@ -330,12 +329,10 @@ function onServer(msg: AnyServerMessage) {
 }
 
 function reset() {
-  clearTimeout(retry);
+  retry.reset();
   socket?.close(); // onclose ignores it: socket is no longer this one
   socket = null;
   seen.clear();
-  attempt = 0;
-  updatingSince = null;
   sawRestart = false;
   Object.assign(state, {
     participants: [],
@@ -343,6 +340,7 @@ function reset() {
     playback: null,
     connection: "idle",
     updating: false,
+    unreachable: false,
   });
 }
 
@@ -473,6 +471,9 @@ async function handleNow(req: Request): Promise<Reply> {
         state.following = req.following;
         sendPresence();
         break;
+      case "retryNow":
+        retryNow();
+        break;
     }
     changed();
     return { ok: true, state: shared() };
@@ -575,6 +576,7 @@ chrome.runtime.onConnect.addListener((port) => {
         return sendServer(envelope("START.REQUEST", { position: e.position, titleId: e.titleId }));
       if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
+      if (e.kind === "retryNow") return retryNow();
       const tabId = port.sender?.tab?.id;
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).

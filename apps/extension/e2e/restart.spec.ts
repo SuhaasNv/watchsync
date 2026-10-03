@@ -54,13 +54,13 @@ async function startService() {
     .toBe(true);
 }
 
-/** What a deploy does to the old process: SIGTERM, then wait for it to exit. */
-async function stopService() {
+/** What a deploy does to the old process: SIGTERM, then wait for it to exit. A crash: SIGKILL. */
+async function stopService(signal: NodeJS.Signals = "SIGTERM") {
   const running = server;
   server = null;
   if (!running || running.exitCode !== null) return;
   const exited = once(running, "exit");
-  running.kill("SIGTERM");
+  running.kill(signal);
   await exited;
 }
 
@@ -144,5 +144,35 @@ test("a server update mid-room: both come back to the same room and stay in sync
   } finally {
     await hostExt.context.close();
     await friendExt.context.close();
+  }
+});
+
+test("a long outage says so plainly, and Try now brings the room back", async () => {
+  test.setTimeout(90_000);
+  const ext = await launchWithExtension("", { build });
+  try {
+    const pop = await popup(ext, "Suhaas");
+    await pop.getByRole("button", { name: "Create a room" }).click();
+    const code = (await pop.getByTestId("room-code").textContent()) ?? "";
+    const tab = await onTitle(ext);
+    await expect(pop.getByText("Connected")).toBeVisible();
+
+    // A crash, not a deploy: no restarting close, so the normal reconnect line first, then,
+    // past the long-outage time (2 minutes; 15 s in test builds), the plain one.
+    await stopService("SIGKILL");
+    await expect(tab.getByText("Connection lost. Reconnecting…")).toBeVisible();
+    const unreachable = "Can't reach WatchSync. Still trying.";
+    await expect(tab.getByText(unreachable)).toBeVisible({ timeout: 30_000 });
+    await expect(pop.getByText(unreachable)).toBeVisible();
+
+    // Try now tries at once; with the service still down the line stays, retries go on.
+    await tab.getByRole("button", { name: "Try now" }).click();
+    await expect(tab.getByText(unreachable)).toBeVisible();
+    await startService();
+    await expect(pop.getByText("Connected")).toBeVisible({ timeout: 15_000 }); // within 10 s
+    await expect(tab.getByText(unreachable)).toHaveCount(0);
+    await expect(pop.getByTestId("room-code")).toHaveText(code); // brought back by its token
+  } finally {
+    await ext.context.close();
   }
 });

@@ -2,7 +2,14 @@
 // keeps it on the room's title.
 import type { Media } from "@watchsync/protocol";
 import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
-import { type AppState, type Push, SERVICE_LABEL, send, type TabEvent } from "../shared/messages";
+import {
+  type AppState,
+  type Push,
+  SERVICE_LABEL,
+  send,
+  type TabEvent,
+  UNREACHABLE,
+} from "../shared/messages";
 import { align } from "./align";
 import { clearPrompt, notice, prompt, renderPill, retireOverlay, toast } from "./overlay";
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
@@ -280,10 +287,14 @@ function showConnection() {
     ? null
     : room?.updating
       ? "WatchSync is updating, back in a moment" // the service is restarting (US-121)
-      : "Connection lost. Reconnecting…";
+      : room?.unreachable
+        ? UNREACHABLE // 2 minutes and still down: retries go on every 10 s
+        : "Connection lost. Reconnecting…";
   if (line === lost) return;
   lost = line;
-  if (line) return notice("connection", line, { icon: "sync", tone: "warn" });
+  const tryNow = { label: "Try now", run: () => void send({ kind: "retryNow" }) };
+  const actions = line === UNREACHABLE ? [tryNow] : [];
+  if (line) return notice("connection", line, { icon: "sync", tone: "warn" }, actions);
   notice("connection", null);
   if (room?.session && room.connection === "connected")
     toast("Back with the room", 3000, { icon: "check", tone: "ok" });
@@ -738,10 +749,18 @@ function connect() {
     }, 5000);
 }
 
+/** Back to this tab while the room connection is down: try again now, not at the next retry. */
+function wake() {
+  if (document.visibilityState === "visible" && room?.connection === "reconnecting")
+    post({ kind: "retryNow" });
+}
+
 const timers: ReturnType<typeof setInterval>[] = [];
 
 function retire() {
   for (const t of timers) clearInterval(t);
+  document.removeEventListener("visibilitychange", wake);
+  window.removeEventListener("focus", wake);
   retireOverlay();
 }
 
@@ -783,6 +802,8 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 if (provider) {
   poll(); // read the title first so the first report isn't "nothing open"
   connect();
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("focus", wake);
   listen(provider, (action, playing, position, rate) => {
     const status = playing ? "playing" : "paused";
     if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions

@@ -23,7 +23,7 @@ root.innerHTML = `<style>
     display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
   .notices, .asks { display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     width: 100%; }
-  .asks .card { pointer-events: auto; }
+  .asks .card, .notices .card.ask { pointer-events: auto; }
   .card { box-sizing: border-box; display: grid; grid-template-columns: 32px minmax(0, 1fr);
     column-gap: 12px; align-items: start;
     max-width: 100%; padding: 12px 16px 12px 12px; border-radius: 16px;
@@ -177,8 +177,16 @@ export function toast(message: string, ms = 4000, look: CardLook = {}) {
 
 const sticky = new Map<string, Card>();
 
-/** A passive line that stays until cleared (null), e.g. while the connection is down. */
-export function notice(key: string, message: string | null, look: CardLook = {}) {
+/**
+ * A line that stays until cleared (null), e.g. while the connection is down, with optional
+ * buttons. New words replace the old ones in place, so a screen reader hears each once.
+ */
+export function notice(
+  key: string,
+  message: string | null,
+  look: CardLook = {},
+  actions: Action[] = [],
+) {
   const shown = sticky.get(key);
   if (message === null) {
     shown?.card.remove();
@@ -186,11 +194,14 @@ export function notice(key: string, message: string | null, look: CardLook = {})
     return;
   }
   if (shown) {
-    if (shown.text.data !== message) shown.text.data = message;
+    if (shown.text.data === message) return;
+    shown.text.data = message;
+    setActions(shown.card, actions, false);
     return;
   }
   const made = card(message, look);
   made.card.classList.add("sticky");
+  setActions(made.card, actions, false);
   notices.append(made.card);
   sticky.set(key, made);
 }
@@ -209,8 +220,8 @@ let current: {
   labels: string;
 } | null = null;
 
-/** Puts the buttons on a prompt card, replacing any it had. */
-function setActions(c: HTMLDivElement, actions: Action[]) {
+/** Puts the buttons on a card, replacing any it had; a prompt's go away on a click. */
+function setActions(c: HTMLDivElement, actions: Action[], closesPrompt = true) {
   c.querySelector(".actions")?.remove();
   c.classList.toggle("ask", actions.length > 0);
   if (!actions.length) {
@@ -229,7 +240,7 @@ function setActions(c: HTMLDivElement, actions: Action[]) {
     b.textContent = a.label;
     if (a.primary) b.className = "primary";
     b.addEventListener("click", () => {
-      clearPrompt();
+      if (closesPrompt) clearPrompt();
       a.run();
     });
     row.append(b);
