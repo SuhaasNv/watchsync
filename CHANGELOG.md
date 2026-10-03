@@ -1,19 +1,32 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - unreleased
+
+Chat and reactions: talk with your room while you watch, without leaving the film.
 
 ### Added
-- Rooms survive a WatchSync server update: the room comes back by itself with the same code, people, title and position (UC-046, DEC-031).
-- While the server updates, the page says "WatchSync is updating, back in a moment" and reconnects within a few seconds; after 2 minutes without a connection it says "Can't reach WatchSync. Still trying." with Try now.
+- Chat in a side panel next to the player. Each message shows the moment in the film it was sent at, so friends know what you were reacting to.
+- Messages show "Sending" until the room has them; if one doesn't get through it says "Not sent" with Retry.
+- Unread messages show as a count on the on-page pill and on the toolbar icon.
+- Reactions: six buttons in the chat; a tap floats the reaction with your name on everyone's screen for a moment.
+- Room activity in the chat: plays, pauses, jumps, joins, leaves and title moves show as plain lines among the messages. A Room notices switch in the chat turns those notices off on your page; the chat still lists them.
+- Open chat from the popup.
+- Alt+Shift+W opens and closes the chat (Control+Shift+W on a Mac). You can change it at chrome://extensions/shortcuts.
+- Rooms survive a WatchSync server update: the room comes back by itself with the same code, people, title and position.
+- Honest reconnect messages: while the server updates, the page says "WatchSync is updating, back in a moment" and reconnects within a few seconds; after 2 minutes without a connection it says "Can't reach WatchSync. Still trying." with Try now.
 - Chrome extension updates wait until you leave the room, so an auto-update never drops you mid-film.
 
 ### Security
+- The chat panel runs in an extension frame, so the streaming page can't read what you type.
+- Chat limits: up to 500 characters a message, 5 messages every 5 seconds per person and 20 every 10 seconds per room, and a cap on how much chat the room service holds.
 - Room tokens are signed, expire after 24 hours, and travel in the connection header instead of the URL (older extensions still connect the old way until v0.8).
 - Restored rooms count toward the room limits; idle and per-address connection limits.
 
 ### Known issues
+- Chat and reactions are not yet checked on the real Netflix, Prime Video and JioHotstar players.
+- Chat has not had a VoiceOver screen-reader pass yet.
+- The check that the chat panel isn't covered by the page is weaker in the automated headless browser than in a real one.
 - The room service needs `ROOM_SIGNING_SECRET` set on every Railway environment before this version is deployed, or it will not start.
-- Not yet checked against the real Railway deploy and the three streaming services.
 
 ## [0.1.1] - 2026-10-03
 

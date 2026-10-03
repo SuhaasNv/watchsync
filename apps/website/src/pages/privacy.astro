@@ -7,7 +7,7 @@ import Base from "../layouts/Base.astro";
   <div class="wrap">
     <header class="page-head">
       <h1>Privacy <span class="em">notice.</span></h1>
-      <p class="lede">Last updated: 2 October 2026</p>
+      <p class="lede">Last updated: 3 October 2026</p>
     </header>
     <div class="prose">
       <p>
@@ -27,6 +27,8 @@ import Base from "../layouts/Base.astro";
           Your player's state: playing or paused, position, speed, and whether it is loading or
           showing an ad, to keep everyone in step and let the room wait for you.
         </li>
+        <li>The chat messages you send in a room, so the people in your room can read them.</li>
+        <li>The reactions you send, shown to your room for a moment and never stored.</li>
         <li>Your IP address, held in memory only to stop abuse (rate limits).</li>
       </ul>
       <h2>What WatchSync does not collect</h2>
@@ -40,6 +42,11 @@ import Base from "../layouts/Base.astro";
         you are in sync, loading or on an ad. The room service runs on Railway in the United
         States. Nobody else receives your data, and it is never sold.
       </p>
+      <p>
+        Chat messages pass through the room service on their way to your room. People who join the
+        room later can read the earlier messages. Chat is encrypted on its way to and from the room
+        service, but it is not end-to-end encrypted.
+      </p>
       <h2>How long it is kept</h2>
       <ul>
         <li>
@@ -47,8 +54,14 @@ import Base from "../layouts/Base.astro";
           once.
         </li>
         <li>
-          A room is deleted about 15 minutes after the last person leaves. Every restart of the
-          service deletes all rooms.
+          A room ends and is deleted about 15 minutes after the last person leaves. When the
+          service restarts, a room comes back as its people reconnect, using the token each of them
+          already holds; its chat does not come back.
+        </li>
+        <li>
+          Chat messages are held in the service's memory only while the room exists, the last 200
+          per room. They are never written to logs, and are deleted when the room ends or the
+          service restarts.
         </li>
         <li>
           Codes of ended rooms (no personal data) are kept for 24 hours, so a late friend learns the
