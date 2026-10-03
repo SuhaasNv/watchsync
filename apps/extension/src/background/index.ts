@@ -11,6 +11,7 @@ import {
   isServerMessage,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
+import { salvageHistory } from "../shared/chat";
 import {
   type AppState,
   type ChatNonceReply,
@@ -32,6 +33,7 @@ import {
   type UpdateCheck,
 } from "../shared/update";
 import { ChatFrames, wantsServerMessage } from "./chat-frames";
+import { type ChatSeen, chatRelay } from "./chat-relay";
 import { injectOpenTabs } from "./inject";
 import { restoreMessage } from "./restore";
 import { RESTARTING, Retry } from "./retry";
@@ -54,6 +56,7 @@ const state: AppState = {
   update: null,
   updating: false,
   unreachable: false,
+  unread: 0,
 };
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
@@ -76,6 +79,36 @@ function sendPresence() {
 function push(msg: Push) {
   for (const p of ports) p.postMessage(msg);
 }
+
+const chat = chatRelay({
+  send(msg) {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(msg));
+    return true;
+  },
+  link: () =>
+    socket?.readyState === WebSocket.OPEN ? "open" : state.session ? "reconnecting" : "closed",
+  you: () => state.session?.participantId ?? null,
+  seen(seen) {
+    state.unread = seen.unread;
+    // Ids and counts only, never text, so a worker restart keeps the count (DEC-032).
+    const code = state.session?.code;
+    if (code) chrome.storage.session.set({ chatSeen: { code, ...seen } }).catch(() => {});
+  },
+  connected: (port) => [...ports].some((p) => p === port),
+});
+
+function isChatSeen(v: unknown): v is ChatSeen & { code: string } {
+  if (typeof v !== "object" || v === null) return false;
+  const { code, unread, lastSeen } = v as { code?: unknown; unread?: unknown; lastSeen?: unknown };
+  return (
+    typeof code === "string" &&
+    typeof unread === "number" &&
+    Number.isInteger(unread) &&
+    unread >= 0 &&
+    (lastSeen === null || typeof lastSeen === "string")
+  );
+}
 /**
  * The state other contexts see: never the room token. Only this worker uses it, and a port's
  * name or a reply can reach a content script on a service page (BUG-044).
@@ -89,11 +122,20 @@ function changed() {
 
 async function restore() {
   const { name } = await chrome.storage.local.get("name");
-  const { session, lastTicket: kept } = await chrome.storage.session.get(["session", "lastTicket"]);
+  const {
+    session,
+    lastTicket: kept,
+    chatSeen,
+  } = await chrome.storage.session.get(["session", "lastTicket", "chatSeen"]);
   // A name saved by an older version may hold marks the service now refuses.
   state.name = typeof name === "string" ? cleanName(name) || null : null;
   if (isRoomTicket(session)) {
     state.session = session;
+    // The worker restarted in a room: its unread count, recomputed when the history arrives.
+    if (isChatSeen(chatSeen) && chatSeen.code === session.code) {
+      chat.restore({ unread: chatSeen.unread, lastSeen: chatSeen.lastSeen });
+      state.unread = chatSeen.unread;
+    }
     connect();
     return;
   }
@@ -232,7 +274,8 @@ function connect() {
     } catch {
       return;
     }
-    if (isServerMessage(msg)) onServer(msg);
+    const valid = isServerMessage(msg) ? msg : salvageHistory(msg);
+    if (valid) onServer(valid);
   };
   ws.onopen = () => {
     clearInterval(pingTimer);
@@ -241,11 +284,13 @@ function connect() {
     ping();
     pingTimer = setInterval(ping, 20_000);
     sendPresence();
+    chat.onSocketOpen(); // messages typed while reconnecting go out now
   };
   ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
     clearInterval(pingTimer);
+    chat.onSocketClosed(); // sends with no echo yet go again on the next connection
     if (e.code === 1008) {
       // The room ended or our token was revoked; retrying can't help.
       void endSession(ENDED);
@@ -328,10 +373,14 @@ function onServer(msg: AnyServerMessage) {
       break;
     }
   }
+  const to = chat.onServer(msg); // chat: unread count, and a refusal for its own tab only
   changed();
-  // Chat goes only to the chat frames, never to a service page's content script (DEC-042).
-  for (const p of ports)
-    if (wantsServerMessage(p.name, msg.type)) p.postMessage({ kind: "server", message: msg });
+  // Chat goes only to the chat frames, never to a service page's content script (DEC-042),
+  // and a refusal only to the frame whose message it was.
+  if (to === "all") {
+    for (const p of ports)
+      if (wantsServerMessage(p.name, msg.type)) p.postMessage({ kind: "server", message: msg });
+  } else to?.postMessage({ kind: "server", message: msg } satisfies Push);
 }
 
 function reset() {
@@ -340,6 +389,8 @@ function reset() {
   socket = null;
   seen.clear();
   sawRestart = false;
+  chat.reset(); // a room's chat stays with it: leaving, ending or switching forgets it
+  chrome.storage.session.remove("chatSeen").catch(() => {});
   Object.assign(state, {
     participants: [],
     media: null,
@@ -347,6 +398,7 @@ function reset() {
     connection: "idle",
     updating: false,
     unreachable: false,
+    unread: 0,
   });
 }
 
@@ -570,6 +622,21 @@ setInterval(() => {
 }, 15_000);
 
 /**
+ * Where this person's player is, for a chat message's movie time: the room's clock when the
+ * tab we watch in is on the room's title and not in an ad; otherwise no time (name only).
+ */
+function myTime(): { movieTime: number | null; titleId: string | null } {
+  const titleId = presence.media?.titleId ?? null;
+  const pb = state.playback;
+  const me = state.participants.find((p) => p.id === state.session?.participantId);
+  if (titleId === null || !pb || pb.titleId !== titleId || me?.hold === "ad")
+    return { movieTime: null, titleId };
+  const now = Date.now() + state.clockOffset;
+  const elapsed = pb.status === "playing" ? ((now - pb.updatedAt) / 1000) * pb.rate : 0;
+  return { movieTime: Math.max(0, pb.position + elapsed), titleId };
+}
+
+/**
  * A chat frame's port is served only after it says hello with the pass its tab's content
  * script was given (DEC-042); anything else, or silence, is disconnected unserved.
  */
@@ -591,10 +658,15 @@ function admitChatFrame(port: chrome.runtime.Port) {
     });
     // Its close goes only to the content script of the tab it sits in.
     port.onMessage.addListener((m: unknown) => {
-      if (isSidebarEvent(m) && m.kind === "close")
-        toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
+      if (!isSidebarEvent(m)) return;
+      if (m.kind === "close") toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
+      if (m.kind === "chat")
+        chat.onTabEvent(port, { kind: "chat", text: m.text, clientId: m.clientId, ...myTime() });
     });
-    ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
+    ready.then(() => {
+      port.postMessage({ kind: "state", state: shared() } satisfies Push);
+      chat.onPortConnected(port); // the room's earlier messages, once known
+    });
   };
   port.onMessage.addListener(hello);
 }
@@ -644,6 +716,11 @@ chrome.runtime.onConnect.addListener((port) => {
       if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
       if (e.kind === "retryNow") return retryNow();
+      if (e.kind === "chat") return chat.onTabEvent(port, e);
+      if (e.kind === "chatOpened") {
+        chat.onTabEvent(port, e);
+        return changed();
+      }
       const tabId = port.sender?.tab?.id;
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).

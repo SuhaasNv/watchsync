@@ -35,6 +35,8 @@ export interface AppState {
   updating: boolean;
   /** Still not back after 2 minutes: say so plainly and offer Try now (retries go on). */
   unreachable: boolean;
+  /** Chat messages from other people since the chat was last opened (US-044). */
+  unread: number;
 }
 
 /** One-shot requests to the background (chrome.runtime.sendMessage). */
@@ -52,7 +54,11 @@ export type Request =
 
 export type Reply = { ok: true; state: AppState } | { ok: false; error: string; state: AppState };
 
-/** Background → popup and content scripts, over a long-lived port. */
+/**
+ * Background → popup and content scripts, over a long-lived port. Chat arrives as server
+ * messages: CHAT.HISTORY (replaces the list; also replayed to a tab when it connects, once the
+ * room's history is known), CHAT.MESSAGE, and CHAT.REJECTED (only to the tab that sent it).
+ */
 export type Push =
   | { kind: "state"; state: AppState }
   | { kind: "server"; message: AnyServerMessage }
@@ -65,19 +71,39 @@ export type Push =
   /** The chat frame with this pass connected (to its tab's port only). */
   | { kind: "chatFrameReady"; frame: string }
   /** The chat frame with this pass lost its connection (to its tab's port only). */
-  | { kind: "chatFrameLost"; frame: string };
+  | { kind: "chatFrameLost"; frame: string }
+  /**
+   * This tab's chat message has had no echo for 5 s and is still being tried (it is sent again
+   * after a reconnect): show "Sending…".
+   */
+  | { kind: "chatSending"; clientId: string }
+  /**
+   * This tab's chat message didn't reach the room: show "Not sent" and keep the text.
+   * offline: no echo 30 s after it was first sent, not in a room, or too many waiting (Retry,
+   * with the same clientId, can work); invalid: the text can't be sent as it is (no Retry).
+   */
+  | { kind: "chatFailed"; reason: "offline" | "invalid"; text: string; clientId: string };
 
 /**
  * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first
  * message is "hello" with the one-time pass the tab's content script put in the frame's
  * address; the background serves the port only if it matches.
  */
-export type SidebarEvent = { kind: "hello"; nonce: string } | { kind: "close" };
+export type SidebarEvent =
+  | { kind: "hello"; nonce: string }
+  | { kind: "close" }
+  /**
+   * Send a chat message (UC-014). The background adds the movie time: the frame can't see
+   * the player. clientId is the frame's id for it (crypto.randomUUID()), the same on Retry.
+   */
+  | { kind: "chat"; text: string; clientId: string };
 
 export function isSidebarEvent(v: unknown): v is SidebarEvent {
   if (typeof v !== "object" || v === null) return false;
   const kind = Reflect.get(v, "kind");
-  return kind === "close" || (kind === "hello" && typeof Reflect.get(v, "nonce") === "string");
+  const str = (k: string) => typeof Reflect.get(v, k) === "string";
+  if (kind === "chat") return str("text") && str("clientId");
+  return kind === "close" || (kind === "hello" && str("nonce"));
 }
 
 /** Content script → background: a one-time pass for the chat frame it is about to load. */
@@ -101,7 +127,21 @@ export type TabEvent =
   | { kind: "startReady" }
   | { kind: "startForce" }
   /** The tab came back into view: if the connection is down, try it again now. */
-  | { kind: "retryNow" };
+  | { kind: "retryNow" }
+  /**
+   * Send a chat message marked with this tab's movie time (null: no title open). clientId is
+   * the tab's id for this message (crypto.randomUUID()), the same on Retry, so the room never
+   * keeps it twice.
+   */
+  | {
+      kind: "chat";
+      text: string;
+      movieTime: number | null;
+      titleId: string | null;
+      clientId: string;
+    }
+  /** The chat was opened: everything in it is seen, and the unread count clears. */
+  | { kind: "chatOpened" };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {
@@ -178,8 +218,16 @@ export function nameProblem(raw: string): string | null {
   if (!name) return "Enter your name.";
   if (!/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name))
     return "Use at least one letter or number.";
+  if (isReservedName(name)) return "Choose another name.";
   return null;
 }
+
+/**
+ * The product's own name, in any case, width or spacing (compared after NFKC), so nobody can
+ * pose as WatchSync. The room service refuses the same names (app/protocol.py).
+ */
+export const isReservedName = (name: string): boolean =>
+  name.normalize("NFKC").toLowerCase().replace(/\s/g, "") === "watchsync";
 
 /** The room code in what someone typed or pasted: a code, a spaced code or an invite link. */
 export function codeFrom(text: string): string {

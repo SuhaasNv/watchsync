@@ -4,7 +4,10 @@ import asyncio
 import contextlib
 import ipaddress
 import json
+import logging
+import os
 import re
+import secrets
 import signal
 import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -17,9 +20,52 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, join_page
-from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
+from .protocol import (
+    is_chat_text,
+    is_client_message,
+    is_create_request,
+    is_join_request,
+    is_name,
+    is_reserved_name,
+    is_server_message,
+    message,
+    now_ms,
+)
 from .ratelimit import Limiter
 from .rooms import Participant, Room, RoomError, rooms, safe_media
+
+
+class NoFrameLogs(logging.Filter):
+    """The WebSocket library logs every frame at DEBUG through uvicorn's logger, and a frame
+    carries chat text, which is never logged at any level (DEC-032). Its debug lines never
+    pass, whatever level the server runs at; its connection lines (INFO and up) still do."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno > logging.DEBUG or f"{os.sep}websockets{os.sep}" not in (
+            record.pathname
+        )
+
+
+class NoTokens(logging.Filter):
+    """Room tokens ride in the WebSocket URL, which uvicorn logs on connect (and the access
+    log, if on, on every request). Never log a token at any level (CLAUDE.md §6)."""
+
+    TOKEN = re.compile(r"(token=)[^&\s\"']*")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = self.TOKEN.sub(r"\1[redacted]", record.msg)
+        if isinstance(record.args, tuple):  # keep the shape: uvicorn's formatters unpack it
+            record.args = tuple(
+                self.TOKEN.sub(r"\1[redacted]", a) if isinstance(a, str) else a for a in record.args
+            )
+        return True
+
+
+logging.getLogger("uvicorn.error").addFilter(NoFrameLogs())
+for name in ("uvicorn.error", "uvicorn.access"):
+    logging.getLogger(name).addFilter(NoTokens())
+logging.getLogger("websockets").setLevel(logging.INFO)  # the library's own loggers too
 
 
 @contextlib.asynccontextmanager
@@ -32,7 +78,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await asyncio.sleep(60)
             rooms.sweep()
             limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
-            for limiter in (*limiters, failed_join_limiter):
+            for limiter in (*limiters, failed_join_limiter, chat_limiter, room_chat_limiter):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
@@ -101,6 +147,10 @@ join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
 message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
 connect_limiter = Limiter(config.CONNECTS_PER_MINUTE, 60)
 failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
+# Per participant, not per connection: reconnecting doesn't buy a fresh budget (US-043).
+chat_limiter = Limiter(config.CHAT_PER_5S, 5)
+# Per room, everyone together (keyed by room code).
+room_chat_limiter = Limiter(config.CHAT_ROOM_PER_10S, 10)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
@@ -185,8 +235,12 @@ async def read_body(request: Request, valid: Callable[[Any], bool]) -> dict[str,
 
 
 def name_in(body: dict[str, Any]) -> str:
-    name: str = body["name"].strip()
-    return name or "Guest"
+    raw: str = body["name"]
+    if is_reserved_name(raw):
+        raise HTTPException(422, "Choose another name.")
+    if not is_name(raw):  # the schema's pattern, read over the whole name as browsers do
+        raise HTTPException(422, "A name of 1 to 30 characters is required.")
+    return raw.strip() or "Guest"
 
 
 def reject_constant(name: str) -> None:
@@ -430,6 +484,8 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await start_go(room)
     elif msg["type"] == "ROOM.RESTORE":
         await restore_room(room, payload["media"], payload["playback"], payload["knownAt"])
+    elif msg["type"] == "CHAT.SEND":
+        await chat_send(room, p, payload)
 
 
 async def restore_room(
@@ -455,6 +511,67 @@ async def restore_room(
     for x in list(room.participants.values()):
         if x.connected:
             await send(x, "ROOM.STATE", room.snapshot(x.id))
+
+
+async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None:
+    """Relay a chat message to everyone, the sender too (their copy confirms delivery), and
+    keep it for people who join later. Never log the text (DEC-032). A refusal goes to the
+    sender only, so their box can keep the text. A retry of a message the room already has
+    (same clientId from the same person) is answered to the sender only, never kept twice."""
+    text: str = payload["text"]
+    client_id: str = payload["clientId"]
+    if not is_chat_text(text):  # nothing visible, or a character the extension refuses
+        return await reject(p, "invalid", text, client_id)
+    if len(text) > config.CHAT_MAX_CHARS:  # code points, as the protocol counts
+        return await reject(p, "too_long", text, client_id)
+    kept = next((m for m in room.chat if m["fromId"] == p.id and m["clientId"] == client_id), None)
+    if kept is not None:
+        return await send(p, "CHAT.MESSAGE", kept)
+    if not chat_limiter.allow(p.id) or not room_chat_limiter.allow(room.code):
+        return await reject(p, "rate_limited", text, client_id)
+    chat = {
+        "id": secrets.token_hex(8),
+        "clientId": client_id,
+        "fromId": p.id,
+        "name": p.name,
+        "text": text,
+        "movieTime": payload["movieTime"],
+        "titleId": payload["titleId"],
+        "serverTime": now_ms(),
+    }
+    # Never keep or relay what clients would refuse: one bad item would cost every later
+    # joiner the whole history.
+    if not is_server_message(message("CHAT.MESSAGE", chat)):
+        return await reject(p, "invalid", text, client_id)
+    rooms.keep_chat(room, chat)
+    await broadcast(room, "CHAT.MESSAGE", chat)
+
+
+async def reject(p: Participant, reason: str, text: str, client_id: str | None) -> None:
+    """CHAT.REJECTED to the sender: at most the first 500 characters of their text back (a
+    16 KB send isn't echoed in full), and their clientId so the right tab hears it."""
+    refused: dict[str, Any] = {"reason": reason, "text": text[:500]}
+    if client_id is not None:
+        refused["clientId"] = client_id
+    await send(p, "CHAT.REJECTED", refused)
+
+
+CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def overlong_chat(msg: Any) -> tuple[str, str | None] | None:
+    """The text and clientId (if well formed) of a chat message refused only for being too
+    long, so the sender hears why and keeps it; anything else malformed is just invalid."""
+    if not isinstance(msg, dict) or msg.get("type") != "CHAT.SEND":
+        return None
+    payload = msg.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    text, client_id = payload.get("text"), payload.get("clientId")
+    if not isinstance(text, str) or len(text) <= config.CHAT_MAX_CHARS:
+        return None
+    ok = isinstance(client_id, str) and CLIENT_ID.fullmatch(client_id) is not None
+    return text, client_id if ok else None
 
 
 def show(media: dict[str, Any]) -> str | None:
@@ -675,6 +792,7 @@ async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, i
     room.used = True
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
+    await send(p, "CHAT.HISTORY", {"messages": list(room.chat)})
     arrived = "rejoined" if p.rejoined else "joined"
     p.rejoined = False
     await broadcast(
@@ -705,6 +823,9 @@ async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, i
                 )
                 continue
             if not is_client_message(msg):
+                if (overlong := overlong_chat(msg)) is not None:
+                    await reject(p, "too_long", *overlong)
+                    continue
                 await send(
                     p, "SYS.ERROR", {"code": "invalid_message", "message": "Unknown message."}
                 )

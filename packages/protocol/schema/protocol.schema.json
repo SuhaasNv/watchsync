@@ -20,6 +20,34 @@
     "Seconds": { "type": "number", "minimum": 0, "maximum": 86400 },
     "Rate": { "type": "number", "minimum": 0.25, "maximum": 4 },
     "TitleId": { "type": ["string", "null"], "maxLength": 200 },
+    "ChatText": {
+      "description": "A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters, except the zero-width joiner and non-joiner that emoji sequences and some scripts need (the room service and the extension also check that each sits between two visible characters, and that variation selectors follow one) (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*(?:\\n[^\\u0000-\\u001F\\u007F-\\u009F\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*){0,10}$"
+    },
+    "ClientId": {
+      "description": "The sender's own id for one chat message, the same on every retry, so the room never keeps it twice and the sender can match the echo.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "ChatMessagePayload": {
+      "description": "One chat message as the room service relays and keeps it (US-042). movieTime is the sender's player position when they sent it; serverTime is server ms.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "clientId", "fromId", "name", "text", "movieTime", "titleId", "serverTime"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "clientId": { "$ref": "#/$defs/ClientId" },
+        "fromId": { "type": "string" },
+        "name": { "$ref": "#/$defs/Name" },
+        "text": { "$ref": "#/$defs/ChatText" },
+        "movieTime": { "anyOf": [{ "$ref": "#/$defs/Seconds" }, { "type": "null" }] },
+        "titleId": { "$ref": "#/$defs/TitleId" },
+        "serverTime": { "type": "number" }
+      }
+    },
 
     "Media": {
       "description": "What the room is watching.",
@@ -244,6 +272,26 @@
       }
     },
 
+    "ChatSend": {
+      "description": "Send a chat message to everyone in the room, marked with the sender's movie time.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.SEND" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "movieTime", "titleId", "clientId"],
+          "properties": {
+            "text": { "$ref": "#/$defs/ChatText" },
+            "movieTime": { "anyOf": [{ "$ref": "#/$defs/Seconds" }, { "type": "null" }] },
+            "titleId": { "$ref": "#/$defs/TitleId" },
+            "clientId": { "$ref": "#/$defs/ClientId" }
+          }
+        }
+      }
+    },
+
     "ClientMessage": {
       "oneOf": [
         { "$ref": "#/$defs/PresenceUpdate" },
@@ -254,7 +302,8 @@
         { "$ref": "#/$defs/StartRequest" },
         { "$ref": "#/$defs/StartReady" },
         { "$ref": "#/$defs/StartForce" },
-        { "$ref": "#/$defs/RestoreRoom" }
+        { "$ref": "#/$defs/RestoreRoom" },
+        { "$ref": "#/$defs/ChatSend" }
       ]
     },
 
@@ -391,6 +440,54 @@
       }
     },
 
+    "ChatMessage": {
+      "description": "A chat message, to everyone in the room including its sender (their copy confirms delivery).",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.MESSAGE" },
+        "payload": { "$ref": "#/$defs/ChatMessagePayload" }
+      }
+    },
+    "ChatHistory": {
+      "description": "The room's earlier messages, oldest first, sent to a connecting socket right after ROOM.STATE.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.HISTORY" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["messages"],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/ChatMessagePayload" },
+              "maxItems": 200
+            }
+          }
+        }
+      }
+    },
+    "ChatRejected": {
+      "description": "The sender's message was not sent; text echoes its first 500 characters so the box can keep it, and clientId (when the send had a valid one) says which send.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.REJECTED" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "text"],
+          "properties": {
+            "reason": { "type": "string", "enum": ["too_long", "rate_limited", "invalid"] },
+            "text": { "type": "string", "maxLength": 500 },
+            "clientId": { "$ref": "#/$defs/ClientId" }
+          }
+        }
+      }
+    },
+
     "ServerMessage": {
       "oneOf": [
         { "$ref": "#/$defs/RoomState" },
@@ -399,7 +496,10 @@
         { "$ref": "#/$defs/PlaybackState" },
         { "$ref": "#/$defs/Pong" },
         { "$ref": "#/$defs/ErrorMessage" },
-        { "$ref": "#/$defs/StartState" }
+        { "$ref": "#/$defs/StartState" },
+        { "$ref": "#/$defs/ChatMessage" },
+        { "$ref": "#/$defs/ChatHistory" },
+        { "$ref": "#/$defs/ChatRejected" }
       ]
     }
   }

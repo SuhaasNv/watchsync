@@ -569,6 +569,7 @@ def test_a_real_server_closes_with_restarting_on_sigterm() -> None:
         with ws_connect(f"ws://127.0.0.1:{port}/ws/rooms/{t['code']}", subprotocols=offer) as ws:
             assert ws.subprotocol == "watchsync.v1"
             assert json.loads(ws.recv(timeout=5))["type"] == "ROOM.STATE"
+            assert json.loads(ws.recv(timeout=5))["type"] == "CHAT.HISTORY"
             server.send_signal(signal.SIGTERM)
             with pytest.raises(ConnectionClosed) as closed:
                 ws.recv(timeout=5)
@@ -652,7 +653,8 @@ def test_a_room_ended_before_a_restart_is_bounded_by_token_age() -> None:
     try:
         t = httpx.post(f"{a.base}/api/v1/rooms", json={"name": "Suhaas"}).json()
         with a.connect(t) as ws:
-            ws.recv(timeout=5)
+            ws.recv(timeout=5)  # ROOM.STATE
+            ws.recv(timeout=5)  # CHAT.HISTORY
             ws.send(json.dumps(msg("ROOM.LEAVE", {})))  # the last one out ends the room
             with pytest.raises(ConnectionClosed):
                 ws.recv(timeout=5)
