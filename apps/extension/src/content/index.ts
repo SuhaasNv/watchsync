@@ -11,9 +11,25 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { align } from "./align";
-import { clearPrompt, notice, prompt, renderPill, retireOverlay, toast } from "./overlay";
+import {
+  clearPrompt,
+  focusedControl,
+  notice,
+  prompt,
+  renderPill,
+  retireOverlay,
+  toast,
+} from "./overlay";
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
 import { providerFor } from "./providers";
+import {
+  isSidebarOpen,
+  onSidebarChange,
+  openSidebar,
+  retireSidebar,
+  showSidebar,
+  toggleSidebar,
+} from "./sidebar";
 
 const provider = providerFor(location.host);
 
@@ -222,11 +238,17 @@ function onPush(m: Push) {
     if (mine) reportPresence();
     return;
   }
+  if (m.kind === "toggleSidebar") {
+    // Focus on a pill button is hidden in the overlay's shadow root: hand it over.
+    toggleSidebar(focusedControl() ?? undefined);
+    return;
+  }
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
   room = m.state;
+  showSidebar(room.session && room.connection !== "idle" ? room.session.code : null);
   showConnection();
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
@@ -365,8 +387,11 @@ function drawPill() {
     playing: provider?.getState()?.playing === true,
     onPause: pauseTogether,
     onSyncAll: syncEveryone,
+    onChat: (from) => openSidebar(from),
+    chatOpen: isSidebarOpen(),
   });
 }
+onSidebarChange(() => drawPill());
 
 /** Everyone jumps to exactly where I am, without pausing or counting down (owner, 2 Oct). */
 function syncEveryone() {
@@ -762,6 +787,7 @@ function retire() {
   document.removeEventListener("visibilitychange", wake);
   window.removeEventListener("focus", wake);
   retireOverlay();
+  retireSidebar();
 }
 
 /** When this tab's title went missing; 0 while it has one. */

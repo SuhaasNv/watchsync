@@ -491,8 +491,26 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   void injectOpenTabs(chrome);
 });
 
-// Test builds only: lets end-to-end tests cut the connection like a network drop.
-if (__MOCK__) Object.assign(globalThis, { watchsyncDropSocket: () => socket?.close() });
+/** The sidebar shortcut (US-040): only the tab it was pressed in opens or closes its sidebar. */
+async function onCommand(command: string, tab?: chrome.tabs.Tab) {
+  if (command !== "toggle-sidebar") return;
+  const id = tab?.id ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
+  if (id === undefined) return;
+  for (const p of ports)
+    if (p.name === "tab" && p.sender?.tab?.id === id)
+      p.postMessage({ kind: "toggleSidebar" } satisfies Push);
+}
+chrome.commands.onCommand.addListener((command, tab) => {
+  onCommand(command, tab).catch(() => {}); // no tab to tell: nothing to open
+});
+
+// Test builds only: lets end-to-end tests cut the connection like a network drop, and press
+// the sidebar shortcut (Playwright can't press extension commands).
+if (__MOCK__)
+  Object.assign(globalThis, {
+    watchsyncDropSocket: () => socket?.close(),
+    watchsyncCommand: onCommand,
+  });
 
 chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
   if (sender.id !== chrome.runtime.id) return false;

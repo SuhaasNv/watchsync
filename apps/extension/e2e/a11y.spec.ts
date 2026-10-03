@@ -55,7 +55,7 @@ test("on-page prompt and notices", async ({ ext }) => {
     await expect(tab.getByText("Open it?")).toBeVisible({ timeout: 5000 });
     await audit(tab, "watchsync-overlay");
 
-    await tab.getByRole("button", { name: "Open" }).click();
+    await tab.getByRole("button", { name: "Open", exact: true }).click();
     await tab.waitForURL(`${MOCK}/watch/ep1`);
     await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
     await hostTab.evaluate(() => document.querySelector("video")?.pause());

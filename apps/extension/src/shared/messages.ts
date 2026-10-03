@@ -57,7 +57,9 @@ export type Push =
   | { kind: "state"; state: AppState }
   | { kind: "server"; message: AnyServerMessage }
   /** The tab that reported our title is gone: any other tab with a title, say so. */
-  | { kind: "report" };
+  | { kind: "report" }
+  /** The sidebar shortcut was pressed in this tab (to its port only). */
+  | { kind: "toggleSidebar" };
 
 /** Content script → background, over its port. */
 export type TabEvent =

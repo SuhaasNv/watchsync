@@ -305,6 +305,9 @@ export interface PillModel {
   onPause: () => void;
   /** Sync everyone: jump the room to my exact position, no pause or countdown. */
   onSyncAll: () => void;
+  /** Open the sidebar; the button gets focus back when it closes. */
+  onChat: (from: HTMLElement) => void;
+  chatOpen: boolean;
 }
 
 const pill = document.createElement("div");
@@ -355,6 +358,15 @@ function button(label: string, run: () => void, look: ButtonLook = {}): HTMLButt
   b.className = [look.primary && "primary", look.bare && "bare"].filter(Boolean).join(" ");
   b.addEventListener("click", run);
   return b;
+}
+
+// One lasting button, so focus can come back to it after the sidebar closes even though
+// the pill redraws in between.
+const chat = button("Open chat", () => lastModel?.onChat(chat), { icon: "chat", bare: true });
+
+/** The overlay control that has focus, if any (its shadow root hides it from the page). */
+export function focusedControl(): HTMLElement | null {
+  return root.activeElement instanceof HTMLElement ? root.activeElement : null;
 }
 
 /** Shows who's here and in sync; null hides it (not in a room). */
@@ -434,6 +446,7 @@ export function renderPill(model: PillModel | null) {
         }),
       ]
     : [];
-  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, fold);
+  chat.setAttribute("aria-expanded", String(model.chatOpen));
+  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, chat, fold);
   wake();
 }

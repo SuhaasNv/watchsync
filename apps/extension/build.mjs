@@ -59,6 +59,13 @@ const manifest = {
     },
     { matches: [`${api}/j/*`], js: ["join-page.js"], run_at: "document_idle" },
   ],
+  // The sidebar shortcut (US-040); people can change it at chrome://extensions/shortcuts.
+  commands: {
+    "toggle-sidebar": {
+      suggested_key: { default: "Alt+Shift+W", mac: "MacCtrl+Shift+W" },
+      description: "Open or close the WatchSync sidebar",
+    },
+  },
 };
 
 // The Chrome Web Store refuses a package whose description is over 132 characters (BUG-059).
