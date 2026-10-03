@@ -70,9 +70,13 @@ const address = `${browser}://extensions`;
       <div class="copy-row">
         <code class="addr">{address}</code>
         <button class="btn small copy" type="button" data-copy={address}>
-          <span data-copy-label>Copy</span>
+          <span data-copy-label>Copy address</span>
         </button>
       </div>
+      <p class="reassure copy-hint" data-copy-hint hidden>
+        Copied. Open a new tab (<kbd data-key="t">Ctrl+T</kbd>), paste (<kbd data-key="v">Ctrl+V</kbd>)
+        and press Enter.
+      </p>
     </div>
     <div class="art" aria-hidden="true">
       <div class="browser">
@@ -258,6 +262,9 @@ const address = `${browser}://extensions`;
     min-height: 44px;
     padding: 0 16px;
     font-size: 0.95rem;
+  }
+  .copy-hint {
+    margin-top: 10px;
   }
   .copy-row {
     display: flex;

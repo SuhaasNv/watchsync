@@ -20,6 +20,15 @@ export function initCopyButtons() {
         label.textContent = "Copied";
         button.dataset.state = "copied";
         live.textContent = `Copied ${text}`;
+        // Where the page says what to do next (websites can't open the browser's own pages).
+        const hint = button.closest("li")?.querySelector<HTMLElement>("[data-copy-hint]");
+        if (hint) {
+          const mac = /Mac/.test(navigator.userAgent);
+          for (const key of hint.querySelectorAll<HTMLElement>("[data-key]"))
+            key.textContent = `${mac ? "⌘" : "Ctrl+"}${(key.dataset.key ?? "").toUpperCase()}`;
+          hint.hidden = false;
+          live.textContent = hint.textContent?.replace(/\s+/g, " ").trim() ?? live.textContent;
+        }
       } catch {
         label.textContent = "Select and copy it";
         button.dataset.state = "failed";
