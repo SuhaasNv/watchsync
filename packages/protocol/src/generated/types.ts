@@ -20,6 +20,10 @@ export type ChatText = string;
  */
 export type ClientId = string;
 /**
+ * The six reactions (US-045): love, laugh, cry, fire, shocked, clap.
+ */
+export type Emoji = "❤️" | "😂" | "😭" | "🔥" | "😱" | "👏";
+/**
  * Client tells the room what it has open and whether it follows the room.
  */
 export type PresenceUpdate = Envelope & {
@@ -116,6 +120,16 @@ export type ChatSend = Envelope & {
     clientId: ClientId;
   };
 };
+/**
+ * A reaction (US-045). Taps on the same one within 250 ms arrive as one with a count. Never stored.
+ */
+export type ReactionSend = Envelope & {
+  type?: "REACTION.SEND";
+  payload?: {
+    emoji: Emoji;
+    count: number;
+  };
+};
 export type ClientMessage =
   | PresenceUpdate
   | PlaybackUpdate
@@ -126,7 +140,8 @@ export type ClientMessage =
   | StartReady
   | StartForce
   | RestoreRoom
-  | ChatSend;
+  | ChatSend
+  | ReactionSend;
 /**
  * Full snapshot sent on connect and reconnect.
  */
@@ -246,6 +261,18 @@ export type ChatRejected = Envelope & {
     clientId?: ClientId;
   };
 };
+/**
+ * A reaction to float over the video, sent to everyone in the room including the sender (US-045).
+ */
+export type ReactionShow = Envelope & {
+  type?: "REACTION.SHOW";
+  payload?: {
+    fromId: string;
+    name: Name;
+    emoji: Emoji;
+    count: number;
+  };
+};
 export type ServerMessage =
   | RoomState
   | ParticipantChanged
@@ -256,7 +283,8 @@ export type ServerMessage =
   | StartState
   | ChatMessage
   | ChatHistory
-  | ChatRejected;
+  | ChatRejected
+  | ReactionShow;
 
 /**
  * Single source of truth for every message between the extension and the room service (DEC-006). Edit this file, then run `pnpm gen:protocol`.
@@ -271,6 +299,7 @@ export interface ProtocolRoot {
   ChatText?: ChatText;
   ClientId?: ClientId;
   ChatMessagePayload?: ChatMessagePayload;
+  Emoji?: Emoji;
   Media?: Media;
   Playback?: Playback;
   Participant?: Participant;
@@ -288,6 +317,7 @@ export interface ProtocolRoot {
   StartForce?: StartForce;
   RestoreRoom?: RestoreRoom;
   ChatSend?: ChatSend;
+  ReactionSend?: ReactionSend;
   ClientMessage?: ClientMessage;
   RoomState?: RoomState;
   ParticipantChanged?: ParticipantChanged;
@@ -299,6 +329,7 @@ export interface ProtocolRoot {
   ChatMessage?: ChatMessage;
   ChatHistory?: ChatHistory;
   ChatRejected?: ChatRejected;
+  ReactionShow?: ReactionShow;
   ServerMessage?: ServerMessage;
 }
 /**

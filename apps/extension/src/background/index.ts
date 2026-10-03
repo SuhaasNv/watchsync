@@ -1,6 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
+import type { Emoji, JoinRoomRequest, Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -25,6 +25,7 @@ import {
   type Session,
   type TabEvent,
 } from "../shared/messages";
+import { RateWindow, REACTIONS_PER_5S } from "../shared/reactions";
 import {
   DEV_RELEASE_API,
   isUpdate,
@@ -225,6 +226,19 @@ function errorFor(status: number, data: unknown): string {
 
 function sendServer(msg: AnyClientMessage) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+}
+
+/** Our share of the room service's reaction limit, so a dropped one can say so (US-046). */
+const reactions = new RateWindow(REACTIONS_PER_5S, 5000);
+
+/** A reaction goes out now or not at all: never queued or retried after a drop (US-046). */
+function react(emoji: Emoji, count: number, from: chrome.runtime.Port) {
+  const msg = envelope<ClientMessageOf<"REACTION.SEND">>("REACTION.SEND", { emoji, count });
+  if (!isClientMessage(msg)) return;
+  const online = state.connection === "connected" && socket?.readyState === WebSocket.OPEN;
+  const reason = !online ? "offline" : reactions.allow() ? null : "limit";
+  if (reason) return from.postMessage({ kind: "reactionDropped", emoji, reason } satisfies Push);
+  sendServer(msg);
 }
 
 // Backoff 1, 2, 4, 8, then every 10 s with jitter: a friend back on Wi-Fi rejoins quickly
@@ -662,6 +676,7 @@ function admitChatFrame(port: chrome.runtime.Port) {
       if (m.kind === "close") toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
       if (m.kind === "chat")
         chat.onTabEvent(port, { kind: "chat", text: m.text, clientId: m.clientId, ...myTime() });
+      if (m.kind === "react") react(m.emoji, m.count, port);
     });
     ready.then(() => {
       port.postMessage({ kind: "state", state: shared() } satisfies Push);
@@ -721,6 +736,7 @@ chrome.runtime.onConnect.addListener((port) => {
         chat.onTabEvent(port, e);
         return changed();
       }
+      if (e.kind === "react") return react(e.emoji, e.count, port);
       const tabId = port.sender?.tab?.id;
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).
