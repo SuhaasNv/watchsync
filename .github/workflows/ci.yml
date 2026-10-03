@@ -33,13 +33,14 @@ jobs:
       - run: pnpm --filter @watchsync/extension build
 
   # The extension's browser tests are the slow part (about 14 minutes in one piece), so they run
-  # as six shards at once, each on its own runner with its own room service.
+  # as ten shards at once, each on its own runner with its own room service. Playwright shards
+  # by file, so a couple of shards can come out empty: that passes.
   e2e:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -55,11 +56,11 @@ jobs:
         with:
           path: apps/extension/.browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - name: Extension end-to-end (mock player), shard ${{ matrix.shard }} of 6
+      - name: Extension end-to-end (mock player), shard ${{ matrix.shard }} of 10
         working-directory: apps/extension
         run: |
           PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm exec playwright install --with-deps chromium
-          pnpm run e2e --shard=${{ matrix.shard }}/6
+          pnpm run e2e --shard=${{ matrix.shard }}/10 --pass-with-no-tests
       - name: Keep the end-to-end report when something fails
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
