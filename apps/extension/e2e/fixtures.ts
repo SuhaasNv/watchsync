@@ -65,11 +65,59 @@ async function serveMockPlayer(context: BrowserContext) {
             });
           </script>`
         : "";
+    // ?slow=ms: a player whose seeks land that many ms late, like a streaming player that has
+    // to buffer the new spot: it holds still at the new spot, then plays on and only then says
+    // "seeked". ?coarse=ms: a player that can only land on multiples of that many ms (HLS
+    // segments). The extension reads the page from its own JavaScript world, so a patched
+    // currentTime can't reach it; these work on the media events, which both worlds share.
+    // Seeks made from outside are counted on window.__seeks.
+    const slow = Number(url.searchParams.get("slow") ?? 0);
+    const coarse = Number(url.searchParams.get("coarse") ?? 0);
+    const seeking =
+      slow > 0 || coarse > 0
+        ? `<script>
+            const seekable = document.querySelector("video");
+            const step = ${coarse} / 1000;
+            let holding = false;
+            let mineUntil = 0;
+            window.__seeks = 0;
+            const hush = (e) => {
+              if (holding) e.stopImmediatePropagation();
+            };
+            for (const type of ["seeked", "pause", "play", "playing"])
+              window.addEventListener(type, hush, true);
+            window.addEventListener(
+              "seeking",
+              () => {
+                if (performance.now() < mineUntil) return;
+                window.__seeks += 1;
+                const wasPlaying = !seekable.paused;
+                if (step > 0) {
+                  mineUntil = performance.now() + 50;
+                  seekable.currentTime = Math.round(seekable.currentTime / step) * step;
+                }
+                if (${slow} > 0) {
+                  holding = true;
+                  seekable.pause();
+                  setTimeout(() => {
+                    const landed = () => {
+                      holding = false;
+                      seekable.dispatchEvent(new Event("seeked"));
+                    };
+                    if (wasPlaying) seekable.play().then(landed, landed);
+                    else landed();
+                  }, ${slow});
+                }
+              },
+              true,
+            );
+          </script>`
+        : "";
     return route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><title>Mock player</title><h1 data-title>${TITLES[id] ?? `Demo ${id}`}</h1>
         <div id="player"><video src="/clip.webm" width="640" height="360" muted autoplay controls></video></div>
-        <button onclick="document.getElementById('player').requestFullscreen()">Full screen</button>${next}${steal}`,
+        <button onclick="document.getElementById('player').requestFullscreen()">Full screen</button>${next}${steal}${seeking}`,
     });
   });
 }
