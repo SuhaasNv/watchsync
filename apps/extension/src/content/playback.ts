@@ -371,6 +371,10 @@ function startSettle(provider: StreamingProvider, view: RoomView, from: Playback
  */
 /** Within this, "Bring everyone here" leaves a player alone: about what anyone can notice. */
 const EXACT_SEC = 0.15;
+/** A paused room lines every player up on its frame within this: a pause lands late by a trip. */
+const PAUSED_SEC = 0.04;
+/** Resuming from a pause, a player this far off seeks (it is buffered there) rather than nudging. */
+const RESUME_SEC = 0.1;
 
 export async function apply(
   provider: StreamingProvider,
@@ -384,9 +388,14 @@ export async function apply(
   hold(ECHO_MS);
   endNudge(); // a room move starts from the room's rate; the nudge picks up again after it
   const target = expectedPosition(playback, serverNow);
+  const gap = Math.abs(local.position - target);
   const off = exact
-    ? Math.abs(local.position - target) > EXACT_SEC
-    : decide(local.position, target) !== "none";
+    ? gap > EXACT_SEC
+    : playback.status === "paused"
+      ? gap > PAUSED_SEC
+      : !local.playing
+        ? gap > RESUME_SEC
+        : decide(local.position, target) !== "none";
   if (off) {
     const playing = playback.status === "playing";
     const v = provider.video();
