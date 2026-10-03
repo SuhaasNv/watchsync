@@ -125,5 +125,6 @@ export function nudgeRate(drift: number, baseRate: number, nudging: boolean): nu
   if (gap > NUDGE_MAX_SEC) return null;
   if (gap < NUDGE_DONE_SEC || (!nudging && gap < NUDGE_MIN_SEC)) return baseRate;
   const delta = Math.min(NUDGE_MAX_DELTA, Math.max(NUDGE_MIN_DELTA, gap * NUDGE_GAIN)) * baseRate;
-  return Math.round((baseRate - Math.sign(drift) * delta) * 1000) / 1000;
+  // Whole 1% steps: every rate change can blip a streaming player's audio, so change it rarely.
+  return Math.round((baseRate - Math.sign(drift) * delta) * 100) / 100;
 }

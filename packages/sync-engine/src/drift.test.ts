@@ -125,7 +125,7 @@ describe("nudgeRate", () => {
   });
   it("waits for 40 ms to start and keeps going until within 20 ms", () => {
     expect(nudgeRate(0.03, 1, false)).toBe(1);
-    expect(nudgeRate(0.03, 1, true)).toBe(0.985);
+    expect(nudgeRate(0.03, 1, true)).toBe(0.99);
     expect(nudgeRate(0.01, 1, true)).toBe(1);
   });
   it("leaves more than 2 s to the seek", () => {
