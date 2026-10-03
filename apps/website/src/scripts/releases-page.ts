@@ -78,14 +78,15 @@ export function initReleases() {
     root.setAttribute("aria-busy", String(state === "loading"));
   };
 
-  // The dev site lists its rolling dev build first, then the published releases.
+  // The dev site lists its rolling dev build among the published releases, newest first by date.
   const devBuild = CHANNEL === "dev" ? fetchDevBuild().catch(() => null) : Promise.resolve(null);
   Promise.all([fetchReleases(), devBuild])
     .then(([releases, dev]) => {
       if (!releases.length && !dev) return show("empty");
-      const cards = releases.map((r, i) => card(r, i === 0));
-      if (dev) cards.unshift(card(dev, false, true));
-      list.replaceChildren(...cards);
+      const items = releases.map((r, i) => ({ date: r.date, el: card(r, i === 0) }));
+      if (dev) items.push({ date: dev.date, el: card(dev, false, true) });
+      items.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+      list.replaceChildren(...items.map((item) => item.el));
       show("list");
       // The build-time changelog is only a fallback for when GitHub has nothing to show.
       const changelog = document.querySelector<HTMLElement>("[data-changelog]");
