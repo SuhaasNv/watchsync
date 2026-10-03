@@ -347,6 +347,7 @@ textarea:disabled {
   50% {
     opacity: 0.4;
   }
+}
 /* Room notices in the feed (US-113): plain secondary lines, set apart from chat rows. */
 .activity {
   margin: 4px 8px;
