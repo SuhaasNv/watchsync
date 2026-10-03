@@ -431,9 +431,22 @@ function OpenTitle({ state, me }: { state: AppState; me: string }) {
   );
 }
 
+/** The chat shortcut as set at chrome://extensions/shortcuts; null when there is none. */
+function useChatShortcut() {
+  const [shortcut, setShortcut] = useState<string | null>(null);
+  useEffect(() => {
+    chrome.commands
+      .getAll()
+      .then((all) => setShortcut(all.find((c) => c.name === "toggle-sidebar")?.shortcut || null))
+      .catch(() => setShortcut(null)); // no shortcut to show; the pill still opens chat
+  }, []);
+  return shortcut;
+}
+
 function RoomScreen({ state }: { state: AppState }) {
   const copy = useFocusOnShow<HTMLButtonElement>();
   const [copied, setCopied] = useState("");
+  const shortcut = useChatShortcut();
   const s = state.session;
   if (!s) return null;
   // Alone, inviting is the next step; once others are here, the room is about them (BUG-016).
@@ -516,6 +529,7 @@ function RoomScreen({ state }: { state: AppState }) {
           {people}
         </section>
         <OpenTitle state={state} me={s.participantId} />
+        {shortcut && <p className="hint">Open chat on the player with {shortcut}</p>}
         <span className="grow" />
         {!alone && (
           <div className="invite">
