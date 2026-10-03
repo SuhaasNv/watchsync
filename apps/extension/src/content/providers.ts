@@ -26,6 +26,8 @@ export interface StreamingProvider {
   stalled(): boolean;
   /** An ad is showing; `left` is the seconds remaining when the page shows it. */
   ad(): { left: number | null } | null;
+  /** Drift in seconds the ongoing sync check ignores for this player (default 0.25). */
+  driftToleranceSec?: number;
 }
 
 /** "Ad 0:20", "Ad · 1:05 left", "1:05:00" → seconds; null when there's no time on the page. */
@@ -307,6 +309,8 @@ function netflixProvider(): StreamingProvider {
   });
   return {
     ...base,
+    // Netflix's player seeks to the millisecond.
+    driftToleranceSec: 0.15,
     play: async () => {
       if (!(await netflixCommand("play"))) await base.play();
     },
@@ -349,6 +353,7 @@ function serviceProvider(host: string): StreamingProvider | null {
     const media = () => primeMedia(new URL(location.href), document, open());
     return {
       ...videoProvider("prime", media),
+      driftToleranceSec: 0.25,
       video: () => longestVideo(),
       getState: () => stateOf(longestVideo()),
       // Prime's player cancels video.play() (AbortError); its own space shortcut, sent to
@@ -378,6 +383,8 @@ function serviceProvider(host: string): StreamingProvider | null {
     const base = videoProvider("jiohotstar", () => hotstarMedia(new URL(location.href), document));
     return {
       ...base,
+      // Hotstar's HLS player may only land on segment boundaries: don't re-seek below this.
+      driftToleranceSec: 0.5,
       video: () => longestVideo(),
       getState: () => stateOf(longestVideo()),
       play: async () => {

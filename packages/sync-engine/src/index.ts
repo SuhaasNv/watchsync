@@ -52,3 +52,5 @@ export function clockSample(t1: number, serverTime: number, t4: number): ClockSa
 export function bestSample(samples: ClockSample[]): ClockSample | null {
   return samples.reduce<ClockSample | null>((b, s) => (b === null || s.rtt < b.rtt ? s : b), null);
 }
+
+export * from "./drift";
