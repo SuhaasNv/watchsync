@@ -43,11 +43,33 @@ async function serveMockPlayer(context: BrowserContext) {
     const id = url.pathname.match(/^\/watch\/([\w-]+)$/)?.[1];
     if (!id) return route.fulfill({ status: 404, body: "not found" });
     const next = id === "ep1" ? `<a href="/watch/ep2">Next episode</a>` : "";
+    // ?steal=1: a player that grabs focus every 800 ms and toggles play on Space, k and Enter,
+    // like the real ones do (BUG-073). Pauses are counted on window.__pauses. (Slower than
+    // that, a page that took focus every 150 ms is one the panel gives up on after 5 times in
+    // 3 s, and the hint then stays: the panel only fights a thief it can win against.)
+    const steal =
+      url.searchParams.get("steal") === "1"
+        ? `<script>
+            const player = document.getElementById("player");
+            const video = document.querySelector("video");
+            window.__pauses = 0;
+            video.addEventListener("pause", () => { window.__pauses += 1; });
+            const toggle = () => (video.paused ? video.play() : video.pause());
+            player.tabIndex = -1;
+            setInterval(() => player.focus(), 800);
+            document.addEventListener("keydown", (e) => {
+              if (e.code === "Space" || e.key === "k" || e.key === "Enter") toggle();
+            });
+            document.addEventListener("keyup", (e) => {
+              if (e.key === "Enter") toggle();
+            });
+          </script>`
+        : "";
     return route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><title>Mock player</title><h1 data-title>${TITLES[id] ?? `Demo ${id}`}</h1>
         <div id="player"><video src="/clip.webm" width="640" height="360" muted autoplay controls></video></div>
-        <button onclick="document.getElementById('player').requestFullscreen()">Full screen</button>${next}`,
+        <button onclick="document.getElementById('player').requestFullscreen()">Full screen</button>${next}${steal}`,
     });
   });
 }

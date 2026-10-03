@@ -65,6 +65,42 @@ test("two people chat both ways with movie times; text is inert; typing never pl
   }
 });
 
+test("a page that grabs focus mid-message can't pause the video or eat the typing", async ({
+  ext,
+}) => {
+  const { hostTab, friend } = await room(ext);
+  try {
+    // A player that takes focus every 800 ms and toggles play on Space, k and Enter.
+    await hostTab.goto(`${MOCK}/watch/ep1?steal=1`);
+    await expect.poll(() => playing(hostTab)).toBe(true);
+    await hostTab.waitForTimeout(3200); // past the arrival window (BUG-004)
+    const pauses = () => hostTab.evaluate(() => Reflect.get(window, "__pauses"));
+
+    await chatButton(hostTab).click();
+    await expect(box(hostTab)).toBeEnabled();
+    // Slow enough that the steals land mid-sentence; k and spaces are the player's hotkeys.
+    const text = "hello world, ok keep talking, k k k";
+    await box(hostTab).pressSequentially(text, { delay: 40 });
+    await expect(box(hostTab)).toHaveValue(text);
+    expect(await pauses()).toBe(0);
+    expect(await playing(hostTab)).toBe(true);
+
+    // No "Typing paused" left over a second later.
+    await hostTab.waitForTimeout(1000);
+    await expect(frame(hostTab).locator("#hint")).toBeHidden();
+
+    // Enter sends once, and its key up (a player toggles on that too) doesn't stop the video.
+    await box(hostTab).press("Enter", { delay: 300 });
+    await expect(log(hostTab).getByText(text, { exact: true })).toHaveCount(1);
+    await hostTab.waitForTimeout(700);
+    expect(await pauses()).toBe(0);
+    expect(await playing(hostTab)).toBe(true);
+    await expect(log(hostTab).getByText(text, { exact: true })).toHaveCount(1);
+  } finally {
+    await friend.context.close();
+  }
+});
+
 test("the new messages chip: none at the bottom, a count when scrolled up, click goes down", async ({
   ext,
 }) => {
