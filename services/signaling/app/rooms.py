@@ -7,6 +7,7 @@ import json
 import re
 import secrets
 import time
+import unicodedata
 from collections import deque
 from collections.abc import Collection
 from dataclasses import dataclass, field
@@ -34,10 +35,34 @@ TITLE_PAGES = {
 }
 
 
+# Characters that can make a title read as something else: bidi controls and the BOM. Control
+# characters and line or paragraph separators go too. Zero-width joiners stay: scripts and
+# emoji need them.
+_TITLE_DROP = frozenset(
+    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\ufeff"
+)
+
+
+def clean_title(name: str | None) -> str | None:
+    """A title name without control or direction-changing characters; None when nothing is left."""
+    if name is None:
+        return None
+    kept = "".join(
+        c
+        for c in name
+        if c not in _TITLE_DROP and unicodedata.category(c) not in ("Cc", "Zl", "Zp")
+    ).strip()
+    return kept or None
+
+
 def safe_media(media: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The media with its titleUrl dropped unless it is a title page of its own service. The
-    title itself still counts (sync works); only the link others would open is refused."""
-    if media is None or media["titleUrl"] is None:
+    """The media with a clean title name, and its titleUrl dropped unless it is a title page of
+    its own service. The title itself still counts (sync works); only the link others would
+    open is refused."""
+    if media is None:
+        return media
+    media = {**media, "titleName": clean_title(media.get("titleName"))}
+    if media["titleUrl"] is None:
         return media
     page = TITLE_PAGES.get(media["service"])
     if page is not None and page.fullmatch(media["titleUrl"]):

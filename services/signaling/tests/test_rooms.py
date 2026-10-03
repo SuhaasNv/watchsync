@@ -1395,3 +1395,16 @@ def test_moving_to_another_title_cancels_a_start_together() -> None:
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)
+
+
+def test_title_names_lose_control_and_direction_characters() -> None:
+    from app.rooms import clean_title, safe_media
+
+    assert clean_title("Dune‮, E1") == "Dune, E1"  # right-to-left override
+    assert clean_title("A⁦B⁩﻿C\x07 D") == "ABCD"
+    assert clean_title("‮‏ ") is None  # nothing visible left
+    assert clean_title(None) is None
+    assert clean_title("Zoë 👩‍👩 مسلسل") == "Zoë 👩‍👩 مسلسل"
+    media = {"service": "netflix", "titleId": "1", "titleName": "X‮Y", "titleUrl": None}
+    cleaned = safe_media(media)
+    assert cleaned is not None and cleaned["titleName"] == "XY"
