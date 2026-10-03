@@ -1,12 +1,68 @@
 // Content script on supported service pages: reports what this tab has open and
 // keeps it on the room's title.
-import type { Media } from "@watchsync/protocol";
+import type { Media, Playback } from "@watchsync/protocol";
 import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
-import { type AppState, type Push, SERVICE_LABEL, send, type TabEvent } from "../shared/messages";
+import {
+  closedText,
+  jumpedText,
+  leftText,
+  movedText,
+  NOTICES_KEY,
+  noticesOn,
+  playedText,
+  rejoinedText,
+} from "../shared/activity";
+import {
+  type AppState,
+  type Push,
+  SERVICE_LABEL,
+  send,
+  type TabEvent,
+  UNREACHABLE,
+} from "../shared/messages";
 import { align } from "./align";
-import { clearPrompt, notice, prompt, renderPill, retireOverlay, toast } from "./overlay";
-import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
+import {
+  CHAT_OFF,
+  chatButton,
+  clearPrompt,
+  focusedControl,
+  notice,
+  noticesBesideSidebar,
+  prompt,
+  renderPill,
+  retireOverlay,
+  setChatBadge,
+  toast,
+} from "./overlay";
+import {
+  apply,
+  clock,
+  coalesce,
+  hold,
+  isEcho,
+  listen,
+  seekQuietly,
+  watchSeeking,
+} from "./playback";
 import { providerFor } from "./providers";
+import { reactionsBesideChat, retireReactions, showReaction, showReactions } from "./reactions";
+import {
+  chatFrameLost,
+  chatFrameReady,
+  chatTyping,
+  closeSidebar,
+  focusFallback,
+  isChatOff,
+  isSidebarOpen,
+  onChatOff,
+  onChatType,
+  onSidebarChange,
+  openSidebar,
+  renewFrame,
+  retireSidebar,
+  showSidebar,
+  toggleSidebar,
+} from "./sidebar";
 
 const provider = providerFor(location.host);
 
@@ -20,6 +76,44 @@ let roomMedia: Media | null = null;
 let dismissed: string | null = null;
 /** Who last moved the room's clock, so drift can say whose position it is. */
 let lastActor: { id: string; name: string } | null = null;
+/** One person's play, pause and jump messages that arrive close together (a service's skip). */
+const BURST_MS = 1500;
+let burst: { id: string; at: number; from: number; told: boolean } | null = null;
+/** A play or pause notice waits this long, so a skip right after it can replace it. */
+const NOTICE_WAIT_MS = 900;
+let pendingNotice: ReturnType<typeof setTimeout> | undefined;
+/**
+ * The room's clock before its latest change. The background updates its copy first, so the
+ * state push for a PLAYBACK.STATE arrives before the message itself: by then `room.playback`
+ * is already the new clock, and this is the one it replaced.
+ */
+let clockBefore: Playback | null = null;
+
+/** No jump or play/pause notice is owed once the room is gone or this copy is retired. */
+function forgetNotices() {
+  clearTimeout(pendingNotice);
+  pendingNotice = undefined;
+  burst = null;
+}
+
+/** Room notices on the page (US-114); prompts that need an answer ignore this. */
+let roomNotices = true;
+chrome.storage.local
+  .get(NOTICES_KEY)
+  .then((got) => {
+    roomNotices = noticesOn(got[NOTICES_KEY]);
+  })
+  .catch(() => {});
+function onSetting(changes: Record<string, chrome.storage.StorageChange>, area: string) {
+  const change = changes[NOTICES_KEY];
+  if (area === "local" && change) roomNotices = noticesOn(change.newValue);
+}
+chrome.storage.onChanged.addListener(onSetting);
+
+/** A room notice: play, pause, jumps, people coming and going, title moves. */
+function roomNotice(...args: Parameters<typeof toast>) {
+  if (roomNotices) toast(...args);
+}
 
 function post(event: TabEvent) {
   port?.postMessage(event);
@@ -93,7 +187,7 @@ function reconcile(roomBefore: Media | null) {
   }
   if (step.kind === "follow") {
     const who = whoIsOn(media);
-    toast(`Moving to ${title} with ${who}`, 4000, { who: friendOn(media), icon: "title" });
+    roomNotice(`Moving to ${title} with ${who}`, 4000, { who: friendOn(media), icon: "title" });
     // The page load wipes that notice before anyone can read it: the next page says it.
     const arrival: Arrival = { titleId: media.titleId, title, who, at: Date.now() };
     chrome.storage.local
@@ -142,15 +236,13 @@ function sayArrival() {
       void chrome.storage.local.remove("arrival");
       if (!isArrival(arrival) || arrival.titleId !== mine?.titleId) return;
       if (Date.now() - arrival.at > 15_000) return; // a load that never finished: stale
-      toast(`Moved to ${arrival.title} with ${arrival.who}`, 5000, {
+      roomNotice(`Moved to ${arrival.title} with ${arrival.who}`, 5000, {
         who: arrival.who,
         icon: "title",
       });
     })
     .catch(() => {});
 }
-
-const NOTICE = { play: "pressed play", pause: "paused", sync: "synced everyone" } as const;
 
 function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "PLAYBACK.STATE") {
@@ -162,6 +254,12 @@ function onPush(m: Push) {
     if (holdReason) return; // my own buffering or ad; I catch up when it ends
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
     const before = provider.getState()?.position ?? 0;
+    // Judge a jump from where the room was, not from this player: one that is buffering or
+    // sitting in the "Stay here" range would see a plain pause or play as a skip. Only when
+    // the room had no clock for this title does this player's own position stand in.
+    const prev = room.playback?.updatedAt === playback.updatedAt ? clockBefore : room.playback;
+    const was =
+      prev && prev.titleId === playback.titleId ? expectedPosition(prev, serverNow) : before;
     apply(provider, playback, serverNow, action === "sync").catch((e: unknown) =>
       toast(e instanceof Error ? e.message : "We couldn't control the player here.", 6000, {
         icon: "alert",
@@ -172,15 +270,35 @@ function onPush(m: Push) {
     if (holder && action === "pause") return; // the wait card explains it (drawWait)
     if (action === "play" && waitShownAt) return; // drawWait says "Back together"
     if (byId === room.session?.participantId) return; // never a notice about myself (BUG-022)
-    if (action !== "seek")
-      return toast(`${byName} ${NOTICE[action]}`, 3000, { who: byName, icon: action });
+    // A skip on Netflix arrives as a burst (pause, jump, play) and the first message can
+    // already carry the new spot. Judge the jump from where the room was when the burst
+    // began, say it once, and drop the burst's play and pause notices.
+    const now = Date.now();
+    if (!burst || burst.id !== byId || now - burst.at > BURST_MS)
+      burst = { id: byId, at: now, from: was, told: false };
+    burst.at = now;
     const to = expectedPosition(playback, serverNow);
-    if (Math.abs(to - before) < 1) return; // already there; nothing visibly moved
-    const ahead = to > before;
-    toast(`${byName} ${ahead ? "skipped ahead" : "went back"} to ${clock(to)}`, 4000, {
-      who: byName,
-      icon: ahead ? "ahead" : "back",
-    });
+    if (Math.abs(to - burst.from) >= 1) {
+      clearTimeout(pendingNotice); // the jump says it all
+      if (burst.told) return;
+      burst.told = true;
+      const ahead = to > burst.from;
+      return roomNotice(jumpedText(byName, ahead, to), 4000, {
+        who: byName,
+        icon: ahead ? "ahead" : "back",
+      });
+    }
+    if (action === "seek") return; // already there; nothing visibly moved
+    clearTimeout(pendingNotice);
+    pendingNotice = setTimeout(
+      () => roomNotice(playedText(byName, action), 3000, { who: byName, icon: action }),
+      NOTICE_WAIT_MS,
+    );
+    return;
+  }
+  if (m.kind === "server" && m.message.type === "REACTION.SHOW") {
+    const r = m.message.payload;
+    showReaction({ ...r, mine: r.fromId === room?.session?.participantId });
     return;
   }
   if (m.kind === "server" && m.message.type === "START.STATE") {
@@ -195,7 +313,7 @@ function onPush(m: Push) {
     else if (room?.session && !room.following && mine) {
       // Watching on my own: the room's move doesn't take me along, but I should know.
       const title = nameOf(media) ?? "a title";
-      toast(how === "next" ? `${byName} moved on to ${title}` : `${byName} opened ${title}`, 6000, {
+      roomNotice(movedText(byName, how, title), 6000, {
         who: byName,
         icon: "title",
         detail: "You're watching on your own, so you stay here.",
@@ -206,20 +324,43 @@ function onPush(m: Push) {
   if (m.kind === "server" && m.message.type === "ROOM.PARTICIPANT") {
     const { participant, event } = m.message.payload;
     if (event === "left")
-      toast(`${participant.name} left`, 4000, { who: participant.name, icon: "leave" });
+      roomNotice(leftText(participant.name), 4000, { who: participant.name, icon: "leave" });
     if (event === "rejoined")
-      toast(`${participant.name} rejoined`, 4000, { who: participant.name, icon: "rejoin" });
+      roomNotice(rejoinedText(participant.name), 4000, { who: participant.name, icon: "rejoin" });
     return;
   }
   if (m.kind === "report") {
     if (mine) reportPresence();
     return;
   }
+  if (m.kind === "toggleSidebar") {
+    // Focus on a pill button is hidden in the overlay's shadow root: hand it over.
+    toggleSidebar(focusedControl() ?? undefined);
+    return;
+  }
+  if (m.kind === "openSidebar") return openSidebar(); // the popup's Open chat
+  if (m.kind === "closeSidebar") return closeSidebar(); // Esc or close inside the chat frame
+  if (m.kind === "chatTyping") return chatTyping(m.on);
+  if (m.kind === "chatFrameReady") return chatFrameReady(m.frame);
+  if (m.kind === "chatFrameLost") return chatFrameLost(m.frame);
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
+  if (m.state.playback?.updatedAt !== room?.playback?.updatedAt)
+    clockBefore = room?.playback ?? null;
   room = m.state;
+  if (!room.session) {
+    // Left or ended: a move still waiting to be sent, or a notice still waiting to show,
+    // belongs to a room that is gone.
+    userMoves.cancel();
+    forgetNotices();
+  }
+  showSidebar(room.session !== null && room.connection !== "idle");
+  // Unread on the chat button (US-044); while chat is open, everything in it is seen.
+  if (isSidebarOpen() && room.unread > 0) post({ kind: "chatOpened" });
+  else setChatBadge(room.unread);
+  showReactions(room.session !== null && room.connection !== "idle");
   showConnection();
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
@@ -252,7 +393,7 @@ function noticeClosedShows(before: AppState | null, after: AppState) {
   for (const p of after.participants) {
     const was = before.participants.find((x) => x.id === p.id);
     if (p.id !== me && p.connected && was?.titleId === roomTitle && p.titleId === null)
-      toast(`${p.name} closed the show`, 4000, { who: p.name, icon: "leave" });
+      roomNotice(closedText(p.name), 4000, { who: p.name, icon: "leave" });
   }
 }
 
@@ -267,15 +408,27 @@ let nextCorrection = 0;
 /** Since when this player has been playing while the room is paused, or the reverse. */
 let playStateSince = 0;
 
-let lost = false;
+/** The line shown while the room connection is down, or null while it's up. */
+let lost: string | null = null;
 
-/** A calm line while the room connection is down, and one when it's back (no positions). */
+/**
+ * A calm line while the room connection is down, and one when it's back (no positions).
+ * The line changes only when its words do, so a screen reader hears it once, not per retry.
+ */
 function showConnection() {
   const down = Boolean(room?.session) && room?.connection === "reconnecting";
-  if (down === lost) return;
-  lost = down;
-  if (down)
-    return notice("connection", "Connection lost. Reconnecting…", { icon: "sync", tone: "warn" });
+  const line = !down
+    ? null
+    : room?.updating
+      ? "WatchSync is updating, back in a moment" // the service is restarting (US-121)
+      : room?.unreachable
+        ? UNREACHABLE // 2 minutes and still down: retries go on every 10 s
+        : "Connection lost. Reconnecting…";
+  if (line === lost) return;
+  lost = line;
+  const tryNow = { label: "Try now", run: () => void send({ kind: "retryNow" }) };
+  const actions = line === UNREACHABLE ? [tryNow] : [];
+  if (line) return notice("connection", line, { icon: "sync", tone: "warn" }, actions);
   notice("connection", null);
   if (room?.session && room.connection === "connected")
     toast("Back with the room", 3000, { icon: "check", tone: "ok" });
@@ -345,9 +498,27 @@ function drawPill() {
         : null,
     playing: provider?.getState()?.playing === true,
     onPause: pauseTogether,
-    onSyncAll: syncEveryone,
+    onSyncAll: behind === null ? null : syncEveryone, // only when I'm out of step
+    onChat: (from) => toggleSidebar(from),
+    chatOpen: isSidebarOpen(),
+    chatOff: isChatOff(),
   });
 }
+// Keys the page got while it held focus from the message box go on to the chat frame (BUG-073).
+onChatType((text) => post({ kind: "chatType", text }));
+onSidebarChange((open) => {
+  drawPill();
+  noticesBesideSidebar(open);
+  if (open) post({ kind: "chatOpened" }); // the unread count clears in every tab
+  reactionsBesideChat(open);
+});
+// Fail closed: the page kept pointing the chat frame elsewhere (DEC-042).
+onChatOff(() => {
+  drawPill();
+  toast(CHAT_OFF, 8000, { icon: "alert", tone: "bad" });
+});
+// The control that opened chat can be gone by the time it closes: the pill's chat button.
+focusFallback(chatButton);
 
 /** Everyone jumps to exactly where I am, without pausing or counting down (owner, 2 Oct). */
 function syncEveryone() {
@@ -361,11 +532,11 @@ function syncEveryone() {
     rate: st.rate,
     titleId: mine.titleId,
   });
-  toast("Everyone is synced to you", 2500, { icon: "sync", tone: "ok" });
+  toast("Everyone is here with you", 2500, { icon: "sync", tone: "ok" });
 }
 
 /**
- * The pill's Pause together is always the person's own action. Sent to the room directly:
+ * The pill's Pause everyone is always the person's own action. Sent to the room directly:
  * a pause in the first seconds after a page load would otherwise read as autoplay noise
  * (BUG-004) and the room would start the video again.
  */
@@ -380,6 +551,9 @@ function pauseTogether() {
     rate: st.rate,
     titleId: mine.titleId,
   });
+  // The pause event this causes isn't a second action: held back 120 ms like a person's
+  // pause, it would reach the room after a quick Start with 3-2-1 and cancel it.
+  hold(500);
   provider.pause().catch(() => {});
 }
 // Media events don't bubble; catch them on the way down so the pill flips Start/Pause.
@@ -600,7 +774,7 @@ function goOn() {
   waitKey = "";
 }
 
-// ---- Start together (US-105) ----
+// ---- Start with 3-2-1 (US-105) ----
 
 let startPhase: "preparing" | "go" | null = null;
 let readySent = false;
@@ -718,6 +892,8 @@ function connect() {
     port = null;
     setTimeout(connect, 1000);
   });
+  // A restarted worker dropped the chat frame's connection too: give it a new pass.
+  renewFrame();
   // Only a title is news. A page still reading its title (or a browse page in another
   // tab) would otherwise say "nothing open" over the tab that is watching: a reload
   // looked like closing the show. A tab that closes is reported by the background.
@@ -730,11 +906,45 @@ function connect() {
     }, 5000);
 }
 
+/** Back to this tab while the room connection is down: try again now, not at the next retry. */
+function wake() {
+  if (document.visibilityState === "visible" && room?.connection === "reconnecting")
+    post({ kind: "retryNow" });
+}
+
+/**
+ * The person's own plays, pauses and jumps. A service's skip fires pause, seeking, seeked and
+ * play within about 80 ms; the room hears one message with where the person ended up, not
+ * three that its "crossed" echo could undo, and holding an arrow key stays under the rate limit.
+ * (The pill's buttons post directly and don't come through here.)
+ */
+const userMoves = coalesce((move) => {
+  if (holdReason || !room?.session || !room.following || !mine) return;
+  post({
+    kind: "playback",
+    action: move.action,
+    status: move.playing ? "playing" : "paused",
+    position: move.position,
+    rate: move.rate,
+    titleId: mine.titleId,
+  });
+});
+
 const timers: ReturnType<typeof setInterval>[] = [];
+/** Player listeners added once for the provider's video, removed in retire(). */
+const stops: (() => void)[] = [];
 
 function retire() {
   for (const t of timers) clearInterval(t);
+  for (const stop of stops) stop();
+  userMoves.cancel();
+  forgetNotices();
+  document.removeEventListener("visibilitychange", wake);
+  window.removeEventListener("focus", wake);
+  chrome.storage.onChanged.removeListener(onSetting);
   retireOverlay();
+  retireSidebar();
+  retireReactions();
 }
 
 /** When this tab's title went missing; 0 while it has one. */
@@ -758,6 +968,7 @@ function poll() {
   mine = now;
   reportPresence();
   if (!titleChanged) return;
+  userMoves.cancel(); // a move from the old title must not carry the new one's id
   if (mine) sayArrival();
   // A page load autoplays from the start; that isn't the person pressing play, and it
   // mustn't pull the room back (BUG-004). Catch-up takes the room's position instead.
@@ -775,15 +986,31 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 if (provider) {
   poll(); // read the title first so the first report isn't "nothing open"
   connect();
-  listen(provider, (action, playing, position, rate) => {
-    const status = playing ? "playing" : "paused";
-    if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions
-    if (room?.session && room.following && mine)
-      post({ kind: "playback", action, status, position, rate, titleId: mine.titleId });
-  });
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("focus", wake);
+  // A skip into a spot the player has to load: the seek's target is the last good position,
+  // not the one before it, or a stall that follows would pause the room back there. An ad's
+  // own seeks aren't the film's position.
+  stops.push(
+    watchSeeking(provider, (position) => {
+      if (holdReason === "ad" || provider.ad()) return;
+      lastGood = position;
+    }),
+  );
+  stops.push(
+    listen(provider, (action, playing, position, rate) => {
+      if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions
+      if (room?.session && room.following && mine)
+        userMoves.push({ action, playing, position, rate });
+    }),
+  );
   timers.push(
     setInterval(poll, 1000),
-    setInterval(checkDrift, 1000),
+    // Not while a move of mine is still waiting to be sent: the room's clock is the old one
+    // until it goes, and drift correction would undo the skip.
+    setInterval(() => {
+      if (!userMoves.pending()) checkDrift();
+    }, 1000),
     setInterval(() => {
       checkHold();
       drawWait();

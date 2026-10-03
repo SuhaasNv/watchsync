@@ -4,8 +4,14 @@ import asyncio
 import contextlib
 import ipaddress
 import json
+import logging
+import os
 import re
+import secrets
+import signal
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
+from types import FrameType
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
@@ -14,9 +20,52 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, join_page
-from .protocol import is_client_message, is_create_request, is_join_request, message, now_ms
+from .protocol import (
+    is_chat_text,
+    is_client_message,
+    is_create_request,
+    is_join_request,
+    is_name,
+    is_reserved_name,
+    is_server_message,
+    message,
+    now_ms,
+)
 from .ratelimit import Limiter
 from .rooms import Participant, Room, RoomError, rooms, safe_media
+
+
+class NoFrameLogs(logging.Filter):
+    """The WebSocket library logs every frame at DEBUG through uvicorn's logger, and a frame
+    carries chat text, which is never logged at any level (DEC-032). Its debug lines never
+    pass, whatever level the server runs at; its connection lines (INFO and up) still do."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno > logging.DEBUG or f"{os.sep}websockets{os.sep}" not in (
+            record.pathname
+        )
+
+
+class NoTokens(logging.Filter):
+    """Room tokens ride in the WebSocket URL, which uvicorn logs on connect (and the access
+    log, if on, on every request). Never log a token at any level (CLAUDE.md §6)."""
+
+    TOKEN = re.compile(r"(token=)[^&\s\"']*")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = self.TOKEN.sub(r"\1[redacted]", record.msg)
+        if isinstance(record.args, tuple):  # keep the shape: uvicorn's formatters unpack it
+            record.args = tuple(
+                self.TOKEN.sub(r"\1[redacted]", a) if isinstance(a, str) else a for a in record.args
+            )
+        return True
+
+
+logging.getLogger("uvicorn.error").addFilter(NoFrameLogs())
+for name in ("uvicorn.error", "uvicorn.access"):
+    logging.getLogger(name).addFilter(NoTokens())
+logging.getLogger("websockets").setLevel(logging.INFO)  # the library's own loggers too
 
 
 @contextlib.asynccontextmanager
@@ -29,12 +78,59 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await asyncio.sleep(60)
             rooms.sweep()
             limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
-            for limiter in (*limiters, failed_join_limiter):
+            chats = (chat_limiter, room_chat_limiter, reaction_limiter)
+            for limiter in (*limiters, failed_join_limiter, *chats):
                 limiter.prune()
 
     task = asyncio.create_task(sweeper())
+    put_back = close_first_on_sigterm()
     yield
+    put_back()
     task.cancel()
+    await close_for_restart()  # anything still open as the app stops (US-121)
+
+
+def close_first_on_sigterm() -> Callable[[], None]:
+    """A deploy stops the service with SIGTERM. Uvicorn answers it by closing every WebSocket
+    with 1012 before the app's own shutdown runs, so close them with RESTARTING first, then
+    hand the signal on. Returns what puts the previous handler back."""
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None  # signals reach only the main thread (tests run the app elsewhere)
+    loop = asyncio.get_running_loop()
+    previous = signal.getsignal(signal.SIGTERM)
+    tasks: set[asyncio.Task[None]] = set()
+
+    async def close_then_exit(sig: int, frame: FrameType | None) -> None:
+        await close_for_restart()
+        if callable(previous):
+            previous(sig, frame)
+        else:  # no handler before ours: the default, end the process
+            put_back()
+            signal.raise_signal(signal.SIGTERM)
+
+    def start() -> None:
+        tasks.add(loop.create_task(close_then_exit(signal.SIGTERM, None)))
+
+    def on_sigterm(_sig: int, _frame: FrameType | None) -> None:
+        loop.call_soon_threadsafe(start)
+
+    def put_back() -> None:
+        signal.signal(signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+
+    signal.signal(signal.SIGTERM, on_sigterm)
+    return put_back
+
+
+async def close_for_restart() -> None:
+    """Tell every open connection the service is restarting, so the extension says so and
+    comes straight back instead of backing off (US-121)."""
+
+    async def close(ws: WebSocket) -> None:
+        with contextlib.suppress(Exception):
+            await ws.close(code=RESTARTING)
+
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(asyncio.gather(*(close(ws) for ws in list(sockets.values()))), 2)
 
 
 # No public API docs in production (security audit F2).
@@ -52,12 +148,21 @@ join_limiter = Limiter(config.JOIN_PER_MINUTE, 60)
 message_limiter = Limiter(config.MESSAGES_PER_10S, 10)
 connect_limiter = Limiter(config.CONNECTS_PER_MINUTE, 60)
 failed_join_limiter = Limiter(config.FAILED_JOINS_PER_MINUTE, 60)
+# Per participant, not per connection: reconnecting doesn't buy a fresh budget (US-043).
+chat_limiter = Limiter(config.CHAT_PER_5S, 5)
+# Per room, everyone together (keyed by room code).
+room_chat_limiter = Limiter(config.CHAT_ROOM_PER_10S, 10)
+reaction_limiter = Limiter(config.REACTIONS_PER_5S, 5)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
-# newer connection of the same person (stop), anything else = network trouble (reconnect).
+# newer connection of the same person (stop), 4002 = restarting (reconnect fast), anything
+# else = network trouble (reconnect).
 REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
+RESTARTING = 4002  # the service is restarting (a deploy); the extension retries within seconds
+# After a room comes back, how long its people's ROOM.RESTOREs are weighed (newest wins).
+RESTORE_SETTLE_MS = 10_000
 FLOOD_LIMIT = 100
 ERROR_STATUS = {
     "not_found": 404,
@@ -70,6 +175,8 @@ ERROR_STATUS = {
 # up to a poll later; a pause this recent from the same person was the ad's.
 AD_PAUSE_MS = 2000
 sockets: dict[str, WebSocket] = {}
+# Open WebSockets per client address (WS_PER_IP).
+open_sockets: dict[str, int] = {}
 # Per participant id: the pending "left" for someone whose connection closed.
 away: dict[str, asyncio.Task[None]] = {}
 
@@ -130,8 +237,12 @@ async def read_body(request: Request, valid: Callable[[Any], bool]) -> dict[str,
 
 
 def name_in(body: dict[str, Any]) -> str:
-    name: str = body["name"].strip()
-    return name or "Guest"
+    raw: str = body["name"]
+    if is_reserved_name(raw):
+        raise HTTPException(422, "Choose another name.")
+    if not is_name(raw):  # the schema's pattern, read over the whole name as browsers do
+        raise HTTPException(422, "A name of 1 to 30 characters is required.")
+    return raw.strip() or "Guest"
 
 
 def reject_constant(name: str) -> None:
@@ -373,6 +484,101 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await start_progress(room)
     elif msg["type"] == "START.FORCE" and room.start is not None:
         await start_go(room)
+    elif msg["type"] == "ROOM.RESTORE":
+        await restore_room(room, payload["media"], payload["playback"], payload["knownAt"])
+    elif msg["type"] == "CHAT.SEND":
+        await chat_send(room, p, payload)
+    elif msg["type"] == "REACTION.SEND":
+        # Members only; over the limit the extras are dropped silently (US-046). Never stored.
+        if room.participants.get(p.id) is p and reaction_limiter.allow(p.id):
+            shown = {"fromId": p.id, "name": p.name, "emoji": payload["emoji"]}
+            await broadcast(room, "REACTION.SHOW", shown | {"count": payload["count"]})
+
+
+async def restore_room(
+    room: Room, media: dict[str, Any] | None, playback: dict[str, Any] | None, known_at: float
+) -> None:
+    """People back in a room brought back after a restart say what it was watching and
+    where (US-120). For the first RESTORE_SETTLE_MS, the most recent knowledge wins (the old
+    server's time of the clock each knew), so a friend who was offline and comes back first
+    can't rewind everyone; never over a change someone made here since. Everyone gets the
+    room afresh and their drift check brings them together."""
+    if room.restored_at is None or now_ms() - room.restored_at > RESTORE_SETTLE_MS:
+        return
+    if room.playback is not None and room.playback is not room.restored_playback:
+        return  # someone played, paused or jumped here already: that is the room's clock now
+    if room.restore_known_at is not None and known_at <= room.restore_known_at:
+        return
+    room.restore_known_at = known_at
+    if media is not None:
+        room.media = safe_media(media)
+    if playback is not None:
+        room.playback = {**playback, "updatedAt": now_ms()}
+        room.restored_playback = room.playback
+    for x in list(room.participants.values()):
+        if x.connected:
+            await send(x, "ROOM.STATE", room.snapshot(x.id))
+
+
+async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None:
+    """Relay a chat message to everyone, the sender too (their copy confirms delivery), and
+    keep it for people who join later. Never log the text (DEC-032). A refusal goes to the
+    sender only, so their box can keep the text. A retry of a message the room already has
+    (same clientId from the same person) is answered to the sender only, never kept twice."""
+    text: str = payload["text"]
+    client_id: str = payload["clientId"]
+    if not is_chat_text(text):  # nothing visible, or a character the extension refuses
+        return await reject(p, "invalid", text, client_id)
+    if len(text) > config.CHAT_MAX_CHARS:  # code points, as the protocol counts
+        return await reject(p, "too_long", text, client_id)
+    kept = next((m for m in room.chat if m["fromId"] == p.id and m["clientId"] == client_id), None)
+    if kept is not None:
+        return await send(p, "CHAT.MESSAGE", kept)
+    if not chat_limiter.allow(p.id) or not room_chat_limiter.allow(room.code):
+        return await reject(p, "rate_limited", text, client_id)
+    chat = {
+        "id": secrets.token_hex(8),
+        "clientId": client_id,
+        "fromId": p.id,
+        "name": p.name,
+        "text": text,
+        "movieTime": payload["movieTime"],
+        "titleId": payload["titleId"],
+        "serverTime": now_ms(),
+    }
+    # Never keep or relay what clients would refuse: one bad item would cost every later
+    # joiner the whole history.
+    if not is_server_message(message("CHAT.MESSAGE", chat)):
+        return await reject(p, "invalid", text, client_id)
+    rooms.keep_chat(room, chat)
+    await broadcast(room, "CHAT.MESSAGE", chat)
+
+
+async def reject(p: Participant, reason: str, text: str, client_id: str | None) -> None:
+    """CHAT.REJECTED to the sender: at most the first 500 characters of their text back (a
+    16 KB send isn't echoed in full), and their clientId so the right tab hears it."""
+    refused: dict[str, Any] = {"reason": reason, "text": text[:500]}
+    if client_id is not None:
+        refused["clientId"] = client_id
+    await send(p, "CHAT.REJECTED", refused)
+
+
+CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def overlong_chat(msg: Any) -> tuple[str, str | None] | None:
+    """The text and clientId (if well formed) of a chat message refused only for being too
+    long, so the sender hears why and keeps it; anything else malformed is just invalid."""
+    if not isinstance(msg, dict) or msg.get("type") != "CHAT.SEND":
+        return None
+    payload = msg.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    text, client_id = payload.get("text"), payload.get("clientId")
+    if not isinstance(text, str) or len(text) <= config.CHAT_MAX_CHARS:
+        return None
+    ok = isinstance(client_id, str) and CLIENT_ID.fullmatch(client_id) is not None
+    return text, client_id if ok else None
 
 
 def show(media: dict[str, Any]) -> str | None:
@@ -538,21 +744,50 @@ def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
     }
 
 
+# The extension sends its room token as a WebSocket subprotocol next to this one, so the
+# token stays out of URLs and the logs that print them (security audit, UC-046).
+SUBPROTOCOL = "watchsync.v1"
+
+
+def socket_token(ws: WebSocket) -> tuple[str, str | None]:
+    """The room token and the subprotocol to accept: from Sec-WebSocket-Protocol
+    ("watchsync.v1, <token>"), else from ?token= as v0.1.x extensions send it."""
+    offered = [x.strip() for x in ws.headers.get("sec-websocket-protocol", "").split(",")]
+    if SUBPROTOCOL in offered:
+        others = [x for x in offered if x and x != SUBPROTOCOL]
+        return (others[0] if len(others) == 1 else ""), SUBPROTOCOL
+    # TODO(v0.8): drop ?token= once no v0.1.x extension is left.
+    return ws.query_params.get("token", ""), None
+
+
 @app.websocket("/ws/rooms/{code}")
 async def room_socket(ws: WebSocket, code: str) -> None:
-    if not connect_limiter.allow(client_ip(ws)):
-        await ws.accept()
+    token, subprotocol = socket_token(ws)
+    # Accept first, always with the subprotocol the browser asked for (else Chrome fails the
+    # handshake): a close before accept reaches browsers as 1006, which looks like a network
+    # drop and makes the extension retry forever (BUG-009).
+    ip = client_ip(ws)
+    if open_sockets.get(ip, 0) >= config.WS_PER_IP or not connect_limiter.allow(ip):
+        await ws.accept(subprotocol)
         await ws.close(code=status.WS_1013_TRY_AGAIN_LATER)  # the extension backs off
         return
-    found = rooms.authenticate(code, ws.query_params.get("token", ""))
+    open_sockets[ip] = open_sockets.get(ip, 0) + 1
+    try:
+        await serve(ws, code, token, subprotocol, ip)
+    finally:
+        open_sockets[ip] -= 1
+        if not open_sockets[ip]:
+            del open_sockets[ip]
+
+
+async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, ip: str) -> None:
+    found = rooms.authenticate(code, token, ip)
     if found is None:
-        # Accept first: a close before accept reaches browsers as 1006, which looks like a
-        # network drop and makes the extension retry forever (BUG-009).
-        await ws.accept()
+        await ws.accept(subprotocol)
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     room, p = found
-    await ws.accept()
+    await ws.accept(subprotocol)
     old = sockets.get(p.id)
     sockets[p.id] = ws
     if old is not None:  # the same person reconnected (network change, restart): newest wins
@@ -564,6 +799,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     room.used = True
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
+    await send(p, "CHAT.HISTORY", {"messages": list(room.chat)})
     arrived = "rejoined" if p.rejoined else "joined"
     p.rejoined = False
     await broadcast(
@@ -573,7 +809,11 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     dropped = 0
     try:
         while True:
-            raw = await ws.receive()
+            try:
+                raw = await asyncio.wait_for(ws.receive(), config.WS_IDLE_SECONDS)
+            except TimeoutError:  # silent too long: not a live extension (it pings)
+                await ws.close(code=status.WS_1001_GOING_AWAY)
+                break
             if raw["type"] == "websocket.disconnect":
                 break
             try:
@@ -590,6 +830,9 @@ async def room_socket(ws: WebSocket, code: str) -> None:
                 )
                 continue
             if not is_client_message(msg):
+                if (overlong := overlong_chat(msg)) is not None:
+                    await reject(p, "too_long", *overlong)
+                    continue
                 await send(
                     p, "SYS.ERROR", {"code": "invalid_message", "message": "Unknown message."}
                 )
@@ -609,6 +852,7 @@ async def room_socket(ws: WebSocket, code: str) -> None:
         if sockets.get(p.id) is ws:  # not replaced by a newer connection
             del sockets[p.id]
             message_limiter.forget(p.id)
+            reaction_limiter.forget(p.id)
             p.connected = False
             p.hold = None  # don't keep the room waiting for someone who's gone
             if not left:

@@ -20,10 +20,16 @@ root.innerHTML = `<style>
     -webkit-font-smoothing: antialiased; z-index: 2147483647; }
   /* Bottom right, above the player's own controls; notices stack upwards, newest on top. */
   .wrap { position: fixed; right: 24px; bottom: 96px; width: 340px; max-width: calc(100vw - 32px);
-    display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none;
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  /* Chat is open on the right edge: notices move aside, not over it. On a narrow window
+     there is no room beside it: passing notices wait, prompts and lasting lines stay. */
+  @media (min-width: 720px) {
+    .wrap.beside { transform: translateX(calc(-8px - clamp(320px, 26vw, 360px))); } }
+  @media (max-width: 719.98px) { .wrap.beside .notices .card:not(.sticky) { display: none; } }
   .notices, .asks { display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     width: 100%; }
-  .asks .card { pointer-events: auto; }
+  .asks .card, .notices .card.ask { pointer-events: auto; }
   .card { box-sizing: border-box; display: grid; grid-template-columns: 32px minmax(0, 1fr);
     column-gap: 12px; align-items: start;
     max-width: 100%; padding: 12px 16px 12px 12px; border-radius: 16px;
@@ -33,8 +39,6 @@ root.innerHTML = `<style>
     animation: in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .card.out { opacity: 0; transform: translateY(4px);
     transition: opacity 160ms ease-in, transform 160ms ease-in; }
-  /* A question: a warm edge so it reads as "needs you", unlike a passing notice. */
-  .card.ask { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 210, 90, 0.4); }
   .text { min-width: 0; padding-top: 6px; }
   .msg { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
   .detail { margin: 2px 0 0; color: #a9b8b9; font-size: 13px; line-height: 18px; }
@@ -48,24 +52,33 @@ root.innerHTML = `<style>
   .badge { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px;
     border-radius: 50%; display: grid; place-items: center; background: #ecf2f1; color: #0c1215;
     box-shadow: 0 0 0 2px #151d21; }
+  /* A question is the same card as a notice, plus one row of buttons side by side. */
   .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px;
-    justify-content: flex-end; margin-top: 12px; }
+    justify-content: flex-end; margin-top: 8px; }
+  .actions button { height: 32px; padding: 0 12px; font-size: 14px; }
+  /* A lasting line's action (Try now): small and quiet, at the right of its words. */
+  .card.inline { grid-template-columns: 32px minmax(0, 1fr) auto; }
+  .card.inline .actions { grid-column: auto; align-self: center; margin: 0 0 0 4px; }
+  .card.inline .actions button { height: 28px; min-height: 24px; padding: 0 10px;
+    font-size: 13px; font-weight: 600; border-radius: 10px; }
   button { height: 36px; border: 0; border-radius: 12px; padding: 0 14px; font: inherit;
     font-weight: 650; cursor: pointer; background: rgba(214, 236, 240, 0.1); color: #ecf2f1;
     display: inline-flex; align-items: center; gap: 6px; transition: background 120ms; }
   button:hover { background: rgba(214, 236, 240, 0.17); }
   button.primary { background: #ffd25a; color: #1b1503; }
   button.primary:hover { background: #ffdd80; }
-  button:focus-visible { outline: 2px solid #ffd25a; outline-offset: 2px; }
+  /* A dark halo keeps the ring visible over a bright picture. */
+  button:focus-visible { outline: 2px solid #ffd25a; outline-offset: 2px;
+    box-shadow: 0 0 0 6px rgb(0 0 0 / 0.6); }
 
   .pill { position: fixed; top: 16px; display: flex; align-items: center; gap: 4px; padding: 4px;
     border-radius: 999px; background: rgba(18, 26, 30, 0.95); backdrop-filter: blur(16px) saturate(140%);
     -webkit-backdrop-filter: blur(16px) saturate(140%);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
-    font-size: 13px; line-height: 18px; transition: opacity 0.3s ease-out; }
+    font-size: 13px; line-height: 18px; transition: opacity 150ms ease-out; }
   .pill[data-corner="tr"] { right: 16px; }
   .pill[data-corner="tl"] { left: 16px; }
-  .pill.idle:not(:hover):not(:focus-within) { opacity: 0; }
+  .pill.idle:not(:hover):not(:focus-within) { opacity: 0; transition: opacity 300ms ease-in; }
   .faces { display: flex; padding: 0 6px 0 2px; }
   .face { position: relative; box-sizing: border-box; width: 28px; height: 28px; border-radius: 50%;
     display: grid; place-items: center; font-weight: 650; font-size: 12px; line-height: 1;
@@ -84,15 +97,33 @@ root.innerHTML = `<style>
   .pill button.bare { width: 32px; padding: 0; justify-content: center; background: transparent;
     color: #a9b8b9; }
   .pill button.bare:hover { background: rgba(214, 236, 240, 0.1); color: #ecf2f1; }
+  /* Icon and a visible "Chat"; yellow only while messages wait unread. */
+  .pill button.chat { position: relative; padding: 0 12px 0 10px; }
+  .pill button.chat[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+  .pill button.chat[aria-disabled="true"]:hover { background: rgba(214, 236, 240, 0.1); }
+  .pill button.chat.primary .count { background: #ecf2f1; color: #0c1215; }
+  /* Unread messages on the chat button (UC-014); 9+ past nine. */
+  .count { position: absolute; top: -3px; right: -3px; box-sizing: border-box; min-width: 16px;
+    height: 16px; padding: 0 4px; border-radius: 8px; background: #ffd25a; color: #1b1503;
+    font-size: 10px; font-weight: 750; line-height: 16px; text-align: center;
+    font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px #151d21; }
+  .count[hidden] { display: none; }
+  .count.pop { animation: pop 160ms ease-out; }
+  @keyframes pop { from { transform: scale(0.8); } }
   @keyframes in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
   @media (prefers-reduced-motion: reduce) {
-    .card { animation: none; }
-    .card.out, .pill, button { transition: none; }
+    .card, .count.pop { animation: none; }
+    .card.out, .pill, .pill.idle:not(:hover):not(:focus-within), button, .wrap { transition: none; }
     .card.out { transform: none; }
   }
 </style><div class="wrap"><div class="notices" role="status" aria-live="polite"></div><div class="asks" aria-live="polite"></div></div>`;
 const notices = root.querySelector(".notices") as HTMLDivElement;
 const asks = root.querySelector(".asks") as HTMLDivElement;
+
+/** Keeps notices and prompts beside the open chat panel rather than over it. */
+export function noticesBesideSidebar(open: boolean) {
+  root.querySelector(".wrap")?.classList.toggle("beside", open);
+}
 
 function mount() {
   if (retired) return;
@@ -177,8 +208,16 @@ export function toast(message: string, ms = 4000, look: CardLook = {}) {
 
 const sticky = new Map<string, Card>();
 
-/** A passive line that stays until cleared (null), e.g. while the connection is down. */
-export function notice(key: string, message: string | null, look: CardLook = {}) {
+/**
+ * A line that stays until cleared (null), e.g. while the connection is down, with optional
+ * buttons. New words replace the old ones in place, so a screen reader hears each once.
+ */
+export function notice(
+  key: string,
+  message: string | null,
+  look: CardLook = {},
+  actions: Action[] = [],
+) {
   const shown = sticky.get(key);
   if (message === null) {
     shown?.card.remove();
@@ -186,11 +225,14 @@ export function notice(key: string, message: string | null, look: CardLook = {})
     return;
   }
   if (shown) {
-    if (shown.text.data !== message) shown.text.data = message;
+    if (shown.text.data === message) return;
+    shown.text.data = message;
+    setActions(shown.card, actions, false);
     return;
   }
   const made = card(message, look);
-  made.card.classList.add("sticky");
+  made.card.classList.add("sticky", "inline");
+  setActions(made.card, actions, false);
   notices.append(made.card);
   sticky.set(key, made);
 }
@@ -209,8 +251,8 @@ let current: {
   labels: string;
 } | null = null;
 
-/** Puts the buttons on a prompt card, replacing any it had. */
-function setActions(c: HTMLDivElement, actions: Action[]) {
+/** Puts the buttons on a card, replacing any it had; a prompt's go away on a click. */
+function setActions(c: HTMLDivElement, actions: Action[], closesPrompt = true) {
   c.querySelector(".actions")?.remove();
   c.classList.toggle("ask", actions.length > 0);
   if (!actions.length) {
@@ -229,7 +271,7 @@ function setActions(c: HTMLDivElement, actions: Action[]) {
     b.textContent = a.label;
     if (a.primary) b.className = "primary";
     b.addEventListener("click", () => {
-      clearPrompt();
+      if (closesPrompt) clearPrompt();
       a.run();
     });
     row.append(b);
@@ -287,14 +329,25 @@ export interface PillModel {
   following: boolean;
   onSync: () => void;
   onOwn: () => void;
-  /** Start together; null hides the button (not on the room's title, or alone). */
+  /** Start with 3-2-1; null hides the button (not on the room's title, or alone). */
   onStart: (() => void) | null;
-  /** This tab's player is playing: the start button becomes Pause together. */
+  /** This tab's player is playing: the start button becomes Pause everyone. */
   playing: boolean;
   onPause: () => void;
-  /** Sync everyone: jump the room to my exact position, no pause or countdown. */
-  onSyncAll: () => void;
+  /**
+   * Bring everyone here: jump the room to my exact position, no pause or countdown. Null
+   * hides it while I'm in step: small drift is fixed on its own, and the room can't see
+   * friends' exact positions, so it shows only when my player is off from the room's.
+   */
+  onSyncAll: (() => void) | null;
+  /** Open or close chat; opened from here, the button gets focus back when it closes. */
+  onChat: (from: HTMLElement) => void;
+  chatOpen: boolean;
+  /** Chat was turned off on this page because the page interfered with it. */
+  chatOff: boolean;
 }
+
+export const CHAT_OFF = "Chat is turned off on this page because the page interfered with it.";
 
 const pill = document.createElement("div");
 pill.className = "pill";
@@ -304,14 +357,23 @@ let corner: "tr" | "tl" = "tr";
 /** Folded down to the faces, so the pill stays out of the way of the player (owner, 2 Oct). */
 let collapsed = false;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let idle = false;
 
-// Like the player's own controls: visible while the mouse moves, faded after 3 s still.
+// Like the player's own controls: visible while the mouse moves, faded after 3 s still. The
+// class flips only when the state does, and the listener captures, so a player that stops
+// mouse events on the way still wakes it.
 function wake() {
-  pill.classList.remove("idle");
+  if (idle) {
+    idle = false;
+    pill.classList.remove("idle");
+  }
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => pill.classList.add("idle"), 3000);
+  idleTimer = setTimeout(() => {
+    idle = true;
+    pill.classList.add("idle");
+  }, 3000);
 }
-document.addEventListener("mousemove", wake, { passive: true });
+document.addEventListener("mousemove", wake, { passive: true, capture: true });
 
 let lastModel: PillModel | null = null;
 chrome.storage.local.get(["pillCorner", "pillCollapsed"]).then(({ pillCorner, pillCollapsed }) => {
@@ -344,6 +406,65 @@ function button(label: string, run: () => void, look: ButtonLook = {}): HTMLButt
   b.className = [look.primary && "primary", look.bare && "bare"].filter(Boolean).join(" ");
   b.addEventListener("click", run);
   return b;
+}
+
+/** The chat shortcut as Chrome suggests it on this system (build.mjs `commands`). */
+const SHORTCUT = /Mac/.test(navigator.platform) ? "Control+Shift+W" : "Alt+Shift+W";
+
+// The one way into chat on the page (with the shortcut). One lasting button, so focus can
+// come back to it after chat closes even though the pill redraws in between.
+// Icon plus a visible "Chat"; the accessible name (set in drawChat) says more and contains it.
+const chat = button("Chat", () => lastModel?.onChat(chat), { icon: "chat" });
+chat.classList.add("chat");
+chat.setAttribute("aria-keyshortcuts", SHORTCUT);
+// Space or Enter on this button opens chat; it mustn't also play or pause the player.
+for (const type of ["keydown", "keyup", "keypress"])
+  chat.addEventListener(type, (e) => {
+    if (e instanceof KeyboardEvent && (e.key === " " || e.key === "Enter")) e.stopPropagation();
+  });
+const count = document.createElement("span");
+count.className = "count";
+count.setAttribute("aria-hidden", "true");
+count.hidden = true;
+chat.append(count);
+let unread = 0;
+
+function drawChat() {
+  const open = lastModel?.chatOpen === true;
+  const off = lastModel?.chatOff === true;
+  const base = off ? CHAT_OFF : open ? "Close chat" : `Open chat (${SHORTCUT})`;
+  const label = unread && !off ? `${base}, ${unread} unread` : base;
+  chat.setAttribute("aria-label", label);
+  chat.title = label;
+  chat.setAttribute("aria-expanded", String(open));
+  // Still focusable and named, so the reason can be found; it does nothing when pressed.
+  if (off) chat.setAttribute("aria-disabled", "true");
+  else chat.removeAttribute("aria-disabled");
+  count.hidden = unread === 0 || off;
+  chat.classList.toggle("primary", !count.hidden);
+  count.textContent = unread > 9 ? "9+" : String(unread);
+}
+
+/** Unread messages on the chat button; 0 hides the count. It pops only when the first arrives. */
+export function setChatBadge(n: number) {
+  const next = Math.max(0, Math.floor(n));
+  if (unread === 0 && next > 0) {
+    count.classList.remove("pop");
+    count.addEventListener("animationend", () => count.classList.remove("pop"), { once: true });
+    requestAnimationFrame(() => count.classList.add("pop"));
+  }
+  unread = next;
+  drawChat();
+}
+
+/** The chat button while it's on the page: where focus goes when chat closes. */
+export function chatButton(): HTMLElement | null {
+  return chat.isConnected ? chat : null;
+}
+
+/** The overlay control that has focus, if any (its shadow root hides it from the page). */
+export function focusedControl(): HTMLElement | null {
+  return root.activeElement instanceof HTMLElement ? root.activeElement : null;
 }
 
 /** Shows who's here and in sync; null hides it (not in a room). */
@@ -383,8 +504,13 @@ export function renderPill(model: PillModel | null) {
   );
   fold.setAttribute("aria-expanded", String(!collapsed));
   pill.classList.toggle("folded", collapsed);
+  drawChat();
+  // Redrawing takes the chat button out and back in, which drops its focus: keep it.
+  const chatFocused = root.activeElement === chat;
+  // Chat stays reachable when the pill is folded: it is the only button for it.
   if (collapsed) {
-    pill.replaceChildren(faces, fold);
+    pill.replaceChildren(faces, chat, fold);
+    if (chatFocused) chat.focus();
     return wake();
   }
   const sep = document.createElement("span");
@@ -394,35 +520,38 @@ export function renderPill(model: PillModel | null) {
     ? button("Watch on my own", model.onOwn, {
         hint: "Play, pause and jump just for you. The room carries on.",
       })
-    : button("Sync", model.onSync, {
+    : button("Watch with the room", model.onSync, {
         primary: true,
         icon: "sync",
         hint: "Follow the room again, from where it is now.",
       });
-  // Start together while paused; once everyone is playing, the same place pauses everyone.
+  // Start with 3-2-1 while paused; once everyone is playing, the same place pauses everyone.
   const together = model.onStart
     ? [
         model.playing
-          ? button("Pause together", model.onPause, {
+          ? button("Pause everyone", model.onPause, {
               primary: true,
               icon: "pause",
               hint: "Pause everyone in the room",
             })
-          : button("Start together", model.onStart, {
+          : button("Start with 3-2-1", model.onStart, {
               primary: true,
               icon: "play",
               hint: "Pause everyone, count down 3-2-1, start at the same moment",
             }),
       ]
     : [];
-  const syncAll = model.onStart
-    ? [
-        button("Sync everyone", model.onSyncAll, {
-          icon: "sync",
-          hint: "Bring everyone to exactly where you are, without pausing",
-        }),
-      ]
-    : [];
-  pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, fold);
+  const syncAll =
+    model.onStart && model.onSyncAll
+      ? [
+          button("Bring everyone here", model.onSyncAll, {
+            icon: "sync",
+            hint: "Bring everyone to exactly where you are, without pausing",
+          }),
+        ]
+      : [];
+  // Chat first after the faces: the one control people reach for most.
+  pill.replaceChildren(faces, sep, chat, toggle, ...syncAll, ...together, fold);
+  if (chatFocused) chat.focus();
   wake();
 }

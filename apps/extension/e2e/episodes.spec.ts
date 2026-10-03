@@ -58,7 +58,7 @@ test("a friend watching on their own stays put but is told about the next episod
     expect(tab.url()).toBe(`${MOCK}/watch/ep1`); // not moved
 
     // Back with the room, they're offered the episode the room is on.
-    await tab.getByRole("button", { name: "Sync", exact: true }).click();
+    await tab.getByRole("button", { name: "Watch with the room" }).click();
     await expect(tab.getByText("Suhaas is watching Demo Show, E2. Open it?")).toBeVisible({
       timeout: 5000,
     });

@@ -1,7 +1,14 @@
 """Rooms held in memory (DEC-003). One process owns every room."""
 
+import base64
+import hashlib
+import hmac
+import json
 import re
 import secrets
+import time
+import unicodedata
+from collections import deque
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,15 +35,121 @@ TITLE_PAGES = {
 }
 
 
+# Characters that can make a title read as something else: bidi controls and the BOM. Control
+# characters and line or paragraph separators go too. Zero-width joiners stay: scripts and
+# emoji need them.
+_TITLE_DROP = frozenset(
+    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\ufeff"
+)
+
+
+def clean_title(name: str | None) -> str | None:
+    """A title name without control or direction-changing characters; None when nothing is left."""
+    if name is None:
+        return None
+    kept = "".join(
+        c
+        for c in name
+        if c not in _TITLE_DROP and unicodedata.category(c) not in ("Cc", "Zl", "Zp")
+    ).strip()
+    return kept or None
+
+
 def safe_media(media: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The media with its titleUrl dropped unless it is a title page of its own service. The
-    title itself still counts (sync works); only the link others would open is refused."""
-    if media is None or media["titleUrl"] is None:
+    """The media with a clean title name, and its titleUrl dropped unless it is a title page of
+    its own service. The title itself still counts (sync works); only the link others would
+    open is refused."""
+    if media is None:
+        return media
+    media = {**media, "titleName": clean_title(media.get("titleName"))}
+    if media["titleUrl"] is None:
         return media
     page = TITLE_PAGES.get(media["service"])
     if page is not None and page.fullmatch(media["titleUrl"]):
         return media
     return {**media, "titleUrl": None}
+
+
+# A signed token: base64url(JSON claims) "." base64url(HMAC-SHA256 of the claims), unpadded.
+TOKEN_SHAPE = re.compile(r"[A-Za-z0-9_-]{1,1024}\.[A-Za-z0-9_-]{43}")
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _unb64(text: str) -> bytes:
+    return base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True)
+
+
+def _mac(payload: bytes) -> bytes:
+    return hmac.new(config.ROOM_SIGNING_SECRET, payload, hashlib.sha256).digest()
+
+
+def sign_token(code: str, participant_id: str, name: str) -> str:
+    """A token that says who it is for, so the room can come back after a restart (DEC-031).
+    The random part keeps every ticket's token distinct, so revoking one never revokes the
+    next one issued to the same person in the same second."""
+    claims = {
+        "c": code,
+        "p": participant_id,
+        "n": name,
+        "i": int(time.time()),
+        "r": secrets.token_hex(4),
+    }
+    payload = json.dumps(claims, separators=(",", ":")).encode()
+    return f"{_b64(payload)}.{_b64(_mac(payload))}"
+
+
+# Clocks of the old and the new process may differ a little (a deploy can move hosts).
+CLOCK_TOLERANCE_SECONDS = 300
+
+
+@dataclass(frozen=True)
+class Claims:
+    code: str
+    participant_id: str
+    name: str
+    issued_at: int
+    # Older than TOKEN_MAX_AGE_SECONDS, or issued in the future: genuine, but not to be used
+    # to bring a room back or take back a place.
+    expired: bool
+
+
+def read_token(token: str) -> Claims | None:
+    """The token's claims if this service signed it with its current secret, else None."""
+    if not TOKEN_SHAPE.fullmatch(token):
+        return None
+    body, sig = token.split(".")
+    try:
+        payload, mac = _unb64(body), _unb64(sig)
+    except ValueError:
+        return None
+    # One spelling per token: base64 that decodes the same with other spare bits is refused.
+    if _b64(payload) != body or _b64(mac) != sig:
+        return None
+    if not hmac.compare_digest(mac, _mac(payload)):
+        return None
+    try:
+        claims = json.loads(payload)
+    except ValueError:
+        return None
+    if not isinstance(claims, dict):
+        return None
+    code, pid, name, issued = claims.get("c"), claims.get("p"), claims.get("n"), claims.get("i")
+    if not (isinstance(code, str) and isinstance(pid, str) and isinstance(name, str)):
+        return None
+    if not isinstance(issued, int) or isinstance(issued, bool):
+        return None
+    age = time.time() - issued
+    expired = age > config.TOKEN_MAX_AGE_SECONDS + CLOCK_TOLERANCE_SECONDS
+    expired |= age < -CLOCK_TOLERANCE_SECONDS
+    return Claims(code, pid, name, issued, expired)
+
+
+def chat_size(chat: dict[str, Any]) -> int:
+    """A chat message's size as the service sends it (ASCII-only JSON)."""
+    return len(json.dumps(chat))
 
 
 class RoomError(Exception):
@@ -104,6 +217,20 @@ class Room:
     creator: str | None = None
     joined: bool = False
     used: bool = False
+    # Brought back after a restart by its people's signed tokens (US-120): when, by which
+    # client address, and everyone who has been in it since (each person once: after
+    # leaving, their token is spent). Then what its people said it was watching
+    # (ROOM.RESTORE): the clock it set and how recent that knowledge was, newest wins.
+    restored: bool = False
+    restored_at: float | None = None
+    restored_by: str | None = None
+    restored_ids: set[str] = field(default_factory=set)
+    restored_playback: dict[str, Any] | None = None
+    restore_known_at: float | None = None
+    # The last chat messages, oldest first, for people who join later (Rooms.keep_chat), and
+    # their size as sent. Memory only, never logged, cleared when the room ends (DEC-032).
+    chat: deque[dict[str, Any]] = field(default_factory=deque)
+    chat_bytes: int = 0
 
     def holding(self) -> list[Participant]:
         return [
@@ -145,6 +272,10 @@ class Rooms:
         self.tokens: dict[str, tuple[str, str]] = {}
         # Codes of rooms that ended, so a late joiner hears "ended" rather than "not found".
         self.ended: dict[str, float] = {}
+        # When this process started taking rooms: restores are allowed only soon after.
+        self.started = now_ms()
+        # Bytes of chat kept in all rooms together (keep_chat).
+        self.chat_bytes = 0
 
     def sweep(self, now: float | None = None) -> None:
         """Drop rooms that have had nobody connected for ROOM_IDLE_EXPIRY_SECONDS, or that
@@ -157,11 +288,41 @@ class Rooms:
             if room.empty_since is not None and now - room.empty_since > limit:
                 for p in room.participants.values():
                     self.tokens.pop(p.token, None)
+                self._clear_chat(room)  # a handler may still hold the room; its chat goes now
                 del self.rooms[code]
                 self.ended[code] = now
         for code, at in list(self.ended.items()):
             if now - at > 24 * 3600 * 1000:
                 del self.ended[code]
+
+    def keep_chat(self, room: Room, chat: dict[str, Any]) -> None:
+        """Keep a message for people who join later: at most CHAT_HISTORY messages and
+        CHAT_ROOM_BYTES per room, and CHAT_TOTAL_BYTES in all rooms. Past any of them the
+        oldest go first: the room's own, then the oldest anywhere."""
+        if self.rooms.get(room.code) is not room:
+            return  # the room ended while this message was on its way
+        size = chat_size(chat)
+        room.chat.append(chat)
+        room.chat_bytes += size
+        self.chat_bytes += size
+        while len(room.chat) > config.CHAT_HISTORY or room.chat_bytes > config.CHAT_ROOM_BYTES:
+            self._drop_oldest(room)
+        while self.chat_bytes > config.CHAT_TOTAL_BYTES:
+            # Every room's chat is in time order, so the oldest anywhere is some room's first.
+            oldest = min(
+                (r for r in self.rooms.values() if r.chat), key=lambda r: r.chat[0]["serverTime"]
+            )
+            self._drop_oldest(oldest)
+
+    def _drop_oldest(self, room: Room) -> None:
+        size = chat_size(room.chat.popleft())
+        room.chat_bytes -= size
+        self.chat_bytes -= size
+
+    def _clear_chat(self, room: Room) -> None:
+        self.chat_bytes -= room.chat_bytes
+        room.chat.clear()
+        room.chat_bytes = 0
 
     def _new_code(self) -> str:
         while True:
@@ -176,6 +337,9 @@ class Rooms:
         # dropped friend's place, so without the token it's someone new (BUG-041); the away
         # row goes when its grace period ends.
         found = self.tokens.get(token) if token else None
+        claims = read_token(token) if found and token else None
+        if claims is None or claims.expired:
+            found = None  # too old to take back a place: someone new
         stale = room.participants.get(found[1]) if found and found[0] == room.code else None
         if stale is not None and stale.connected:
             stale = None
@@ -188,9 +352,12 @@ class Rooms:
         p = Participant(
             id=stale.id if stale else secrets.token_hex(8),
             name=name,
-            token=secrets.token_urlsafe(32),
+            token="",
             rejoined=stale is not None or name in room.gone,
         )
+        p.token = sign_token(room.code, p.id, name)
+        if room.restored:
+            room.restored_ids.add(p.id)
         room.gone.discard(name)
         room.participants[p.id] = p
         self.tokens[p.token] = (room.code, p.id)
@@ -226,16 +393,57 @@ class Rooms:
         room.skip_hold.discard(p.id)
         room.gone.add(p.name)
         if not room.participants and end_if_empty:
+            self._clear_chat(room)
             del self.rooms[room.code]
             self.ended[room.code] = now_ms()
 
-    def authenticate(self, code: str, token: str) -> tuple[Room, Participant] | None:
+    def authenticate(
+        self, code: str, token: str, client: str = "unknown"
+    ) -> tuple[Room, Participant] | None:
         self.sweep()
         found = self.tokens.get(token)
-        if found is None or found[0] != code or code not in self.rooms:
+        if found is not None:
+            if found[0] != code or code not in self.rooms:
+                return None
+            room = self.rooms[code]
+            return room, room.participants[found[1]]
+        return self.restore(code, token, client)
+
+    def restore(self, code: str, token: str, client: str) -> tuple[Room, Participant] | None:
+        """After a restart, someone connecting with a token the last process signed brings
+        the room back, or takes their place in a room already brought back (US-120). Never
+        for a room that is live here (its tokens are in the registry) or ended here, never
+        with a token older than TOKEN_MAX_AGE_SECONDS, only within RESTORE_WINDOW_SECONDS of
+        this process starting (to create it), and within the same ceilings as creating."""
+        claims = read_token(token)
+        if claims is None or claims.expired or claims.code != code or code in self.ended:
             return None
-        room = self.rooms[code]
-        return room, room.participants[found[1]]
+        room = self.rooms.get(code)
+        if room is None:
+            # Only bringing a room back from nothing is limited to soon after the restart; a
+            # room already back keeps taking its people (a laptop that wakes up later).
+            if now_ms() - self.started > config.RESTORE_WINDOW_SECONDS * 1000:
+                return None
+            if len(self.rooms) >= config.MAX_ROOMS:
+                return None
+            mine = sum(1 for r in self.rooms.values() if r.restored_by == client)
+            if mine >= config.RESTORES_PER_IP:
+                return None
+            room = Room(code=code, empty_since=now_ms(), joined=True, used=True)
+            room.restored = True
+            room.restored_at = now_ms()
+            room.restored_by = client
+            self.rooms[code] = room
+        pid = claims.participant_id
+        if not room.restored or pid in room.restored_ids or pid in room.participants:
+            return None
+        if len(room.participants) >= config.MAX_PARTICIPANTS:
+            return None
+        p = Participant(id=pid, name=claims.name, token=token)
+        room.restored_ids.add(p.id)
+        room.participants[p.id] = p
+        self.tokens[token] = (code, p.id)
+        return room, p
 
 
 rooms = Rooms()

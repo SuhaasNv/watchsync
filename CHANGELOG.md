@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.2.0] - unreleased
+
+Chat and reactions: talk with your room while you watch, without leaving the film.
+
+### Added
+- Chat in a side panel next to the player. Each message shows the moment in the film it was sent at, so friends know what you were reacting to.
+- Messages show "Sending" until the room has them; if one doesn't get through it says "Not sent" with Retry.
+- Unread messages show as a count on the on-page pill and on the toolbar icon.
+- Reactions: six buttons in the chat; a tap floats the reaction with your name on everyone's screen for a moment.
+- Room activity in the chat: joins, leaves, closing the show and title moves show as plain lines among the messages. Play, pause and skips stay as pop-ups on the page. A Show pop-ups switch in the chat turns those pop-ups off on your page.
+- Open chat from the popup.
+- Alt+Shift+W opens and closes the chat (Control+Shift+W on a Mac). You can change it at chrome://extensions/shortcuts.
+- Rooms survive a WatchSync server update: the room comes back by itself with the same code, people, title and position.
+- Honest reconnect messages: while the server updates, the page says "WatchSync is updating, back in a moment" and reconnects within a few seconds; after 2 minutes without a connection it says "Can't reach WatchSync. Still trying." with Try now.
+- Chrome extension updates wait until you leave the room, so an auto-update never drops you mid-film.
+
+### Changed
+- The pill's buttons have clearer names: Start with 3-2-1, Pause everyone, Bring everyone here and Watch with the room. Bring everyone here appears only when your player is out of step with the room.
+- Reactions work like live hearts: a burst of taps floats up as that many separate emojis, from different spots, each fading at its own time (up to 5 on screen).
+
+### Fixed
+- A friend's 10-second skip on Netflix now shows as one "skipped ahead" notice instead of paused and played.
+- Typing in chat no longer gets cut off when a streaming site's player grabs focus: the chat box takes focus back and the player's shortcuts stay out of your message.
+- Skipping no longer risks pulling the room back when the player has to load the new spot, and one skip is sent as one update.
+
+### Security
+- The chat panel runs in an extension frame, so the streaming page can't read what you type.
+- Chat limits: up to 500 characters a message, 5 messages every 5 seconds per person and 20 every 10 seconds per room, and a cap on how much chat the room service holds.
+- Room tokens are signed, expire after 24 hours, and travel in the connection header instead of the URL (older extensions still connect the old way until v0.8).
+- Restored rooms count toward the room limits; idle and per-address connection limits.
+- Title names can't carry control or direction-changing characters, so a title can't make a line read as something else.
+
+### Known issues
+- Chat and reactions are not yet checked on the real Netflix, Prime Video and JioHotstar players.
+- Chat has not had a VoiceOver screen-reader pass yet.
+- Skips, the typing fix and the pill's new buttons are checked on a mock player and on Prime Video's skip events, not yet with a friend on the real services.
+- The check that the chat panel isn't covered by the page is weaker in the automated headless browser than in a real one.
+- The room service needs `ROOM_SIGNING_SECRET` set on every Railway environment before this version is deployed, or it will not start.
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed

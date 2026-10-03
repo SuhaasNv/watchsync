@@ -172,6 +172,9 @@ test("title names over 200 characters are cut, not refused by the room", () => {
   expect([...name].length).toBe(200);
   expect(name.endsWith("…")).toBe(true);
   expect(capName({ ...long, titleName: "Dune" })?.titleName).toBe("Dune");
+  // Direction-changing and control characters go; joiners stay.
+  expect(capName({ ...long, titleName: "Dune\u202e, E1\u2066" })?.titleName).toBe("Dune, E1");
+  expect(capName({ ...long, titleName: "\u202e\u200f " })?.titleName).toBeNull();
 });
 
 test("prime never takes its storefront page title for the show's name (BUG-054)", () => {

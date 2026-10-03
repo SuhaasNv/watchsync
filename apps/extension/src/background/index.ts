@@ -1,6 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
+import type { Emoji, JoinRoomRequest, Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -11,9 +11,14 @@ import {
   isServerMessage,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
+import { isTypedText, salvageHistory } from "../shared/chat";
 import {
   type AppState,
+  type ChatNonceReply,
+  type ChatNonceRequest,
+  type ChatTabRequest,
   cleanName,
+  isSidebarEvent,
   nameProblem,
   type Push,
   type Reply,
@@ -21,6 +26,7 @@ import {
   type Session,
   type TabEvent,
 } from "../shared/messages";
+import { RateWindow, REACTIONS_PER_5S } from "../shared/reactions";
 import {
   DEV_RELEASE_API,
   isUpdate,
@@ -28,7 +34,13 @@ import {
   RELEASES_API,
   type UpdateCheck,
 } from "../shared/update";
+import { badgeText } from "./badge";
+import { ChatFrames, wantsServerMessage } from "./chat-frames";
+import { type ChatSeen, chatRelay } from "./chat-relay";
 import { injectOpenTabs } from "./inject";
+import { restoreMessage } from "./restore";
+import { RESTARTING, Retry } from "./retry";
+import { updateGate } from "./updates";
 
 const API = __API_URL__;
 
@@ -45,12 +57,13 @@ const state: AppState = {
   notice: null,
   mediaMove: null,
   update: null,
+  updating: false,
+  unreachable: false,
+  unread: 0,
 };
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
 let lastTicket: Session | null = null;
-let attempt = 0;
-let retry: ReturnType<typeof setTimeout> | undefined;
 let socket: WebSocket | null = null;
 let pingTimer: ReturnType<typeof setInterval> | undefined;
 const samples: ClockSample[] = [];
@@ -69,6 +82,36 @@ function sendPresence() {
 function push(msg: Push) {
   for (const p of ports) p.postMessage(msg);
 }
+
+const chat = chatRelay({
+  send(msg) {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(msg));
+    return true;
+  },
+  link: () =>
+    socket?.readyState === WebSocket.OPEN ? "open" : state.session ? "reconnecting" : "closed",
+  you: () => state.session?.participantId ?? null,
+  seen(seen) {
+    state.unread = seen.unread;
+    // Ids and counts only, never text, so a worker restart keeps the count (DEC-032).
+    const code = state.session?.code;
+    if (code) chrome.storage.session.set({ chatSeen: { code, ...seen } }).catch(() => {});
+  },
+  connected: (port) => [...ports].some((p) => p === port),
+});
+
+function isChatSeen(v: unknown): v is ChatSeen & { code: string } {
+  if (typeof v !== "object" || v === null) return false;
+  const { code, unread, lastSeen } = v as { code?: unknown; unread?: unknown; lastSeen?: unknown };
+  return (
+    typeof code === "string" &&
+    typeof unread === "number" &&
+    Number.isInteger(unread) &&
+    unread >= 0 &&
+    (lastSeen === null || typeof lastSeen === "string")
+  );
+}
 /**
  * The state other contexts see: never the room token. Only this worker uses it, and a port's
  * name or a reply can reach a content script on a service page (BUG-044).
@@ -78,15 +121,37 @@ function shared(): AppState {
 }
 function changed() {
   for (const p of ports) p.postMessage({ kind: "state", state: shared() } satisfies Push);
+  showBadge();
+}
+
+let badge: string | null = null;
+/**
+ * The toolbar badge (US-116): the same unread count as the chat button (US-044), 9+ past
+ * nine, none out of a room; dev builds show DEV at 0.
+ */
+function showBadge() {
+  const text = badgeText(state.session ? state.unread : 0, __CHANNEL__);
+  if (text === badge) return;
+  badge = text;
+  chrome.action.setBadgeText({ text }).catch(() => {});
 }
 
 async function restore() {
   const { name } = await chrome.storage.local.get("name");
-  const { session, lastTicket: kept } = await chrome.storage.session.get(["session", "lastTicket"]);
+  const {
+    session,
+    lastTicket: kept,
+    chatSeen,
+  } = await chrome.storage.session.get(["session", "lastTicket", "chatSeen"]);
   // A name saved by an older version may hold marks the service now refuses.
   state.name = typeof name === "string" ? cleanName(name) || null : null;
   if (isRoomTicket(session)) {
     state.session = session;
+    // The worker restarted in a room: its unread count, recomputed when the history arrives.
+    if (isChatSeen(chatSeen) && chatSeen.code === session.code) {
+      chat.restore({ unread: chatSeen.unread, lastSeen: chatSeen.lastSeen });
+      state.unread = chatSeen.unread;
+    }
     connect();
     return;
   }
@@ -141,11 +206,9 @@ async function checkForUpdate() {
 }
 checkForUpdate().catch(() => {});
 
-// Testers run "WatchSync Dev" next to the real one; the badge tells them apart at a glance.
-if (__CHANNEL__ === "dev") {
-  chrome.action.setBadgeText({ text: "DEV" }).catch(() => {});
-  chrome.action.setBadgeBackgroundColor({ color: "#ffd25a" }).catch(() => {});
-}
+// Testers run "WatchSync Dev" next to the real one; its badge says DEV while nothing is unread.
+chrome.action.setBadgeBackgroundColor({ color: "#ffd25a" }).catch(() => {});
+showBadge();
 
 async function api(path: string, body: unknown) {
   let res: Response;
@@ -178,15 +241,38 @@ function sendServer(msg: AnyClientMessage) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
-// 1, 2, 4, 8, then every 10 s: short enough that a friend back on Wi-Fi rejoins quickly
-// (BUG-018), with jitter so a room's clients don't all retry at once after a redeploy.
-const backoff = (n: number) => Math.min(10_000, 1000 * 2 ** n) * (1 + Math.random() * 0.3);
+/** Our share of the room service's reaction limit, so a dropped one can say so (US-046). */
+const reactions = new RateWindow(REACTIONS_PER_5S, 5000);
 
-/** Someone opened the popup or a service page while we wait to retry: try right away. */
+/** A reaction goes out now or not at all: never queued or retried after a drop (US-046). */
+function react(emoji: Emoji, count: number, from: chrome.runtime.Port) {
+  const msg = envelope<ClientMessageOf<"REACTION.SEND">>("REACTION.SEND", { emoji, count });
+  if (!isClientMessage(msg)) return;
+  const online = state.connection === "connected" && socket?.readyState === WebSocket.OPEN;
+  const reason = !online ? "offline" : reactions.allow() ? null : "limit";
+  if (reason) return from.postMessage({ kind: "reactionDropped", emoji, reason } satisfies Push);
+  sendServer(msg);
+}
+
+// Backoff 1, 2, 4, 8, then every 10 s with jitter: a friend back on Wi-Fi rejoins quickly
+// (BUG-018) and a room's clients don't all retry at once. After 2 minutes down, the page and
+// popup say so plainly (test builds: 15 s, so end-to-end tests can see it).
+const retry = new Retry(
+  () => connect(),
+  () => {
+    if (state.connection !== "reconnecting") return;
+    state.unreachable = retry.status().unreachable;
+    changed();
+  },
+  __MOCK__ ? 15_000 : 120_000,
+);
+/** The service told us it was restarting since we last heard the room (US-120). */
+let sawRestart = false;
+
+/** Network back, the popup or a service tab opened or came into view, or Try now. */
 function retryNow() {
   if (state.connection !== "reconnecting" || !state.session) return;
-  clearTimeout(retry);
-  connect();
+  retry.now();
 }
 // The browser saying the network is back is the best moment to retry.
 self.addEventListener("online", retryNow);
@@ -194,12 +280,19 @@ self.addEventListener("online", retryNow);
 function connect() {
   const s = state.session;
   if (!s) return;
-  clearTimeout(retry);
   if (state.connection !== "reconnecting") state.connection = "connecting";
   changed();
-  const ws = new WebSocket(
-    `${API.replace(/^http/, "ws")}/ws/rooms/${s.code}?token=${encodeURIComponent(s.token)}`,
-  );
+  // The token goes as a subprotocol next to ours, never in the URL, so no log that prints
+  // URLs holds it. A token that isn't a valid subprotocol would throw: the room refuses us.
+  const token = /^[A-Za-z0-9_.-]+$/.test(s.token) ? [s.token] : [];
+  // A try still hanging (Try now, a tab coming into view) is dropped, never left open.
+  const hanging = socket;
+  socket = null;
+  hanging?.close();
+  const ws = new WebSocket(`${API.replace(/^http/, "ws")}/ws/rooms/${s.code}`, [
+    "watchsync.v1",
+    ...token,
+  ]);
   socket = ws;
   ws.onmessage = (e) => {
     let msg: unknown;
@@ -208,7 +301,8 @@ function connect() {
     } catch {
       return;
     }
-    if (isServerMessage(msg)) onServer(msg);
+    const valid = isServerMessage(msg) ? msg : salvageHistory(msg);
+    if (valid) onServer(valid);
   };
   ws.onopen = () => {
     clearInterval(pingTimer);
@@ -217,11 +311,13 @@ function connect() {
     ping();
     pingTimer = setInterval(ping, 20_000);
     sendPresence();
+    chat.onSocketOpen(); // messages typed while reconnecting go out now
   };
   ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
     clearInterval(pingTimer);
+    chat.onSocketClosed(); // sends with no echo yet go again on the next connection
     if (e.code === 1008) {
       // The room ended or our token was revoked; retrying can't help.
       void endSession(ENDED);
@@ -229,8 +325,11 @@ function connect() {
       // A newer connection of ours took over (worker restart); it owns the room now.
       state.connection = "idle";
     } else if (state.session) {
+      // Network trouble, flooding (4001) or a restart (4002/1012): a restart retries within
+      // 1 to 3 s for a minute, the rest back off (retry.ts).
       state.connection = "reconnecting";
-      retry = setTimeout(connect, backoff(attempt++));
+      if (RESTARTING.has(e.code)) sawRestart = true;
+      Object.assign(state, retry.closed(e.code));
     }
     changed();
   };
@@ -245,16 +344,30 @@ const order = (id: string) => {
 
 function onServer(msg: AnyServerMessage) {
   switch (msg.type) {
-    case "ROOM.STATE":
+    case "ROOM.STATE": {
+      const known = { media: state.media, playback: state.playback };
       state.connection = "connected";
       state.mediaMove = null;
       state.notice = null;
-      attempt = 0;
+      retry.reset();
+      state.updating = false;
+      state.unreachable = false;
       state.participants = msg.payload.participants;
       for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
       state.playback = msg.payload.playback;
+      // Back in a room the restarted service brought back from our token (US-120): it
+      // knows who we are but not what we watched. Tell it what we knew.
+      const restore = restoreMessage(
+        known,
+        msg.payload.media,
+        sawRestart,
+        Date.now() + state.clockOffset,
+      );
+      sawRestart = false;
+      if (restore) sendServer(restore);
       break;
+    }
     case "ROOM.PARTICIPANT": {
       const { participant, event } = msg.payload;
       const others = state.participants.filter((p) => p.id !== participant.id);
@@ -287,17 +400,33 @@ function onServer(msg: AnyServerMessage) {
       break;
     }
   }
-  changed();
-  push({ kind: "server", message: msg });
+  const to = chat.onServer(msg); // chat: unread count, and a refusal for its own tab only
+  if (msg.type !== "REACTION.SHOW") changed(); // a reaction changes no state: no pill rebuild
+  // Chat goes only to the chat frames, never to a service page's content script (DEC-042),
+  // and a refusal only to the frame whose message it was.
+  if (to === "all") {
+    for (const p of ports)
+      if (wantsServerMessage(p.name, msg.type)) p.postMessage({ kind: "server", message: msg });
+  } else to?.postMessage({ kind: "server", message: msg } satisfies Push);
 }
 
 function reset() {
-  clearTimeout(retry);
+  retry.reset();
   socket?.close(); // onclose ignores it: socket is no longer this one
   socket = null;
   seen.clear();
-  attempt = 0;
-  Object.assign(state, { participants: [], media: null, playback: null, connection: "idle" });
+  sawRestart = false;
+  chat.reset(); // a room's chat stays with it: leaving, ending or switching forgets it
+  chrome.storage.session.remove("chatSeen").catch(() => {});
+  Object.assign(state, {
+    participants: [],
+    media: null,
+    playback: null,
+    connection: "idle",
+    updating: false,
+    unreachable: false,
+    unread: 0,
+  });
 }
 
 async function startSession(ticket: Session) {
@@ -320,7 +449,13 @@ async function endSession(notice: string | null) {
   await chrome.storage.session.remove(["session", "lastTicket"]);
   await chrome.storage.local.remove("lastRoom");
   changed();
+  updates.left();
 }
+
+// An update mid-room would clear the room ticket and drop us out: wait until we're out. The
+// reload waits a moment so the popup gets its answer first.
+const updates = updateGate(() => setTimeout(() => chrome.runtime.reload(), 500));
+chrome.runtime.onUpdateAvailable.addListener(() => updates.available(state.session !== null));
 
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).
@@ -421,6 +556,12 @@ async function handleNow(req: Request): Promise<Reply> {
         state.following = req.following;
         sendPresence();
         break;
+      case "retryNow":
+        retryNow();
+        break;
+      case "openChat":
+        if (!(await openChat())) throw new Error("no_tab");
+        break;
     }
     changed();
     return { ok: true, state: shared() };
@@ -438,14 +579,87 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   void injectOpenTabs(chrome);
 });
 
-// Test builds only: lets end-to-end tests cut the connection like a network drop.
-if (__MOCK__) Object.assign(globalThis, { watchsyncDropSocket: () => socket?.close() });
+/** Tells the content script of one tab, and no other, about its chat panel. */
+function toTab(tabId: number | undefined, msg: Push) {
+  if (tabId === undefined) return;
+  for (const p of ports) if (p.name === "tab" && p.sender?.tab?.id === tabId) p.postMessage(msg);
+}
 
-chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
-  if (sender.id !== chrome.runtime.id) return false;
-  handle(req).then(reply);
-  return true;
+/** Tells the chat frames (admitted ones only) of one tab, and no other. */
+function toChatFrames(tabId: number | undefined, msg: Push) {
+  if (tabId === undefined) return;
+  for (const p of ports)
+    if (p.name === "sidebar" && p.sender?.tab?.id === tabId) p.postMessage(msg);
+}
+
+/** The chat shortcut (US-040): only the tab it was pressed in opens or closes its panel. */
+async function onCommand(command: string, tab?: chrome.tabs.Tab) {
+  if (command !== "toggle-sidebar") return;
+  const id = tab?.id ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
+  toTab(id, { kind: "toggleSidebar" });
+}
+chrome.commands.onCommand.addListener((command, tab) => {
+  onCommand(command, tab).catch((e: unknown) => console.debug("watchsync: shortcut", e));
 });
+
+// Test builds only: lets end-to-end tests cut the connection like a network drop, and press
+// the chat shortcut (Playwright can't press extension commands).
+if (__MOCK__)
+  Object.assign(globalThis, {
+    watchsyncDropSocket: () => socket?.close(),
+    watchsyncCommand: onCommand,
+  });
+
+const chatFrames = new ChatFrames();
+
+/** The title each service tab last reported, for Open chat (US-115). */
+const tabTitles = new Map<number, string | null>();
+
+/** Service tabs with our content script running, newest first. */
+async function serviceTabs(): Promise<chrome.tabs.Tab[]> {
+  const ids = new Set<number>();
+  for (const p of ports) if (p.name === "tab" && p.sender?.tab?.id) ids.add(p.sender.tab.id);
+  const tabs = await Promise.all([...ids].map((id) => chrome.tabs.get(id).catch(() => null)));
+  return tabs
+    .filter((t): t is chrome.tabs.Tab => t !== null)
+    .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
+}
+
+/**
+ * Brings forward the tab playing the room's title (else the most recent service tab) and
+ * opens chat there with focus in it (US-115). False when there is no service tab.
+ */
+async function openChat(): Promise<boolean> {
+  const tabs = await serviceTabs();
+  const title = state.media?.titleId;
+  const tab = tabs.find((t) => t.id !== undefined && title && tabTitles.get(t.id) === title);
+  const target = tab ?? tabs[0];
+  if (target?.id === undefined) return false;
+  await chrome.tabs.update(target.id, { active: true });
+  await chrome.windows.update(target.windowId, { focused: true });
+  toTab(target.id, { kind: "openSidebar" });
+  return true;
+}
+
+chrome.runtime.onMessage.addListener(
+  (req: Request | ChatNonceRequest | ChatTabRequest, sender, reply) => {
+    if (sender.id !== chrome.runtime.id) return false;
+    if (req.kind === "hasChatTab") {
+      serviceTabs()
+        .then((tabs) => reply(tabs.length > 0))
+        .catch(() => reply(false));
+      return true;
+    }
+    if (req.kind === "chatNonce") {
+      // Only a tab's content script (its top frame) gets a pass for its chat frame.
+      const nonce = chatFrames.issue(sender);
+      reply((nonce ? { nonce } : null) satisfies ChatNonceReply);
+      return false;
+    }
+    handle(req).then(reply);
+    return true;
+  },
+);
 
 /** The tab we were watching in is gone: say "nothing open" now (BUG-026). */
 function presenceTabClosed() {
@@ -471,6 +685,8 @@ function titleTabGone() {
 
 // Closing the tab: no need to wait out the 3 s page-load allowance below.
 chrome.tabs.onRemoved.addListener((tabId) => {
+  chatFrames.forget(tabId);
+  tabTitles.delete(tabId);
   if (tabId === presenceTabId) presenceTabClosed();
 });
 // The retry: every 15 s make sure that tab still exists, so a missed close event can't
@@ -480,8 +696,61 @@ setInterval(() => {
   chrome.tabs.get(presenceTabId).catch(presenceTabClosed);
 }, 15_000);
 
+/**
+ * Where this person's player is, for a chat message's movie time: the room's clock when the
+ * tab we watch in is on the room's title and not in an ad; otherwise no time (name only).
+ */
+function myTime(): { movieTime: number | null; titleId: string | null } {
+  const titleId = presence.media?.titleId ?? null;
+  const pb = state.playback;
+  const me = state.participants.find((p) => p.id === state.session?.participantId);
+  if (titleId === null || !pb || pb.titleId !== titleId || me?.hold === "ad")
+    return { movieTime: null, titleId };
+  const now = Date.now() + state.clockOffset;
+  const elapsed = pb.status === "playing" ? ((now - pb.updatedAt) / 1000) * pb.rate : 0;
+  return { movieTime: Math.max(0, pb.position + elapsed), titleId };
+}
+
+/**
+ * A chat frame's port is served only after it says hello with the pass its tab's content
+ * script was given (DEC-042); anything else, or silence, is disconnected unserved.
+ */
+function admitChatFrame(port: chrome.runtime.Port) {
+  const silent = setTimeout(() => port.disconnect(), 5000);
+  const hello = (e: unknown) => {
+    clearTimeout(silent);
+    port.onMessage.removeListener(hello);
+    const frame = chatFrames.admit(port.sender, e);
+    if (!frame) return port.disconnect();
+    const tabId = port.sender?.tab?.id;
+    ports.add(port);
+    toTab(tabId, { kind: "chatFrameReady", frame });
+    // Gone without the content script removing it (the page pointed the frame elsewhere):
+    // tell the tab at once, so it puts the real frame back. Its own removals it ignores.
+    port.onDisconnect.addListener(() => {
+      ports.delete(port);
+      toTab(tabId, { kind: "chatFrameLost", frame });
+    });
+    // Its close goes only to the content script of the tab it sits in.
+    port.onMessage.addListener((m: unknown) => {
+      if (!isSidebarEvent(m)) return;
+      if (m.kind === "close") toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
+      if (m.kind === "chat")
+        chat.onTabEvent(port, { kind: "chat", text: m.text, clientId: m.clientId, ...myTime() });
+      if (m.kind === "react") react(m.emoji, m.count, port);
+      if (m.kind === "typing") toTab(port.sender?.tab?.id, { kind: "chatTyping", on: m.on });
+    });
+    ready.then(() => {
+      port.postMessage({ kind: "state", state: shared() } satisfies Push);
+      chat.onPortConnected(port); // the room's earlier messages, once known
+    });
+  };
+  port.onMessage.addListener(hello);
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
+  if (port.name === "sidebar") return admitChatFrame(port);
   ports.add(port);
   retryNow();
   port.onDisconnect.addListener(() => {
@@ -523,7 +792,21 @@ chrome.runtime.onConnect.addListener((port) => {
         return sendServer(envelope("START.REQUEST", { position: e.position, titleId: e.titleId }));
       if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
+      if (e.kind === "retryNow") return retryNow();
+      if (e.kind === "chat") return chat.onTabEvent(port, e);
+      if (e.kind === "chatOpened") {
+        chat.onTabEvent(port, e);
+        return changed();
+      }
+      if (e.kind === "react") return react(e.emoji, e.count, port);
+      if (e.kind === "chatType") {
+        // From this tab's content script to this tab's chat frames, and only if it is text.
+        if (isTypedText(e.text))
+          toChatFrames(port.sender?.tab?.id, { kind: "chatInsert", text: e.text });
+        return;
+      }
       const tabId = port.sender?.tab?.id;
+      if (tabId !== undefined) tabTitles.set(tabId, e.media?.titleId ?? null);
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).
       if (!e.media && presence.media && presenceTabId !== undefined && tabId !== presenceTabId)

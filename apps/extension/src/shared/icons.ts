@@ -18,7 +18,11 @@ export type IconName =
   | "link"
   | "copy"
   | "left"
-  | "right";
+  | "right"
+  | "chat"
+  | "close"
+  | "send"
+  | "down";
 
 interface IconDef {
   d: string;
@@ -53,6 +57,12 @@ export const ICONS: Record<IconName, IconDef> = {
   copy: { d: "M9 9h10.5v10.5H9zM5 15V4.5h10.5" },
   left: { d: "M14.5 6l-6 6 6 6" },
   right: { d: "M9.5 6l6 6-6 6" },
+  chat: {
+    d: "M5.5 5h13a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H11l-4.5 3.5V17h-1a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z",
+  },
+  close: { d: "M6.5 6.5l11 11M17.5 6.5l-11 11" },
+  send: { d: "M4.5 12h14M13 6.5l5.5 5.5-5.5 5.5" },
+  down: { d: "M12 5v13M6.5 12.5 12 18l5.5-5.5" },
 };
 
 const SVG = "http://www.w3.org/2000/svg";

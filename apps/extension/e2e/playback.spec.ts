@@ -111,3 +111,40 @@ test("a friend arriving on the title doesn't pull the room back (BUG-004)", asyn
     await friend.context.close();
   }
 });
+
+test("a Netflix-style skip (pause, jump, play) shows one jump notice, not pause and play", async ({
+  ext,
+}) => {
+  const { hostTab, friend } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await expect.poll(() => playing(tab)).toBe(true);
+    await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
+
+    // Netflix's 10-second skip: the player pauses, jumps, then plays again.
+    await hostTab.evaluate(async () => {
+      const v = document.querySelector("video");
+      if (!v) return;
+      v.pause();
+      v.currentTime = 60;
+      await new Promise((r) => v.addEventListener("seeked", r, { once: true }));
+      await v.play();
+    });
+    await expect(tab.getByText("Suhaas skipped ahead to 1:00")).toBeVisible();
+    await tab.waitForTimeout(1000);
+    await expect(tab.getByText("Suhaas paused")).toHaveCount(0);
+    await expect(tab.getByText("Suhaas pressed play")).toHaveCount(0);
+    await expect.poll(() => playing(tab)).toBe(true);
+    await expect
+      .poll(async () => Math.abs((await position(tab)) - (await position(hostTab))))
+      .toBeLessThan(1.5);
+
+    // A plain pause well after the skip still says so.
+    await hostTab.waitForTimeout(1600);
+    await hostTab.evaluate(() => document.querySelector("video")?.pause());
+    await expect(tab.getByText("Suhaas paused")).toBeVisible();
+  } finally {
+    await friend.context.close();
+  }
+});

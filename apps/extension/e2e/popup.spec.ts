@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, launchWithExtension, test } from "./fixtures";
+import { expect, launchWithExtension, MOCK, popup, test } from "./fixtures";
 
 test("the name field says what's wrong and only continues with a usable name", async ({ ext }) => {
   const page = await ext.context.newPage();
@@ -106,4 +106,34 @@ test("the popup says when a newer release is out (UC-012)", async () => {
   } finally {
     rmSync(profile, { recursive: true, force: true });
   }
+});
+
+test("Open chat brings the room's tab forward with chat open and focused (US-115)", async ({
+  ext,
+}) => {
+  const pop = await popup(ext, "Suhaas");
+  await pop.getByRole("button", { name: "Create a room" }).click();
+  const open = pop.getByRole("button", { name: "Open chat" });
+  await expect(open).toBeDisabled();
+  await expect(pop.getByText("Open the title on a supported service first.")).toBeVisible();
+
+  const [worker] = ext.context.serviceWorkers();
+  if (!worker) throw new Error("extension service worker not running");
+  const tabIds = () => worker.evaluate(async () => (await chrome.tabs.query({})).map((t) => t.id));
+  const before = await tabIds();
+  const tab = await ext.context.newPage();
+  await tab.goto(`${MOCK}/watch/ep1`);
+  await expect(pop.getByText("Test player · Demo Show, E1")).toBeVisible();
+  const id = (await tabIds()).find((t) => !before.includes(t));
+  const active = () => worker.evaluate(async (id) => (await chrome.tabs.get(id ?? -1)).active, id);
+  const other = await ext.context.newPage(); // another tab in front of the player
+  await other.goto("about:blank");
+  await expect.poll(active).toBe(false);
+  await pop.reload();
+  await pop.getByRole("button", { name: "Open chat" }).click();
+
+  await expect.poll(active).toBe(true);
+  await expect(tab.getByRole("region", { name: "WatchSync", exact: true })).toBeVisible();
+  const chat = tab.frameLocator("watchsync-sidebar iframe");
+  await expect(chat.getByRole("textbox", { name: "Message" })).toBeFocused();
 });

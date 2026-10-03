@@ -34,6 +34,28 @@ def test_create_rejects_bad_names() -> None:
     assert client.post("/api/v1/rooms", json={"name": "a", "extra": 1}).status_code == 422
 
 
+def test_nobody_can_be_called_watchsync() -> None:
+    """The product's own name is reserved, in any case, width or spacing (after NFKC), on
+    create and join alike; the extension's name check refuses it too."""
+    fullwidth = "".join(chr(ord(c) + 0xFEE0) for c in "WatchSync")
+    host = create()
+    for name in ("WatchSync", "watchsync", " WATCH SYNC ", fullwidth):
+        r = client.post("/api/v1/rooms", json={"name": name})
+        assert r.status_code == 422 and r.json()["detail"] == "Choose another name.", name
+        assert join(host["code"], name).status_code == 422, name
+    assert create("WatchSync fan")  # only the name itself
+    # The same name twice stays allowed (DEC-029): people are told apart by id.
+    assert join(host["code"], "Suhaas").status_code == 201
+
+
+def test_a_name_with_a_final_newline_is_refused() -> None:
+    """Python's `$` matches before a final newline; the service reads the Name pattern over
+    the whole name, as browsers do, and refuses control characters."""
+    for body in (b'{"name":"Maya\\n"}', b'{"name":"Ma\\nya"}', b'{"name":"Maya\\u0085"}'):
+        r = client.post("/api/v1/rooms", content=body, headers={"content-type": "application/json"})
+        assert r.status_code == 422, body
+
+
 def test_create_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "create_limiter", main.Limiter(2, 60))
     assert client.post("/api/v1/rooms", json={"name": "a"}).status_code == 201
@@ -1373,3 +1395,16 @@ def test_moving_to_another_title_cancels_a_start_together() -> None:
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)
+
+
+def test_title_names_lose_control_and_direction_characters() -> None:
+    from app.rooms import clean_title, safe_media
+
+    assert clean_title("Dune‮, E1") == "Dune, E1"  # right-to-left override
+    assert clean_title("A⁦B⁩﻿C\x07 D") == "ABCD"
+    assert clean_title("‮‏ ") is None  # nothing visible left
+    assert clean_title(None) is None
+    assert clean_title("Zoë 👩‍👩 مسلسل") == "Zoë 👩‍👩 مسلسل"
+    media = {"service": "netflix", "titleId": "1", "titleName": "X‮Y", "titleUrl": None}
+    cleaned = safe_media(media)
+    assert cleaned is not None and cleaned["titleName"] == "XY"

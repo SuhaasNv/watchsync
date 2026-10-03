@@ -53,8 +53,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           short="${SHA:0:7}"
+          version=$(node -p "require('./apps/extension/package.json').version")
+          label=$(node -p "const p = require('./apps/extension/package.json'); p.prerelease ? p.version + '-' + p.prerelease : p.version")
+          # What is in this build: the CHANGELOG section being worked on (Unreleased, else the
+          # version in package.json), in the same plain words as a release.
+          changes=$(node scripts/release-notes.mjs Unreleased 2>/dev/null || node scripts/release-notes.mjs "$version" 2>/dev/null || true)
+          {
+            echo "A testing build of WatchSync **$label** from the dev branch, commit \`$short\`. It is not a release: for everyday use install WatchSync from https://watchsync.space."
+            echo
+            echo "## In this build"
+            echo
+            if [ -n "$changes" ]; then echo "$changes"; else echo "No notes yet for this version. See CHANGELOG.md in the repository."; fi
+            echo
+            echo "## Install or update"
+            echo
+            echo "- Download \`watchsync-extension-dev.zip\` below and unzip it. To update, unzip over the same folder."
+            echo "- Open chrome://extensions, turn on Developer mode, choose Load unpacked and pick the folder. To update, press the reload arrow on the WatchSync Dev card."
+            echo "- The name on that card reads \"WatchSync Dev\" and its version reads \"$label dev $short\"."
+            echo
+            echo "## Good to know"
+            echo
+            echo "- It talks to the dev room service, which sleeps when idle, so the first room can take a few seconds."
+            echo "- Rooms on the dev service and on watchsync.space are separate: everyone in a room needs the same build."
+          } > dev-notes.md
+          cat dev-notes.md
           gh release delete dev-latest --cleanup-tag --yes > /dev/null 2>&1 || true
           gh release create dev-latest apps/extension/watchsync-extension-dev.zip \
             --prerelease --latest=false --target "$SHA" \
-            --title "WatchSync Dev ($short)" \
-            --notes "Testing build from the dev branch at $short. It talks to the dev room service, which sleeps when idle, so the first room can take a few seconds. For everyday use, install WatchSync from https://watchsync.space."
+            --title "WatchSync Dev $label ($short)" \
+            --notes-file dev-notes.md

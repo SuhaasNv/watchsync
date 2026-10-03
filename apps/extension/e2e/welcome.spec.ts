@@ -49,6 +49,27 @@ test("opens on install; the mark animates, and holds still under reduced motion"
   }
 });
 
+test("not pinned: an arrow points up at Chrome's puzzle icon, top right", async () => {
+  const { context, page } = await welcome();
+  try {
+    await page.emulateMedia({ reducedMotion: "reduce" }); // no bounce: the arrow holds still
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 800 });
+      const arrow = page.locator(".pointer-arrow");
+      await expect(arrow).toBeVisible();
+      await expect(page.locator("#pin-text")).toHaveText("Not pinned yet");
+      const box = await arrow.boundingBox();
+      const fromRight = width - ((box?.x ?? 0) + (box?.width ?? 0) / 2);
+      expect(fromRight).toBeGreaterThanOrEqual(96);
+      expect(fromRight).toBeLessThanOrEqual(140);
+      expect(box?.y).toBe(0);
+      await expect(page.locator("#pointer-text")).toContainText("puzzle icon");
+    }
+  } finally {
+    await context.close();
+  }
+});
+
 test("the steps work by keyboard and announce themselves", async () => {
   const { context, page } = await welcome();
   try {

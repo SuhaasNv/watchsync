@@ -1,5 +1,13 @@
 // Messages between the extension's own contexts (popup, content scripts, background).
-import type { AnyServerMessage, Media, Participant, Playback, Service } from "@watchsync/protocol";
+import type {
+  AnyServerMessage,
+  Emoji,
+  Media,
+  Participant,
+  Playback,
+  Service,
+} from "@watchsync/protocol";
+import { isEmoji, MAX_COUNT } from "./reactions";
 import type { Update } from "./update";
 
 export interface Session {
@@ -28,6 +36,15 @@ export interface AppState {
   notice: string | null;
   /** A newer release than this install, from the daily GitHub check (UC-012). */
   update: Update | null;
+  /**
+   * The room service closed us because it is restarting for an update (US-121): while
+   * reconnecting, say WatchSync is updating instead of "Reconnecting". Off after 60 s.
+   */
+  updating: boolean;
+  /** Still not back after 2 minutes: say so plainly and offer Try now (retries go on). */
+  unreachable: boolean;
+  /** Chat messages from other people since the chat was last opened (US-044). */
+  unread: number;
 }
 
 /** One-shot requests to the background (chrome.runtime.sendMessage). */
@@ -39,16 +56,97 @@ export type Request =
   | { kind: "leave" }
   | { kind: "rejoin" }
   | { kind: "forgetRoom" }
-  | { kind: "follow"; following: boolean };
+  | { kind: "follow"; following: boolean }
+  /** Try the room connection again now (the long-outage notice's Try now). */
+  | { kind: "retryNow" }
+  /** Bring the room's tab forward with chat open (US-115); error "no_tab" if none is open. */
+  | { kind: "openChat" };
 
 export type Reply = { ok: true; state: AppState } | { ok: false; error: string; state: AppState };
 
-/** Background → popup and content scripts, over a long-lived port. */
+/**
+ * Background → popup and content scripts, over a long-lived port. Chat arrives as server
+ * messages: CHAT.HISTORY (replaces the list; also replayed to a tab when it connects, once the
+ * room's history is known), CHAT.MESSAGE, and CHAT.REJECTED (only to the tab that sent it).
+ */
 export type Push =
   | { kind: "state"; state: AppState }
   | { kind: "server"; message: AnyServerMessage }
   /** The tab that reported our title is gone: any other tab with a title, say so. */
-  | { kind: "report" };
+  | { kind: "report" }
+  /** The chat shortcut was pressed in this tab (to its port only). */
+  | { kind: "toggleSidebar" }
+  /** Open chat with focus in it: the popup's Open chat (to its port only, US-115). */
+  | { kind: "openSidebar" }
+  /** The chat panel in this tab asked to close: Esc or its close button (to its port only). */
+  | { kind: "closeSidebar" }
+  /**
+   * The chat frame in this tab reports typing in its message box (on), or leaving the box with
+   * Tab (off), so the page's own focus grabs and hotkeys can be kept off the message (BUG-073).
+   * To its tab's port only.
+   */
+  | { kind: "chatTyping"; on: boolean }
+  /** Keys the page of this tab received while it held focus: for the message box (to the tab's chat frames only). */
+  | { kind: "chatInsert"; text: string }
+  /** The chat frame with this pass connected (to its tab's port only). */
+  | { kind: "chatFrameReady"; frame: string }
+  /** The chat frame with this pass lost its connection (to its tab's port only). */
+  | { kind: "chatFrameLost"; frame: string }
+  /**
+   * This tab's chat message has had no echo for 5 s and is still being tried (it is sent again
+   * after a reconnect): show "Sending…".
+   */
+  | { kind: "chatSending"; clientId: string }
+  /**
+   * This tab's chat message didn't reach the room: show "Not sent" and keep the text.
+   * offline: no echo 30 s after it was first sent, not in a room, or too many waiting (Retry,
+   * with the same clientId, can work); invalid: the text can't be sent as it is (no Retry).
+   */
+  | { kind: "chatFailed"; reason: "offline" | "invalid"; text: string; clientId: string }
+  /**
+   * A reaction this person sent was dropped, never queued or retried: no connection, or past
+   * the per-person limit. To the chat frames, so the button can say so (US-046).
+   */
+  | { kind: "reactionDropped"; emoji: Emoji; reason: "offline" | "limit" };
+
+/**
+ * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first
+ * message is "hello" with the one-time pass the tab's content script put in the frame's
+ * address; the background serves the port only if it matches.
+ */
+export type SidebarEvent =
+  | { kind: "hello"; nonce: string }
+  | { kind: "close" }
+  /**
+   * Send a chat message (UC-014). The background adds the movie time: the frame can't see
+   * the player. clientId is the frame's id for it (crypto.randomUUID()), the same on Retry.
+   */
+  | { kind: "chat"; text: string; clientId: string }
+  /** A reaction button: taps within 250 ms come as one with a count (US-045). */
+  | { kind: "react"; emoji: Emoji; count: number }
+  /** Typing in the message box (on), or leaving it with Tab (off); at most one per 300 ms. */
+  | { kind: "typing"; on: boolean };
+
+export function isSidebarEvent(v: unknown): v is SidebarEvent {
+  if (typeof v !== "object" || v === null) return false;
+  const kind = Reflect.get(v, "kind");
+  const str = (k: string) => typeof Reflect.get(v, k) === "string";
+  if (kind === "chat") return str("text") && str("clientId");
+  if (kind === "react") {
+    const count = Reflect.get(v, "count");
+    const whole = typeof count === "number" && Number.isInteger(count);
+    return isEmoji(Reflect.get(v, "emoji")) && whole && count >= 1 && count <= MAX_COUNT;
+  }
+  if (kind === "typing") return typeof Reflect.get(v, "on") === "boolean";
+  return kind === "close" || (kind === "hello" && str("nonce"));
+}
+
+/** Content script → background: a one-time pass for the chat frame it is about to load. */
+export type ChatNonceRequest = { kind: "chatNonce" };
+export type ChatNonceReply = { nonce: string } | null;
+
+/** Popup → background: whether a supported service tab is open for Open chat (boolean). */
+export type ChatTabRequest = { kind: "hasChatTab" };
 
 /** Content script → background, over its port. */
 export type TabEvent =
@@ -65,7 +163,30 @@ export type TabEvent =
   | { kind: "hold"; reason: "buffering" | "ad" | null; position: number; adLeft: number | null }
   | { kind: "start"; position: number; titleId: string | null }
   | { kind: "startReady" }
-  | { kind: "startForce" };
+  | { kind: "startForce" }
+  /** The tab came back into view: if the connection is down, try it again now. */
+  | { kind: "retryNow" }
+  /**
+   * Send a chat message marked with this tab's movie time (null: no title open). clientId is
+   * the tab's id for this message (crypto.randomUUID()), the same on Retry, so the room never
+   * keeps it twice.
+   */
+  | {
+      kind: "chat";
+      text: string;
+      movieTime: number | null;
+      titleId: string | null;
+      clientId: string;
+    }
+  /** The chat was opened: everything in it is seen, and the unread count clears. */
+  | { kind: "chatOpened" }
+  /** A reaction (US-045); the chat frame sends the same as a SidebarEvent. */
+  | { kind: "react"; emoji: Emoji; count: number }
+  /**
+   * A key the person pressed while the page had taken focus from the message box: the
+   * background hands it to this tab's chat frame (BUG-073). Checked with isTypedText.
+   */
+  | { kind: "chatType"; text: string };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {
@@ -142,8 +263,16 @@ export function nameProblem(raw: string): string | null {
   if (!name) return "Enter your name.";
   if (!/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name))
     return "Use at least one letter or number.";
+  if (isReservedName(name)) return "Choose another name.";
   return null;
 }
+
+/**
+ * The product's own name, in any case, width or spacing (compared after NFKC), so nobody can
+ * pose as WatchSync. The room service refuses the same names (app/protocol.py).
+ */
+export const isReservedName = (name: string): boolean =>
+  name.normalize("NFKC").toLowerCase().replace(/\s/g, "") === "watchsync";
 
 /** The room code in what someone typed or pasted: a code, a spaced code or an invite link. */
 export function codeFrom(text: string): string {
@@ -153,5 +282,8 @@ export function codeFrom(text: string): string {
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 6);
 }
+
+/** The long-outage line, in the page and the popup (retry policy, v0.2). */
+export const UNREACHABLE = "Can't reach WatchSync. Still trying.";
 
 export const send = (req: Request): Promise<Reply> => chrome.runtime.sendMessage(req);

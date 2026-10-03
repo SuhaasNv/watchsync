@@ -57,13 +57,13 @@
           <h3>Small slips fix themselves</h3>
           <p>
             Players drift a little over a long film. WatchSync nudges yours back without a sound. If
-            you fall far behind, one press of Sync brings you back.
+            you fall far behind, one press of Catch up brings you back.
           </p>
         </div>
         <div class="mock" aria-hidden="true">
           <div class="pill">
             <span class="f ok">S</span><span class="f">A</span><span class="f ok">R</span>
-            <span class="b primary">Sync</span>
+            <span class="b primary">Catch up</span>
           </div>
         </div>
       </li>
@@ -72,8 +72,8 @@
         <div class="text">
           <h3>Watch on my own, for a bit</h3>
           <p>
-            Rewind a scene you missed or skip ahead alone. The room carries on, and Sync puts you
-            back where everyone is.
+            Rewind a scene you missed or skip ahead alone. The room carries on, and Watch with the room
+            puts you back where everyone is.
           </p>
         </div>
         <div class="mock" aria-hidden="true">
@@ -113,6 +113,105 @@
             <span class="badge warn">Reconnecting…</span>
             <span class="badge ok">Connected</span>
           </p>
+        </div>
+      </li>
+
+      <li>
+        <div class="text">
+          <h3>Rooms survive an update</h3>
+          <p>
+            When WatchSync's server updates, your room comes back with the same code and position.
+          </p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <p class="states">
+            <span class="badge warn">WatchSync is updating, back in a moment</span>
+          </p>
+        </div>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="details talk" aria-labelledby="talk-title">
+  <div class="wrap">
+    <h2 id="talk-title">Chat <span class="em">and reactions.</span></h2>
+
+    <ul class="rows">
+      <li>
+        <div class="text">
+          <h3>Chat with movie times</h3>
+          <p>Each message shows the minute of the film it was sent at.</p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="card chat">
+            <p><span class="n">Sam</span> <span class="t">42:10</span></p>
+            <p>that twist</p>
+            <p class="gap"><span class="n">Maya</span> <span class="t">42:31</span></p>
+            <p>wait, go back a bit</p>
+          </div>
+        </div>
+      </li>
+
+      <li>
+        <div class="text">
+          <h3>Six reactions</h3>
+          <p>Tap a few times and friends see that many float up, up to five.</p>
+        </div>
+        <div class="mock burst" aria-hidden="true" data-burst>
+          <span class="rise">
+            <span class="up">🔥</span><span class="up">🔥</span><span class="up">🔥</span><span
+              class="up">🔥</span
+            ><span class="up">🔥</span>
+          </span>
+          <p class="chips">
+            <span class="b">Love</span><span class="b">Laugh</span><span class="b">Cry</span
+            ><span class="b primary">Fire</span><span class="b">Shocked</span><span class="b"
+              >Clap</span
+            >
+          </p>
+        </div>
+      </li>
+
+      <li>
+        <div class="text">
+          <h3>Typing stays in the box</h3>
+          <p>Space, k, f, m and the arrow keys never reach the player.</p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <p class="keys">
+            <kbd>Space</kbd><kbd>K</kbd><kbd>F</kbd><kbd>M</kbd><kbd>←</kbd><kbd>→</kbd>
+          </p>
+        </div>
+      </li>
+
+      <li>
+        <div class="text">
+          <h3>Room activity in the chat</h3>
+          <p>Joins, leaves and title changes show as lines. Show pop-ups turns the page ones off.</p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="card chat">
+            <p class="act">Leo joined</p>
+            <p class="act">Sam opened The Night Train, S1:E4</p>
+            <p class="opt"><span class="box"></span>Show pop-ups</p>
+          </div>
+        </div>
+      </li>
+
+      <li>
+        <div class="text">
+          <h3>Open chat from anywhere</h3>
+          <p>
+            Use the pill, the popup or Alt+Shift+W (Control+Shift+W on a Mac). Unread shows as a
+            count.
+          </p>
+        </div>
+        <div class="mock" aria-hidden="true">
+          <div class="pill">
+            <span class="f ok">S</span><span class="f ok">A</span><span class="f ok">R</span>
+            <span class="b">Chat <span class="count">3</span></span>
+          </div>
         </div>
       </li>
     </ul>
@@ -305,9 +404,170 @@
     background: var(--pres-soft);
     color: var(--pres);
   }
+  .chat {
+    display: grid;
+    gap: 2px;
+    width: min(100%, 300px);
+    font-size: 0.9rem;
+  }
+  .chat .n {
+    font-weight: 650;
+  }
+  .chat .t {
+    margin-left: 6px;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text3);
+  }
+  .chat p + p {
+    color: var(--text2);
+  }
+  .chat .gap {
+    margin-top: 6px;
+  }
+  .chat .act {
+    color: var(--text2);
+    font-size: 0.85rem;
+  }
+  .chat .opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+  .box {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: var(--acc);
+  }
+  /* Six reactions: five fires float up once from the chips when the row scrolls into view,
+     each from its own spot and for its own time (up to five, like the real thing). */
+  .burst {
+    position: relative;
+    overflow: hidden;
+  }
+  .rise {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .up {
+    position: absolute;
+    left: var(--x);
+    bottom: 62px;
+    font-size: 22px;
+    line-height: 1;
+    opacity: 0;
+  }
+  .up:nth-child(1) {
+    --x: 53%;
+    --d: 0s;
+    --t: 1.7s;
+    --dy: -46px;
+  }
+  .up:nth-child(2) {
+    --x: 60%;
+    --d: 0.12s;
+    --t: 2.1s;
+    --dy: -56px;
+  }
+  .up:nth-child(3) {
+    --x: 66%;
+    --d: 0.24s;
+    --t: 1.5s;
+    --dy: -38px;
+  }
+  .up:nth-child(4) {
+    --x: 56%;
+    --d: 0.38s;
+    --t: 1.9s;
+    --dy: -60px;
+  }
+  .up:nth-child(5) {
+    --x: 63%;
+    --d: 0.5s;
+    --t: 2.3s;
+    --dy: -50px;
+  }
+  .burst.go .up {
+    animation: up var(--t) ease-out var(--d) 1 both;
+  }
+  @keyframes up {
+    0% {
+      opacity: 0;
+      transform: translateY(0) scale(0.7);
+    }
+    14%,
+    65% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(var(--dy)) scale(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rise {
+      display: none;
+    }
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .keys {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  kbd {
+    display: inline-grid;
+    place-items: center;
+    min-width: 40px;
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 8px;
+    background: var(--raised);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--line2);
+  }
+  .count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--acc);
+    color: var(--on-acc);
+    font-size: 0.72rem;
+  }
   @media (max-width: 820px) {
     .rows li {
       grid-template-columns: 1fr;
     }
   }
 </style>
+
+<script>
+  // Plays the reactions row's burst once, when it first scrolls into view.
+  const burst = document.querySelector<HTMLElement>("[data-burst]");
+  if (burst && "IntersectionObserver" in window) {
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      burst.classList.add("go");
+      io.disconnect();
+    });
+    io.observe(burst);
+  }
+</script>

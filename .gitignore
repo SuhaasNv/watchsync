@@ -14,3 +14,7 @@ playwright-report/
 # Unzipped release builds people load into Chrome
 watchsync-extension-*/
 .claude/worktrees/
+
+# Local only: never commit or push (owner rule)
+/CLAUDE.md
+/docs/PRD.md

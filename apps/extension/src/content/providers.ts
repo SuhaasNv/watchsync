@@ -321,10 +321,17 @@ function netflixProvider(): StreamingProvider {
   };
 }
 
-/** The room accepts title names up to 200 characters; a longer one would get the whole report refused. */
+/**
+ * The room accepts title names up to 200 characters, without control or direction-changing
+ * characters (the service strips them too); a longer one would get the whole report refused.
+ */
 export function capName(m: Media | null): Media | null {
-  if (!m?.titleName || m.titleName.length <= 200) return m;
-  return { ...m, titleName: `${[...m.titleName].slice(0, 199).join("")}…` };
+  if (!m?.titleName) return m;
+  const clean = m.titleName
+    .replace(/[\p{Cc}\u2028\u2029\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/gu, "")
+    .trim();
+  const name = clean.length <= 200 ? clean : `${[...clean].slice(0, 199).join("")}…`;
+  return name === m.titleName ? m : { ...m, titleName: name || null };
 }
 
 export function providerFor(host: string): StreamingProvider | null {

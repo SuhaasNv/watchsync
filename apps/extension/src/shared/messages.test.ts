@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { cleanName, codeFrom, nameProblem, safeTitleUrl } from "./messages";
+import { cleanName, codeFrom, isSidebarEvent, nameProblem, safeTitleUrl } from "./messages";
+
+test("the chat frame's typing signal is on or off and nothing else (BUG-073)", () => {
+  expect(isSidebarEvent({ kind: "typing", on: true })).toBe(true);
+  expect(isSidebarEvent({ kind: "typing", on: false })).toBe(true);
+  expect(isSidebarEvent({ kind: "typing" })).toBe(false);
+  expect(isSidebarEvent({ kind: "typing", on: "yes" })).toBe(false);
+});
 
 test("invites only redirect to supported service pages", () => {
   expect(safeTitleUrl("https://www.netflix.com/watch/80057281")).toBe(
@@ -83,4 +90,12 @@ test("a name needs a letter, number or emoji; the message says what to do", () =
   expect(nameProblem("R2")).toBeNull();
   expect(nameProblem("😀")).toBeNull();
   expect(nameProblem("<b>Sam</b>")).toBeNull(); // shown as text, never HTML
+});
+
+test("nobody can be called WatchSync, the room service refuses it too", () => {
+  const wide = (c: string) => String.fromCodePoint((c.codePointAt(0) ?? 0) + 0xfee0);
+  const fullwidth = Array.from("WatchSync", wide).join("");
+  for (const name of ["WatchSync", "watchsync", " WATCH SYNC ", fullwidth])
+    expect(nameProblem(name), name).toBe("Choose another name.");
+  expect(nameProblem("WatchSync fan")).toBeNull();
 });

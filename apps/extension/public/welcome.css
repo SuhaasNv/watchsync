@@ -948,28 +948,29 @@ section {
   text-align: center;
 }
 
-/* "Show me where": points at Chrome's toolbar, just above the page's top right corner. */
+/* Points up at Chrome's puzzle (Extensions) icon: in the toolbar above the page, right of the
+   address bar and left of the profile and menu buttons, so about 96 to 140 px from the right
+   edge of the window at any width. The arrow's tip sits at 118 px. */
 .pointer {
   position: fixed;
-  top: 12px;
+  top: 0;
   right: 16px;
   z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
-  max-width: min(320px, calc(100vw - 32px));
+  max-width: min(300px, calc(100vw - 32px));
 }
 .pointer-arrow {
   width: 40px;
   height: 40px;
-  margin-right: 24px;
+  margin-right: 82px; /* 16 + 82 + 20 (half the arrow) = 118 px from the right edge */
   fill: none;
   stroke: var(--acc);
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
-  animation: nudge 700ms var(--ease) 3 both;
+  animation: nudge 900ms var(--ease) 3 both;
 }
 .pointer-card {
   display: flex;
@@ -1167,7 +1168,7 @@ section {
 }
 @keyframes nudge {
   50% {
-    transform: translate(4px, -4px);
+    transform: translateY(-6px);
   }
 }
 

@@ -249,7 +249,7 @@ test.describe("release notes", () => {
       await expect(page.getByRole("heading", { name: "Changelog" })).toBeVisible();
       await expect(page.locator("[data-changelog]")).toContainText("Nobody gets left behind");
       await page.goto("/");
-      await expect(page.locator("[data-version]").first()).toHaveText("v0.1.1");
+      await expect(page.locator("[data-version]").first()).toHaveText("v0.2.0");
     });
   });
 

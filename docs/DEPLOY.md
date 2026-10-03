@@ -27,11 +27,27 @@ Scaling: environments differ only in variables. If one room-service instance is 
 ## How it runs
 
 - Image: `Dockerfile.signaling`, built from the repo root because the service reads the shared schema in `packages/protocol/schema`.
-- One uvicorn worker, because rooms live in memory (DEC-003). A redeploy ends every room.
+- One uvicorn worker, because rooms live in memory (DEC-003). A redeploy no longer ends the rooms (DEC-031, UC-046): on SIGTERM the service closes every connection with code 4002 ("restarting"), the extension says "WatchSync is updating, back in a moment" and retries every 1 to 3 s, and the new process brings each room back from its people's signed tokens (same code, same names; the first person back restores the title and position). Chat history does not come back. Rooms are restored only within `RESTORE_WINDOW_SECONDS` (default 600) of the new process starting.
+- `ROOM_SIGNING_SECRET` (required in production, at least 32 bytes; the service refuses to start without it): signs room tokens. Generate it once with `openssl rand -base64 48`, set it as a service variable on Railway (each environment its own), and keep it across deploys. Changing it ends every open room: old tokens stop verifying and the extension tells people the room has ended. Never commit it, never log it.
 - Logs: no access log and `--log-level warning`, because WebSocket URLs carry room tokens (BUG-003).
 - The process runs as a non-root user. WebSocket frames are capped at 16 KB and request bodies at 2 KB.
 - `TRUST_PROXY=1` (set in `Dockerfile.signaling`): per-client limits key on `X-Real-IP` instead of the TCP peer, which on Railway is always the edge. See "Client addresses" below.
-- Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
+- Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `WS_PER_IP=20` open WebSockets per client, `WS_IDLE_SECONDS=120` before a socket that sends nothing (not even the extension's 20 s pings) is closed with 1001, `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
+- Chat limits (US-043; defaults, override with service variables; the protocol caps `CHAT_MAX_CHARS` at 500 and `CHAT_HISTORY` at 200, and larger values are cut to those): `CHAT_MAX_CHARS=500` characters per message, counted in code points as the extension counts them, with up to 10 line breaks; `CHAT_PER_5S=5` messages per person per 5 seconds and `CHAT_ROOM_PER_10S=20` per room per 10 seconds, everyone together (past either the sender gets `CHAT.REJECTED` `rate_limited` with the first 500 characters of their text back); a retry with the same `clientId` is never kept twice; `CHAT_HISTORY=200` messages a room keeps for people who join later, within `CHAT_ROOM_BYTES=65536` per room and `CHAT_TOTAL_BYTES=33554432` (32 MB) across all rooms; past either byte budget the oldest messages go first (the room's own, then the oldest anywhere). Chat text lives only in memory while its room exists and is deleted when the room ends or the service restarts (DEC-032). The service writes no chat text to its logs, and filters two known leaks out of uvicorn's loggers as a safety net: the WebSocket library's frame lines (DEBUG) and `token=` values in connection and access lines. That is not a reason to raise the level: production stays at `--log-level warning` with no access log, and debug logging is for a local machine only.
+
+### Room tokens
+
+A token is the room code, the person's id, their name and when it was issued, signed with `ROOM_SIGNING_SECRET` (HMAC-SHA256); anyone can read it, nobody can forge one. The extension sends it in the `Sec-WebSocket-Protocol` header (`watchsync.v1, <token>`), so it is not in any URL or access log; `?token=` still works for v0.1.x extensions until v0.8. After a restart a token brings its room back from nothing only if it is under `TOKEN_MAX_AGE_SECONDS` (default 86400) old and not dated in the future (5 minutes of clock tolerance), within `RESTORE_WINDOW_SECONDS` of the start, within `MAX_ROOMS`, and within `RESTORES_PER_IP` rooms per client address (default 3). A room already back keeps taking its people's valid tokens after the window (a laptop that wakes up later). Someone who left a room brought back in this process can't come back with their old token. A live connection is checked against the room's own list, so a long night isn't cut off by the age limit.
+
+What the room was watching comes from its people (ROOM.RESTORE), sent only by an extension the old service told it was restarting. For 10 seconds after a room is back, the most recent knowledge wins (the old service's time of the clock each one last heard), so a friend who was behind and reconnects first can't rewind everyone; a play, pause or jump made in the new process always wins.
+
+The extension holds a Chrome update while it is in a room (an update clears the session storage that holds the room ticket) and applies it when the person leaves the room; otherwise Chrome applies it at the next browser start.
+
+Accepted risks (security audit, October 2026):
+
+- Which rooms ended, and who left, is kept in memory only (no disk, no database). After a restart, a token kept from a room that ended before it can bring that room back, and a token kept by someone who left can put them back in it while the room lives, within the age limit (24 h; bringing a room back from nothing also within the restore window). The extension drops its token when a room ends or the person leaves, so this takes someone deliberately keeping one. `test_a_room_ended_before_a_restart_is_bounded_by_token_age` pins the bound with two real processes.
+- The token carries the person's display name in readable form. It no longer travels in URLs, so it doesn't reach logs.
+- The service needs up to 2 seconds after SIGTERM to tell every connection it is restarting. Railway must leave more than that between SIGTERM and killing the process (owner to confirm in the service settings).
 
 ### Client addresses
 
@@ -51,14 +67,14 @@ Service settings, set on Railway rather than in a file:
 
 | Setting | Value |
 |---|---|
-| Variables | `PORT=8080`, `PUBLIC_URL`, `RAILWAY_DOCKERFILE_PATH=Dockerfile.signaling` |
+| Variables | `PORT=8080`, `PUBLIC_URL`, `RAILWAY_DOCKERFILE_PATH=Dockerfile.signaling`, `ROOM_SIGNING_SECRET` (secret, see above) |
 | Healthcheck | `/health`, 30 s |
 | Restart | on failure, up to 10 retries |
 | Sleep | off (sleeping would end the rooms) |
 
 ## Deploy
 
-Ask the owner first: a deploy ends every open room.
+Ask the owner first. Before the first deploy of v0.2, set `ROOM_SIGNING_SECRET` on the service, or the new version won't start (the old one keeps running). With it set, open rooms come back by themselves within seconds; tokens issued by v0.1.x are not signed, so rooms open during that one deploy still end.
 
 ```bash
 railway link --project watchsync --service room-service --environment production
@@ -74,24 +90,24 @@ Then check the deploy logs for anything that shouldn't be there.
 
 ## Releasing
 
-A release is a version tag. Pushing it runs `.github/workflows/release.yml`. Each tag push needs the owner's approval, like any push.
+A release is a version tag. Pushing it runs `.github/workflows/release.yml`. Each tag push needs the owner's approval, like any push. The stages (beta, release candidate, final) and the rules between them are in `docs/RELEASING.md`.
 
 1. Bump the version where it appears, keeping them equal: `apps/extension/package.json` (it becomes the manifest version and must match the tag), `services/signaling/pyproject.toml`, and `VERSION` in `services/signaling/app/config.py` (shown by `/health`).
 2. Add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md` with `### Added`, `### Fixed` and `### Known issues`. The release notes are that section, as printed by `node scripts/release-notes.mjs X.Y.Z`, followed by a "Check this download" section the workflow adds (commit, build link, SHA-256 of each file); the workflow fails if the section is missing.
-3. Commit on `dev` (or merge `dev` into `main` in the Ship use case), then tag that commit: `vX.Y.Z` for a release, `vX.Y.Z-rc.N` for a release candidate.
+3. Commit on `dev` (or merge `dev` into `main` in the Ship use case), then tag that commit: `vX.Y.Z` for a release, `vX.Y.Z-rc.N` for a release candidate, `vX.Y.Z-beta.N` for a beta. The `"prerelease"` label in `apps/extension/package.json` must match (`"rc.1"`, `"beta.2"`, none for a final).
 4. With the owner's go-ahead: `git push origin vX.Y.Z`.
 
 The workflow then:
 
 - runs the full CI (`ci.yml`: lint, protocol drift, typecheck, unit tests, extension end-to-end, room service checks, secret scan);
-- checks that the tag, without `v` and any `-rc.N`, equals the version in `apps/extension/package.json`, and stops with a clear error if not;
+- runs `scripts/release-guard.mjs`: the tag, the version and the `"prerelease"` label in `apps/extension/package.json` must agree, and a final release must be its last release candidate unchanged (shipped files identical), or it stops with a clear error;
 - runs `pnpm --filter @watchsync/extension zip` (production room service, never a mock build) and checks the manifest has no localhost permission;
 - writes `SHA256SUMS.txt` and signs a build provenance attestation for both zips (`actions/attest-build-provenance`, pinned to a commit), so anyone can run `gh attestation verify watchsync-extension.zip -R SuhaasNv/watchsync`;
 - publishes the GitHub Release `WatchSync vX.Y.Z` (with "(release candidate)" for an rc), notes from `CHANGELOG.md` plus the commit, a link to the run and the checksums, and three files: `watchsync-extension-vX.Y.Z.zip`, `watchsync-extension.zip` and `SHA256SUMS.txt`.
 
 The website shows the zip's SHA-256 from the notes next to each download on `/releases/`, and the newest one in the install guide's "Is it safe?" section. Both read the ``- `file`: `hash` `` lines the script writes, so keep that format if the script changes.
 
-Release candidates are published as normal releases, not prereleases, so `/releases/latest` serves them while friends test v0.1.
+Release candidates and finals are published as normal releases, so `/releases/latest` serves them. Betas are published as pre-releases, so the website's download link and the update check never pick them.
 
 **Stable download URL** (always the newest release; the website links here):
 `https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip`

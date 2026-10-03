@@ -47,7 +47,7 @@ test("a friend on another title is asked, and Open takes them there", async ({ e
     const ask = tab.getByText("Suhaas is watching Demo Show, E1. Open it?");
     await expect(ask).toBeVisible({ timeout: 5000 });
     await expect(tab.getByRole("button", { name: "Not now" })).toBeVisible();
-    await tab.getByRole("button", { name: "Open" }).click();
+    await tab.getByRole("button", { name: "Open", exact: true }).click();
     await tab.waitForURL(`${MOCK}/watch/ep1`);
   } finally {
     await friend.context.close();

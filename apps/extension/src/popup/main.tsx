@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { ICONS, type IconName } from "../shared/icons";
 import {
   type AppState,
+  type ChatTabRequest,
   cleanName,
   codeFrom,
   ERRORS,
@@ -14,6 +15,7 @@ import {
   SERVICE_LABEL,
   safeTitleUrl,
   send,
+  UNREACHABLE,
 } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
 
@@ -430,9 +432,75 @@ function OpenTitle({ state, me }: { state: AppState; me: string }) {
   );
 }
 
+/** The chat shortcut as set at chrome://extensions/shortcuts; null when there is none. */
+function useChatShortcut() {
+  const [shortcut, setShortcut] = useState<string | null>(null);
+  useEffect(() => {
+    chrome.commands
+      .getAll()
+      .then((all) => setShortcut(all.find((c) => c.name === "toggle-sidebar")?.shortcut || null))
+      .catch(() => setShortcut(null)); // no shortcut to show; the pill still opens chat
+  }, []);
+  return shortcut;
+}
+
+const NO_TAB = "Open the title on a supported service first.";
+
+/**
+ * Opens chat on the tab playing the room's title (US-115): a full-width row with the unread
+ * count and the shortcut inside it. Off, it says why in one line under it.
+ */
+function OpenChat({ shortcut, unread }: { shortcut: string | null; unread: number }) {
+  const [hasTab, setHasTab] = useState<boolean | null>(null);
+  useEffect(() => {
+    const ask: ChatTabRequest = { kind: "hasChatTab" };
+    chrome.runtime
+      .sendMessage(ask)
+      .then((r: unknown) => setHasTab(r === true))
+      .catch(() => setHasTab(false));
+  }, []);
+  const open = async () => {
+    const r = await send({ kind: "openChat" });
+    if (r.ok) window.close();
+    else setHasTab(false);
+  };
+  return (
+    <div className="open-chat">
+      <button
+        className="btn chat-row"
+        type="button"
+        disabled={hasTab !== true}
+        aria-label={unread > 0 ? `Open chat, ${unread} unread` : "Open chat"}
+        aria-describedby={hasTab === false ? "open-chat-why" : undefined}
+        title={shortcut ? `Open chat on the player with ${shortcut}` : undefined}
+        onClick={() => void open()}
+      >
+        <Icon name="chat" />
+        <span className="chat-label">Open chat</span>
+        {unread > 0 && (
+          <span className="count-pill" aria-hidden="true">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+        {shortcut && (
+          <span className="key" aria-hidden="true">
+            {shortcut}
+          </span>
+        )}
+      </button>
+      {hasTab === false && (
+        <p className="hint under" id="open-chat-why">
+          {NO_TAB}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RoomScreen({ state }: { state: AppState }) {
   const copy = useFocusOnShow<HTMLButtonElement>();
   const [copied, setCopied] = useState("");
+  const shortcut = useChatShortcut();
   const s = state.session;
   if (!s) return null;
   // Alone, inviting is the next step; once others are here, the room is about them (BUG-016).
@@ -469,11 +537,27 @@ function RoomScreen({ state }: { state: AppState }) {
         right={
           <span className={`badge ${state.connection}`} role="status">
             <span className="dot" aria-hidden="true" />
-            {CONNECTION[state.connection]}
+            {state.updating && state.connection === "reconnecting"
+              ? "Updating…"
+              : CONNECTION[state.connection]}
           </span>
         }
       />
       <div className="body">
+        {state.unreachable && state.connection === "reconnecting" && (
+          <div className="row center">
+            <p className="hint grow" role="status">
+              {UNREACHABLE}
+            </p>
+            <button
+              className="btn compact"
+              type="button"
+              onClick={() => send({ kind: "retryNow" })}
+            >
+              Try now
+            </button>
+          </div>
+        )}
         {alone ? (
           <section className="invite-card" aria-labelledby="invite-title">
             <p className="invite-title" id="invite-title">
@@ -503,6 +587,7 @@ function RoomScreen({ state }: { state: AppState }) {
           {people}
         </section>
         <OpenTitle state={state} me={s.participantId} />
+        <OpenChat shortcut={shortcut} unread={state.unread} />
         <span className="grow" />
         {!alone && (
           <div className="invite">
@@ -519,7 +604,7 @@ function RoomScreen({ state }: { state: AppState }) {
             onClick={() => send({ kind: "follow", following: !state.following })}
           >
             <Icon name="sync" />
-            {state.following ? "Watch on my own" : "Sync with the room"}
+            {state.following ? "Watch on my own" : "Watch with the room"}
           </button>
           <button className="btn danger" type="button" onClick={() => send({ kind: "leave" })}>
             <Icon name="leave" />
@@ -559,7 +644,9 @@ function Footer({ update }: { update: AppState["update"] }) {
           Terms
         </a>
         <span className="grow" />
-        <span className="version">v{chrome.runtime.getManifest().version}</span>
+        <span className="version">
+          v{chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}
+        </span>
       </p>
     </footer>
   );
