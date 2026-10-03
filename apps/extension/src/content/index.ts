@@ -1,6 +1,6 @@
 // Content script on supported service pages: reports what this tab has open and
 // keeps it on the room's title.
-import type { Media } from "@watchsync/protocol";
+import type { Media, Playback } from "@watchsync/protocol";
 import { DEFAULT_SYNC, decide, expectedPosition } from "@watchsync/sync-engine";
 import {
   closedText,
@@ -34,7 +34,16 @@ import {
   setChatBadge,
   toast,
 } from "./overlay";
-import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
+import {
+  apply,
+  clock,
+  coalesce,
+  hold,
+  isEcho,
+  listen,
+  seekQuietly,
+  watchSeeking,
+} from "./playback";
 import { providerFor } from "./providers";
 import { reactionsBesideChat, retireReactions, showReaction, showReactions } from "./reactions";
 import {
@@ -71,8 +80,21 @@ let lastActor: { id: string; name: string } | null = null;
 const BURST_MS = 1500;
 let burst: { id: string; at: number; from: number; told: boolean } | null = null;
 /** A play or pause notice waits this long, so a skip right after it can replace it. */
-const NOTICE_WAIT_MS = 400;
+const NOTICE_WAIT_MS = 900;
 let pendingNotice: ReturnType<typeof setTimeout> | undefined;
+/**
+ * The room's clock before its latest change. The background updates its copy first, so the
+ * state push for a PLAYBACK.STATE arrives before the message itself: by then `room.playback`
+ * is already the new clock, and this is the one it replaced.
+ */
+let clockBefore: Playback | null = null;
+
+/** No jump or play/pause notice is owed once the room is gone or this copy is retired. */
+function forgetNotices() {
+  clearTimeout(pendingNotice);
+  pendingNotice = undefined;
+  burst = null;
+}
 
 /** Room notices on the page (US-114); prompts that need an answer ignore this. */
 let roomNotices = true;
@@ -232,6 +254,12 @@ function onPush(m: Push) {
     if (holdReason) return; // my own buffering or ad; I catch up when it ends
     const serverNow = Date.now() + (room?.clockOffset ?? 0);
     const before = provider.getState()?.position ?? 0;
+    // Judge a jump from where the room was, not from this player: one that is buffering or
+    // sitting in the "Stay here" range would see a plain pause or play as a skip. Only when
+    // the room had no clock for this title does this player's own position stand in.
+    const prev = room.playback?.updatedAt === playback.updatedAt ? clockBefore : room.playback;
+    const was =
+      prev && prev.titleId === playback.titleId ? expectedPosition(prev, serverNow) : before;
     apply(provider, playback, serverNow, action === "sync").catch((e: unknown) =>
       toast(e instanceof Error ? e.message : "We couldn't control the player here.", 6000, {
         icon: "alert",
@@ -243,11 +271,11 @@ function onPush(m: Push) {
     if (action === "play" && waitShownAt) return; // drawWait says "Back together"
     if (byId === room.session?.participantId) return; // never a notice about myself (BUG-022)
     // A skip on Netflix arrives as a burst (pause, jump, play) and the first message can
-    // already carry the new spot. Judge the jump from where this player was when the burst
+    // already carry the new spot. Judge the jump from where the room was when the burst
     // began, say it once, and drop the burst's play and pause notices.
     const now = Date.now();
     if (!burst || burst.id !== byId || now - burst.at > BURST_MS)
-      burst = { id: byId, at: now, from: before, told: false };
+      burst = { id: byId, at: now, from: was, told: false };
     burst.at = now;
     const to = expectedPosition(playback, serverNow);
     if (Math.abs(to - burst.from) >= 1) {
@@ -319,7 +347,15 @@ function onPush(m: Push) {
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
+  if (m.state.playback?.updatedAt !== room?.playback?.updatedAt)
+    clockBefore = room?.playback ?? null;
   room = m.state;
+  if (!room.session) {
+    // Left or ended: a move still waiting to be sent, or a notice still waiting to show,
+    // belongs to a room that is gone.
+    userMoves.cancel();
+    forgetNotices();
+  }
   showSidebar(room.session !== null && room.connection !== "idle");
   // Unread on the chat button (US-044); while chat is open, everything in it is seen.
   if (isSidebarOpen() && room.unread > 0) post({ kind: "chatOpened" });
@@ -515,6 +551,9 @@ function pauseTogether() {
     rate: st.rate,
     titleId: mine.titleId,
   });
+  // The pause event this causes isn't a second action: held back 120 ms like a person's
+  // pause, it would reach the room after a quick Start with 3-2-1 and cancel it.
+  hold(500);
   provider.pause().catch(() => {});
 }
 // Media events don't bubble; catch them on the way down so the pill flips Start/Pause.
@@ -873,10 +912,33 @@ function wake() {
     post({ kind: "retryNow" });
 }
 
+/**
+ * The person's own plays, pauses and jumps. A service's skip fires pause, seeking, seeked and
+ * play within about 80 ms; the room hears one message with where the person ended up, not
+ * three that its "crossed" echo could undo, and holding an arrow key stays under the rate limit.
+ * (The pill's buttons post directly and don't come through here.)
+ */
+const userMoves = coalesce((move) => {
+  if (holdReason || !room?.session || !room.following || !mine) return;
+  post({
+    kind: "playback",
+    action: move.action,
+    status: move.playing ? "playing" : "paused",
+    position: move.position,
+    rate: move.rate,
+    titleId: mine.titleId,
+  });
+});
+
 const timers: ReturnType<typeof setInterval>[] = [];
+/** Player listeners added once for the provider's video, removed in retire(). */
+const stops: (() => void)[] = [];
 
 function retire() {
   for (const t of timers) clearInterval(t);
+  for (const stop of stops) stop();
+  userMoves.cancel();
+  forgetNotices();
   document.removeEventListener("visibilitychange", wake);
   window.removeEventListener("focus", wake);
   chrome.storage.onChanged.removeListener(onSetting);
@@ -906,6 +968,7 @@ function poll() {
   mine = now;
   reportPresence();
   if (!titleChanged) return;
+  userMoves.cancel(); // a move from the old title must not carry the new one's id
   if (mine) sayArrival();
   // A page load autoplays from the start; that isn't the person pressing play, and it
   // mustn't pull the room back (BUG-004). Catch-up takes the room's position instead.
@@ -925,15 +988,29 @@ if (provider) {
   connect();
   document.addEventListener("visibilitychange", wake);
   window.addEventListener("focus", wake);
-  listen(provider, (action, playing, position, rate) => {
-    const status = playing ? "playing" : "paused";
-    if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions
-    if (room?.session && room.following && mine)
-      post({ kind: "playback", action, status, position, rate, titleId: mine.titleId });
-  });
+  // A skip into a spot the player has to load: the seek's target is the last good position,
+  // not the one before it, or a stall that follows would pause the room back there. An ad's
+  // own seeks aren't the film's position.
+  stops.push(
+    watchSeeking(provider, (position) => {
+      if (holdReason === "ad" || provider.ad()) return;
+      lastGood = position;
+    }),
+  );
+  stops.push(
+    listen(provider, (action, playing, position, rate) => {
+      if (holdReason) return; // ad seeks and buffering stalls aren't the person's actions
+      if (room?.session && room.following && mine)
+        userMoves.push({ action, playing, position, rate });
+    }),
+  );
   timers.push(
     setInterval(poll, 1000),
-    setInterval(checkDrift, 1000),
+    // Not while a move of mine is still waiting to be sent: the room's clock is the old one
+    // until it goes, and drift correction would undo the skip.
+    setInterval(() => {
+      if (!userMoves.pending()) checkDrift();
+    }, 1000),
     setInterval(() => {
       checkHold();
       drawWait();
