@@ -1,16 +1,17 @@
 // The chat panel's content (sidebar.html), in an extension frame over the service page
 // (DEC-042): keys typed here never reach the service page. It talks to the background itself;
 // the content script only places the frame. UC-014: the room's messages and the message box.
-import type { AnyServerMessage, ChatMessagePayload } from "@watchsync/protocol";
+import type { AnyServerMessage, ChatMessagePayload, Participant } from "@watchsync/protocol";
 import { NOTICES_KEY, noticesOn } from "../shared/activity";
 import { CHAT_KEEP, isChatText } from "../shared/chat";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
+import { initialOf, toneOf } from "../shared/people";
 import { ActivityFeed } from "./activity";
 import {
   announcement,
+  BOTTOM_SLACK,
   capText,
-  isAtBottom,
   namesFor,
   newBelowLabel,
   type Outgoing,
@@ -26,12 +27,15 @@ function byId<T extends HTMLElement>(id: string, type: new () => T): T {
 }
 
 const close = byId("close", HTMLButtonElement);
-const code = byId("code", HTMLSpanElement);
+const code = byId("code", HTMLButtonElement);
 export const body = byId("body", HTMLElement);
 const log = byId("log", HTMLDivElement);
-const empty = byId("empty", HTMLParagraphElement);
+const end = byId("end", HTMLDivElement);
+const faces = byId("faces", HTMLDivElement);
+const empty = byId("empty", HTMLDivElement);
 const notice = byId("notice", HTMLParagraphElement);
 const more = byId("more", HTMLButtonElement);
+const moreLabel = byId("more-label", HTMLSpanElement);
 const composer = byId("composer", HTMLFormElement);
 const box = byId("box", HTMLTextAreaElement);
 const send = byId("send", HTMLButtonElement);
@@ -39,6 +43,9 @@ const count = byId("count", HTMLParagraphElement);
 const hint = byId("hint", HTMLParagraphElement);
 const say = byId("say", HTMLDivElement);
 close.append(svgIcon("close", 16));
+send.prepend(svgIcon("send", 16));
+more.prepend(svgIcon("down", 14));
+byId("empty-mark", HTMLSpanElement).append(svgIcon("chat", 20));
 
 // Room notices on the video on or off, for every room from now on (US-114).
 const notices = byId("notices", HTMLInputElement);
@@ -67,7 +74,7 @@ let state: AppState | null = null;
 let messages: ChatMessagePayload[] = [];
 let outgoing: Outgoing[] = [];
 let fresh: string | null = null;
-/** The reader is at the bottom of the list: kept by a scroll listener. */
+/** The reader is at the bottom of the list (the end sentinel's observer keeps it). */
 let atBottom = true;
 /** Messages from others that landed below the reader since they scrolled up (the chip). */
 let unseen = 0;
@@ -103,7 +110,7 @@ function draw() {
 
 function drawMore() {
   more.hidden = unseen === 0;
-  if (unseen > 0) more.textContent = newBelowLabel(unseen);
+  if (unseen > 0) moreLabel.textContent = newBelowLabel(unseen);
 }
 
 /** Back to the newest message: the chip goes and its count clears. */
@@ -115,19 +122,17 @@ function toBottom() {
 }
 
 /**
- * Live changes are drawn once per frame: insert, then, if the reader was at the bottom, one
- * scroll write so they stay there; otherwise the chip counts what landed below them.
+ * Live changes are drawn once per frame. A reader at the bottom stays there: the list's
+ * ResizeObserver writes the scroll position after layout, so nothing here reads layout.
+ * A reader who scrolled up gets the chip, counting what landed below them.
  */
 function later() {
   if (frame) return;
   frame = requestAnimationFrame(() => {
     frame = 0;
     draw();
-    if (atBottom) toBottom();
-    else {
-      unseen = unseenAfter(unseen, atBottom, landed);
-      drawMore();
-    }
+    unseen = unseenAfter(unseen, atBottom, landed);
+    drawMore();
     landed = 0;
     fresh = null;
     const words = announcement(burst);
@@ -144,15 +149,20 @@ function speak(words: string) {
   });
 }
 
-function showHint(text: string | null) {
-  hint.textContent = text ?? "";
+/** A hint above the box; a refused send ("Slow down a little.") is warm, with an alert icon. */
+function showHint(text: string | null, warn = false) {
+  hint.replaceChildren();
+  if (text && warn) hint.append(svgIcon("alert", 12));
+  if (text) hint.append(text);
+  hint.classList.toggle("warn", Boolean(text) && warn);
   hint.hidden = !text;
 }
 
 function drawComposer() {
   const off = ended();
   box.disabled = off;
-  box.placeholder = off ? "The room has ended." : "Message";
+  box.placeholder = off ? "The room has ended" : "Message the room";
+  document.body.classList.toggle("ended", off);
   const n = Array.from(box.value).length;
   count.hidden = n < LIMIT - 50;
   count.textContent = n >= LIMIT ? `${n}/${LIMIT}, at the limit` : `${n}/${LIMIT}`;
@@ -169,7 +179,8 @@ function onServer(msg: AnyServerMessage) {
     const arrived = new Set(messages.filter((m) => m.fromId === you()).map((m) => m.clientId));
     outgoing = outgoing.filter((o) => !arrived.has(o.clientId));
     // Our messages vanished with the room's: the service restarted (US-120).
-    if (had && messages.length === 0) showNotice("WatchSync restarted; earlier messages are gone.");
+    if (had && messages.length === 0)
+      showNotice("WatchSync restarted, so earlier messages are gone.");
     draw(); // earlier messages: drawn without a sound, an animation or the chip
     landed = 0;
     toBottom();
@@ -195,7 +206,7 @@ function onServer(msg: AnyServerMessage) {
     // The text goes back in the box, unless something new is being typed there.
     if (o && !box.value) box.value = o.text;
     const words = REFUSED[msg.payload.reason] ?? REFUSED.invalid ?? "";
-    showHint(words);
+    showHint(words, true);
     speak(words);
     drawComposer();
     later();
@@ -203,9 +214,101 @@ function onServer(msg: AnyServerMessage) {
 }
 
 function showNotice(text: string) {
-  notice.textContent = text;
+  notice.replaceChildren(svgIcon("rejoin", 16), text);
   notice.hidden = false;
 }
+
+/** How each person in the room is doing, in the pill's words (drawn here from AppState). */
+function presence(p: Participant, s: AppState): { mark: string; label: string } {
+  const me = p.id === s.session?.participantId;
+  const online = !me || s.connection === "connected";
+  const onTitle = p.titleId === (s.media?.titleId ?? null);
+  const synced = p.connected && online && p.following && onTitle && !p.hold;
+  const words = !p.connected
+    ? "away"
+    : !online
+      ? "reconnecting"
+      : p.hold === "ad"
+        ? "on an ad"
+        : p.hold === "buffering"
+          ? "loading"
+          : !p.following
+            ? "watching on their own"
+            : !onTitle
+              ? "on another title"
+              : "in sync";
+  const mark = synced ? "synced" : !p.connected ? "away" : p.hold || !online ? "wait" : "none";
+  return { mark, label: `${me ? `${p.name} (you)` : p.name}, ${words}` };
+}
+
+/** The header's faces: up to four (three on a short window), then "+N". */
+function drawFaces() {
+  const s = state;
+  if (!s?.session) return faces.replaceChildren();
+  const max = matchMedia("(max-height: 480px)").matches ? 3 : 4;
+  const people = s.participants;
+  const shown = people.length > max ? people.slice(0, max - 1) : people;
+  const drawn: HTMLElement[] = shown.map((p, i) => {
+    const f = document.createElement("span");
+    f.style.zIndex = String(shown.length - i); // each face's status mark stays on top
+    const { mark, label } = presence(p, s);
+    const tone = toneOf(p.name);
+    f.className = "face";
+    f.dataset.mark = mark;
+    f.textContent = initialOf(p.name);
+    f.style.color = tone.fg;
+    f.style.background = tone.bg;
+    f.title = label;
+    f.setAttribute("role", "img");
+    f.setAttribute("aria-label", label);
+    return f;
+  });
+  const rest = people.length - shown.length;
+  if (rest > 0) {
+    const n = document.createElement("span");
+    n.className = "face more-people";
+    n.textContent = `+${rest}`;
+    n.setAttribute("role", "img");
+    n.setAttribute("aria-label", `${rest} more`);
+    drawn.push(n);
+  }
+  faces.replaceChildren(...drawn);
+}
+
+// The room code copies on click; "Copied" stands in for it for a moment (no toast).
+let copiedUntil = 0;
+function drawCode() {
+  if (Date.now() < copiedUntil) return;
+  code.textContent = state?.session?.code ?? "";
+  code.hidden = !code.textContent;
+}
+async function copyCode(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // A frame the page's policy keeps from the clipboard API: the older way still works.
+    const t = document.createElement("textarea");
+    t.value = text;
+    t.className = "sr";
+    document.body.append(t);
+    t.select();
+    const ok = document.execCommand("copy");
+    t.remove();
+    if (!ok) throw new Error("copy refused");
+  }
+}
+code.addEventListener("click", (e) => {
+  const room = state?.session?.code;
+  if (!e.isTrusted || !room) return;
+  copyCode(room)
+    .then(() => {
+      copiedUntil = Date.now() + 1200;
+      code.textContent = "Copied";
+      speak("Room code copied");
+      setTimeout(drawCode, 1200);
+    })
+    .catch(() => speak("Couldn't copy the room code"));
+});
 
 // Under the message box; a reaction never waits for a connection.
 const reactions = mountReactions(composer, (emoji, count) => {
@@ -218,8 +321,8 @@ function onPush(m: Push) {
   if (m.kind === "state") {
     state = m.state;
     feed.sync(roomView());
-    const room = m.state.session?.code;
-    code.textContent = room ? `Room ${room}` : "";
+    drawCode();
+    drawFaces();
     drawComposer();
     return;
   }
@@ -327,20 +430,24 @@ log.addEventListener("click", (e) => {
 });
 more.addEventListener("click", toBottom);
 
-// Where the reader is, kept as they scroll; back at the bottom, the chip goes.
-body.addEventListener(
-  "scroll",
-  () => {
-    atBottom = isAtBottom(body);
+// The reader is at the bottom while the end of the list is within BOTTOM_SLACK of view (no
+// layout reads on scroll). Back at the bottom, the chip goes.
+new IntersectionObserver(
+  (entries) => {
+    const e = entries.at(-1);
+    // A closed panel has no size: that says nothing about where the reader is.
+    if (!e?.rootBounds?.height) return;
+    atBottom = e.isIntersecting;
     if (atBottom && unseen > 0) {
       unseen = 0;
       drawMore();
     }
   },
-  { passive: true },
-);
-// The panel changed size (reopened, the box grew): a reader at the bottom stays there.
-// The list grows too once rows skipped by content-visibility take their real height.
+  { root: body, rootMargin: `0px 0px ${BOTTOM_SLACK}px 0px` },
+).observe(end);
+// After layout, before paint: the list grew (a new message, or rows skipped by
+// content-visibility taking their real height) or the panel changed size (reopened, the box
+// grew). A reader at the bottom stays there; the read here costs no extra layout.
 const settle = new ResizeObserver(() => {
   if (atBottom) body.scrollTop = body.scrollHeight;
 });

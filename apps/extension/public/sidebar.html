@@ -3,29 +3,47 @@
   <head>
     <meta charset="utf-8" />
     <title>WatchSync chat</title>
+    <link rel="preload" href="fonts/figtree.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
     <header class="head">
-      <h1>WatchSync</h1>
-      <span class="code" id="code"></span>
+      <div class="title">
+        <h1>Chat</h1>
+        <p class="room">
+          <span class="room-label">Room</span>
+          <button type="button" class="code" id="code" title="Copy room code" hidden></button>
+        </p>
+      </div>
+      <div class="faces" id="faces"></div>
       <button type="button" class="close" id="close" aria-label="Close chat" title="Close chat"></button>
     </header>
-    <label class="prefs"><input type="checkbox" id="notices" checked /> Show pop-ups</label>
-    <section class="body" id="body" aria-label="Chat">
-      <p class="notice" id="notice" hidden></p>
-      <p class="empty" id="empty">Messages from the room show up here.</p>
-      <div class="log" id="log" role="log" aria-live="off" aria-label="Messages"></div>
-    </section>
-    <button type="button" class="more" id="more" hidden>New messages</button>
+    <div class="stage">
+      <section class="body" id="body" aria-label="Chat">
+        <p class="notice" id="notice" hidden></p>
+        <div class="empty" id="empty">
+          <span class="empty-mark" id="empty-mark" aria-hidden="true"></span>
+          <p class="empty-title">No messages <em>yet</em></p>
+          <p class="empty-text">What you and the room say shows up here, with the movie time.</p>
+        </div>
+        <div class="log" id="log" role="log" aria-live="off" aria-label="Messages"></div>
+        <div class="end" id="end"></div>
+      </section>
+      <button type="button" class="more" id="more" hidden><span id="more-label">New messages</span></button>
+    </div>
     <form class="composer" id="composer">
-      <p class="hint" id="hint" hidden></p>
-      <div class="row">
-        <textarea id="box" rows="1" dir="auto" aria-label="Message" aria-describedby="count hint" placeholder="Message" data-focus-first></textarea>
-        <button type="submit" class="send" id="send" disabled>Send</button>
+      <div class="meta">
+        <p class="hint" id="hint" hidden></p>
+        <p class="count" id="count" hidden></p>
       </div>
-      <p class="count" id="count" hidden></p>
+      <div class="row">
+        <textarea id="box" rows="1" dir="auto" aria-label="Message" aria-describedby="count hint" placeholder="Message the room" data-focus-first></textarea>
+        <button type="submit" class="send" id="send" title="Send (Enter)" disabled>Send</button>
+      </div>
     </form>
+    <div class="foot">
+      <label class="prefs"><input type="checkbox" id="notices" checked /> Show pop-ups</label>
+    </div>
     <div class="sr" id="say" aria-live="polite"></div>
     <script src="sidebar.js"></script>
   </body>
