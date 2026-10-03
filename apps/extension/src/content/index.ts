@@ -459,7 +459,7 @@ function drawPill() {
         : null,
     playing: provider?.getState()?.playing === true,
     onPause: pauseTogether,
-    onSyncAll: syncEveryone,
+    onSyncAll: behind === null ? null : syncEveryone, // only when I'm out of step
     onChat: (from) => toggleSidebar(from),
     chatOpen: isSidebarOpen(),
     chatOff: isChatOff(),
@@ -491,11 +491,11 @@ function syncEveryone() {
     rate: st.rate,
     titleId: mine.titleId,
   });
-  toast("Everyone is synced to you", 2500, { icon: "sync", tone: "ok" });
+  toast("Everyone is here with you", 2500, { icon: "sync", tone: "ok" });
 }
 
 /**
- * The pill's Pause together is always the person's own action. Sent to the room directly:
+ * The pill's Pause everyone is always the person's own action. Sent to the room directly:
  * a pause in the first seconds after a page load would otherwise read as autoplay noise
  * (BUG-004) and the room would start the video again.
  */
@@ -730,7 +730,7 @@ function goOn() {
   waitKey = "";
 }
 
-// ---- Start together (US-105) ----
+// ---- Start with 3-2-1 (US-105) ----
 
 let startPhase: "preparing" | "go" | null = null;
 let readySent = false;

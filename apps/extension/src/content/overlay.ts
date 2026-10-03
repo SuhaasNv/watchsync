@@ -321,13 +321,17 @@ export interface PillModel {
   following: boolean;
   onSync: () => void;
   onOwn: () => void;
-  /** Start together; null hides the button (not on the room's title, or alone). */
+  /** Start with 3-2-1; null hides the button (not on the room's title, or alone). */
   onStart: (() => void) | null;
-  /** This tab's player is playing: the start button becomes Pause together. */
+  /** This tab's player is playing: the start button becomes Pause everyone. */
   playing: boolean;
   onPause: () => void;
-  /** Sync everyone: jump the room to my exact position, no pause or countdown. */
-  onSyncAll: () => void;
+  /**
+   * Bring everyone here: jump the room to my exact position, no pause or countdown. Null
+   * hides it while I'm in step: small drift is fixed on its own, and the room can't see
+   * friends' exact positions, so it shows only when my player is off from the room's.
+   */
+  onSyncAll: (() => void) | null;
   /** Open or close chat; opened from here, the button gets focus back when it closes. */
   onChat: (from: HTMLElement) => void;
   chatOpen: boolean;
@@ -506,35 +510,36 @@ export function renderPill(model: PillModel | null) {
     ? button("Watch on my own", model.onOwn, {
         hint: "Play, pause and jump just for you. The room carries on.",
       })
-    : button("Sync", model.onSync, {
+    : button("Rejoin the room", model.onSync, {
         primary: true,
         icon: "sync",
         hint: "Follow the room again, from where it is now.",
       });
-  // Start together while paused; once everyone is playing, the same place pauses everyone.
+  // Start with 3-2-1 while paused; once everyone is playing, the same place pauses everyone.
   const together = model.onStart
     ? [
         model.playing
-          ? button("Pause together", model.onPause, {
+          ? button("Pause everyone", model.onPause, {
               primary: true,
               icon: "pause",
               hint: "Pause everyone in the room",
             })
-          : button("Start together", model.onStart, {
+          : button("Start with 3-2-1", model.onStart, {
               primary: true,
               icon: "play",
               hint: "Pause everyone, count down 3-2-1, start at the same moment",
             }),
       ]
     : [];
-  const syncAll = model.onStart
-    ? [
-        button("Sync everyone", model.onSyncAll, {
-          icon: "sync",
-          hint: "Bring everyone to exactly where you are, without pausing",
-        }),
-      ]
-    : [];
+  const syncAll =
+    model.onStart && model.onSyncAll
+      ? [
+          button("Bring everyone here", model.onSyncAll, {
+            icon: "sync",
+            hint: "Bring everyone to exactly where you are, without pausing",
+          }),
+        ]
+      : [];
   pill.replaceChildren(faces, sep, toggle, ...syncAll, ...together, chat, fold);
   if (chatFocused) chat.focus();
   wake();
