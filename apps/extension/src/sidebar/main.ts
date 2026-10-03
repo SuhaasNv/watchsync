@@ -7,7 +7,16 @@ import { CHAT_KEEP, isChatText } from "../shared/chat";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
 import { ActivityFeed } from "./activity";
-import { announcement, capText, namesFor, type Outgoing, renderLog } from "./chat-view";
+import {
+  announcement,
+  capText,
+  isAtBottom,
+  namesFor,
+  newBelowLabel,
+  type Outgoing,
+  renderLog,
+  unseenAfter,
+} from "./chat-view";
 import { mountReactions } from "./reactions";
 
 function byId<T extends HTMLElement>(id: string, type: new () => T): T {
@@ -22,7 +31,6 @@ export const body = byId("body", HTMLElement);
 const log = byId("log", HTMLDivElement);
 const empty = byId("empty", HTMLParagraphElement);
 const notice = byId("notice", HTMLParagraphElement);
-const end = byId("end", HTMLDivElement);
 const more = byId("more", HTMLButtonElement);
 const composer = byId("composer", HTMLFormElement);
 const box = byId("box", HTMLTextAreaElement);
@@ -59,7 +67,12 @@ let state: AppState | null = null;
 let messages: ChatMessagePayload[] = [];
 let outgoing: Outgoing[] = [];
 let fresh: string | null = null;
+/** The reader is at the bottom of the list: kept by a scroll listener. */
 let atBottom = true;
+/** Messages from others that landed below the reader since they scrolled up (the chip). */
+let unseen = 0;
+/** Messages from others waiting for the next frame's draw. */
+let landed = 0;
 let covered = false;
 let seenVisible = false;
 let burst: { name: string; text: string }[] = [];
@@ -88,19 +101,34 @@ function draw() {
   empty.hidden = messages.length > 0 || outgoing.length > 0 || feed.items.length > 0;
 }
 
-function toBottom() {
-  body.scrollTop = body.scrollHeight;
-  more.hidden = true;
+function drawMore() {
+  more.hidden = unseen === 0;
+  if (unseen > 0) more.textContent = newBelowLabel(unseen);
 }
 
-/** Live changes are drawn once per frame: insert, then one scroll write if at the bottom. */
+/** Back to the newest message: the chip goes and its count clears. */
+function toBottom() {
+  body.scrollTop = body.scrollHeight;
+  atBottom = true;
+  unseen = 0;
+  drawMore();
+}
+
+/**
+ * Live changes are drawn once per frame: insert, then, if the reader was at the bottom, one
+ * scroll write so they stay there; otherwise the chip counts what landed below them.
+ */
 function later() {
   if (frame) return;
   frame = requestAnimationFrame(() => {
     frame = 0;
     draw();
     if (atBottom) toBottom();
-    else more.hidden = false;
+    else {
+      unseen = unseenAfter(unseen, atBottom, landed);
+      drawMore();
+    }
+    landed = 0;
     fresh = null;
     const words = announcement(burst);
     burst = [];
@@ -142,7 +170,8 @@ function onServer(msg: AnyServerMessage) {
     outgoing = outgoing.filter((o) => !arrived.has(o.clientId));
     // Our messages vanished with the room's: the service restarted (US-120).
     if (had && messages.length === 0) showNotice("WatchSync restarted; earlier messages are gone.");
-    draw(); // earlier messages: drawn without a sound or an animation
+    draw(); // earlier messages: drawn without a sound, an animation or the chip
+    landed = 0;
     toBottom();
     return;
   }
@@ -154,6 +183,7 @@ function onServer(msg: AnyServerMessage) {
     else {
       const names = namesFor([...(state?.participants ?? []), ...messages], you());
       burst.push({ name: names.get(m.fromId) ?? m.name, text: m.text });
+      landed += 1;
     }
     if (atBottom) fresh = m.id;
     later();
@@ -297,14 +327,25 @@ log.addEventListener("click", (e) => {
 });
 more.addEventListener("click", toBottom);
 
-// The reader is at the bottom while its end is in view (no layout reads on scroll).
-new IntersectionObserver(
-  (entries) => {
-    atBottom = entries.some((x) => x.isIntersecting);
-    if (atBottom) more.hidden = true;
+// Where the reader is, kept as they scroll; back at the bottom, the chip goes.
+body.addEventListener(
+  "scroll",
+  () => {
+    atBottom = isAtBottom(body);
+    if (atBottom && unseen > 0) {
+      unseen = 0;
+      drawMore();
+    }
   },
-  { root: body },
-).observe(end);
+  { passive: true },
+);
+// The panel changed size (reopened, the box grew): a reader at the bottom stays there.
+// The list grows too once rows skipped by content-visibility take their real height.
+const settle = new ResizeObserver(() => {
+  if (atBottom) body.scrollTop = body.scrollHeight;
+});
+settle.observe(body);
+settle.observe(log);
 
 // A page that lays something over this frame can't trick a send: Send waits until the box
 // and Send are really visible (Intersection Observer v2).

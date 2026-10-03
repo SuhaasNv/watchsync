@@ -64,3 +64,68 @@ test("two people chat both ways with movie times; text is inert; typing never pl
     await friend.context.close();
   }
 });
+
+test("the new messages chip: none at the bottom, a count when scrolled up, click goes down", async ({
+  ext,
+}) => {
+  const { hostTab, friend } = await room(ext);
+  try {
+    const tab = await friend.context.newPage();
+    await tab.goto(`${MOCK}/watch/ep1`);
+    await expect.poll(() => playing(tab)).toBe(true);
+    await tab.waitForTimeout(3200); // past the arrival window (BUG-004)
+    await chatButton(hostTab).click();
+    await chatButton(tab).click();
+    await expect(box(tab)).toBeEnabled();
+
+    // Enough to scroll: a tall block above the list (the list itself redraws).
+    const body = () => frame(hostTab).locator("#body");
+    await body().evaluate((b) => {
+      const tall = document.createElement("div");
+      tall.style.height = "1500px";
+      b.prepend(tall);
+      b.scrollTop = b.scrollHeight;
+    });
+    const atBottom = () =>
+      body().evaluate((b) => b.scrollTop + b.clientHeight >= b.scrollHeight - 24);
+    const chip = frame(hostTab).getByRole("button", { name: /new message/ });
+    const say = async (text: string) => {
+      await box(tab).fill(text);
+      await box(tab).press("Enter");
+      await expect(log(hostTab).getByText(text, { exact: true })).toBeAttached();
+    };
+
+    // At the bottom: the list follows the new message and no chip appears.
+    await say("one");
+    await expect.poll(atBottom).toBe(true);
+    await hostTab.waitForTimeout(300);
+    await expect(chip).toBeHidden();
+
+    // Scrolled up: what lands below is counted on the chip.
+    await body().evaluate((b) => {
+      b.scrollTop = 0;
+    });
+    await expect.poll(atBottom).toBe(false);
+    await say("two");
+    await say("three");
+    await expect(chip).toHaveText("2 new messages");
+    expect(await atBottom()).toBe(false);
+
+    // The chip takes the reader down and goes.
+    await chip.click();
+    await expect(chip).toBeHidden();
+    await expect.poll(atBottom).toBe(true);
+    // The newest message is in view, once rows skipped while offscreen take their real height.
+    const shown = () =>
+      log(hostTab)
+        .getByText("three", { exact: true })
+        .evaluate((m) => {
+          const r = m.getBoundingClientRect();
+          const b = document.getElementById("body")?.getBoundingClientRect();
+          return b !== undefined && r.top >= b.top && r.bottom <= b.bottom;
+        });
+    await expect.poll(shown).toBe(true);
+  } finally {
+    await friend.context.close();
+  }
+});

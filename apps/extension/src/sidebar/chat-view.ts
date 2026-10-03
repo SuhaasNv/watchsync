@@ -151,6 +151,31 @@ function youName(model: LogModel): string {
   return model.people.find((p) => p.id === model.you)?.name ?? "You";
 }
 
+/** How near the end still counts as reading the newest message, in px. */
+export const BOTTOM_SLACK = 24;
+
+/** The reader is at the bottom of the list (within BOTTOM_SLACK). */
+export function isAtBottom(el: {
+  scrollTop: number;
+  clientHeight: number;
+  scrollHeight: number;
+}): boolean {
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - BOTTOM_SLACK;
+}
+
+/**
+ * Messages below the reader that they haven't seen, after `arrived` new ones land. At the
+ * bottom the list follows the newest message, so nothing is ever waiting below.
+ */
+export function unseenAfter(unseen: number, atBottom: boolean, arrived: number): number {
+  return atBottom ? 0 : unseen + arrived;
+}
+
+/** The "new messages" chip's words: "1 new message", "2 new messages". */
+export function newBelowLabel(n: number): string {
+  return n === 1 ? "1 new message" : `${n} new messages`;
+}
+
 /** What a screen reader hears for a burst of live messages from other people. */
 export function announcement(burst: { name: string; text: string }[]): string {
   if (burst.length === 0) return "";

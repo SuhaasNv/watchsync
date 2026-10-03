@@ -67,6 +67,25 @@ h1 {
   contain: content;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 236, 240, 0.22) transparent;
+}
+.body:hover {
+  scrollbar-color: rgba(214, 236, 240, 0.35) transparent;
+}
+/* A thin, quiet scrollbar (Chrome uses these only where scrollbar-width isn't supported). */
+.body::-webkit-scrollbar {
+  width: 8px;
+}
+.body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.body::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: rgba(214, 236, 240, 0.22);
+}
+.body::-webkit-scrollbar-thumb:hover {
+  background: rgba(214, 236, 240, 0.35);
 }
 .empty {
   margin: 0;
@@ -207,9 +226,6 @@ button:focus-visible {
   color: #ecf2f1;
   font-size: 12px;
 }
-.end {
-  height: 1px;
-}
 .more {
   position: fixed;
   left: 50%;
@@ -222,6 +238,10 @@ button:focus-visible {
   color: #151d21;
   font-size: 13px;
   font-weight: 600;
+}
+/* `button { display: grid }` would otherwise beat the hidden attribute: the chip never left. */
+.more[hidden] {
+  display: none;
 }
 .composer {
   margin: 0;

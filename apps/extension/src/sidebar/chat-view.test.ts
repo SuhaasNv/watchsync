@@ -1,6 +1,16 @@
 import type { ChatMessagePayload } from "@watchsync/protocol";
 import { describe, expect, test } from "vitest";
-import { announcement, capText, type LogModel, movieClock, namesFor, renderLog } from "./chat-view";
+import {
+  announcement,
+  capText,
+  isAtBottom,
+  type LogModel,
+  movieClock,
+  namesFor,
+  newBelowLabel,
+  renderLog,
+  unseenAfter,
+} from "./chat-view";
 
 let n = 0;
 const said = (
@@ -130,5 +140,27 @@ describe("announcements and the length cap", () => {
     const capped = capText(`${"x".repeat(497)}${family}`);
     expect(capped).toBe("x".repeat(497)); // the family doesn't fit whole: it isn't cut
     expect(capText("short")).toBe("short");
+  });
+});
+
+describe("the new messages chip", () => {
+  test("at the bottom means within 24 px of the end", () => {
+    expect(isAtBottom({ scrollTop: 600, clientHeight: 400, scrollHeight: 1000 })).toBe(true);
+    expect(isAtBottom({ scrollTop: 576, clientHeight: 400, scrollHeight: 1000 })).toBe(true);
+    expect(isAtBottom({ scrollTop: 575, clientHeight: 400, scrollHeight: 1000 })).toBe(false);
+    expect(isAtBottom({ scrollTop: 0, clientHeight: 400, scrollHeight: 300 })).toBe(true);
+  });
+
+  test("never counts at the bottom; counts what lands below a reader who scrolled up", () => {
+    expect(unseenAfter(0, true, 3)).toBe(0);
+    expect(unseenAfter(2, true, 1)).toBe(0);
+    expect(unseenAfter(0, false, 1)).toBe(1);
+    expect(unseenAfter(1, false, 2)).toBe(3);
+    expect(unseenAfter(0, false, 0)).toBe(0); // a room notice or a resend is not a new message
+  });
+
+  test("says how many", () => {
+    expect(newBelowLabel(1)).toBe("1 new message");
+    expect(newBelowLabel(2)).toBe("2 new messages");
   });
 });
