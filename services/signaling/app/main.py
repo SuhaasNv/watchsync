@@ -109,6 +109,8 @@ TRY_LATER = {"Retry-After": "60"}
 REPLACED = 4000
 FLOODED = 4001  # too many messages for too long; the extension reconnects with backoff
 RESTARTING = 4002  # the service is restarting (a deploy); the extension retries within seconds
+# After a room comes back, how long its people's ROOM.RESTOREs are weighed (newest wins).
+RESTORE_SETTLE_MS = 10_000
 FLOOD_LIMIT = 100
 ERROR_STATUS = {
     "not_found": 404,
@@ -121,6 +123,8 @@ ERROR_STATUS = {
 # up to a poll later; a pause this recent from the same person was the ad's.
 AD_PAUSE_MS = 2000
 sockets: dict[str, WebSocket] = {}
+# Open WebSockets per client address (WS_PER_IP).
+open_sockets: dict[str, int] = {}
 # Per participant id: the pending "left" for someone whose connection closed.
 away: dict[str, asyncio.Task[None]] = {}
 
@@ -425,25 +429,29 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
     elif msg["type"] == "START.FORCE" and room.start is not None:
         await start_go(room)
     elif msg["type"] == "ROOM.RESTORE":
-        await restore_room(room, payload["media"], payload["playback"])
+        await restore_room(room, payload["media"], payload["playback"], payload["knownAt"])
 
 
 async def restore_room(
-    room: Room, media: dict[str, Any] | None, playback: dict[str, Any] | None
+    room: Room, media: dict[str, Any] | None, playback: dict[str, Any] | None, known_at: float
 ) -> None:
-    """The first person back in a room brought back after a restart says what it was
-    watching and where (US-120). Taken once, and only while nobody has set the room's clock
-    here; their presence may already have set the title. Everyone gets the room afresh and
-    their drift check brings them together."""
-    if not room.awaiting_restore:
+    """People back in a room brought back after a restart say what it was watching and
+    where (US-120). For the first RESTORE_SETTLE_MS, the most recent knowledge wins (the old
+    server's time of the clock each knew), so a friend who was offline and comes back first
+    can't rewind everyone; never over a change someone made here since. Everyone gets the
+    room afresh and their drift check brings them together."""
+    if room.restored_at is None or now_ms() - room.restored_at > RESTORE_SETTLE_MS:
         return
-    room.awaiting_restore = False
-    if room.playback is not None:
+    if room.playback is not None and room.playback is not room.restored_playback:
+        return  # someone played, paused or jumped here already: that is the room's clock now
+    if room.restore_known_at is not None and known_at <= room.restore_known_at:
         return
+    room.restore_known_at = known_at
     if media is not None:
         room.media = safe_media(media)
     if playback is not None:
         room.playback = {**playback, "updatedAt": now_ms()}
+        room.restored_playback = room.playback
     for x in list(room.participants.values()):
         if x.connected:
             await send(x, "ROOM.STATE", room.snapshot(x.id))
@@ -634,11 +642,22 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     # Accept first, always with the subprotocol the browser asked for (else Chrome fails the
     # handshake): a close before accept reaches browsers as 1006, which looks like a network
     # drop and makes the extension retry forever (BUG-009).
-    if not connect_limiter.allow(client_ip(ws)):
+    ip = client_ip(ws)
+    if open_sockets.get(ip, 0) >= config.WS_PER_IP or not connect_limiter.allow(ip):
         await ws.accept(subprotocol)
         await ws.close(code=status.WS_1013_TRY_AGAIN_LATER)  # the extension backs off
         return
-    found = rooms.authenticate(code, token, client_ip(ws))
+    open_sockets[ip] = open_sockets.get(ip, 0) + 1
+    try:
+        await serve(ws, code, token, subprotocol, ip)
+    finally:
+        open_sockets[ip] -= 1
+        if not open_sockets[ip]:
+            del open_sockets[ip]
+
+
+async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, ip: str) -> None:
+    found = rooms.authenticate(code, token, ip)
     if found is None:
         await ws.accept(subprotocol)
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -665,7 +684,11 @@ async def room_socket(ws: WebSocket, code: str) -> None:
     dropped = 0
     try:
         while True:
-            raw = await ws.receive()
+            try:
+                raw = await asyncio.wait_for(ws.receive(), config.WS_IDLE_SECONDS)
+            except TimeoutError:  # silent too long: not a live extension (it pings)
+                await ws.close(code=status.WS_1001_GOING_AWAY)
+                break
             if raw["type"] == "websocket.disconnect":
                 break
             try:

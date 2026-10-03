@@ -186,14 +186,16 @@ class Room:
     creator: str | None = None
     joined: bool = False
     used: bool = False
-    # Brought back after a restart by its people's signed tokens (US-120): by which client
-    # address, everyone who has been in it since (each person once: after leaving, their
-    # token is spent), and whether it still waits for the first ROOM.RESTORE to say what it
-    # was watching.
+    # Brought back after a restart by its people's signed tokens (US-120): when, by which
+    # client address, and everyone who has been in it since (each person once: after
+    # leaving, their token is spent). Then what its people said it was watching
+    # (ROOM.RESTORE): the clock it set and how recent that knowledge was, newest wins.
     restored: bool = False
+    restored_at: float | None = None
     restored_by: str | None = None
     restored_ids: set[str] = field(default_factory=set)
-    awaiting_restore: bool = False
+    restored_playback: dict[str, Any] | None = None
+    restore_known_at: float | None = None
 
     def holding(self) -> list[Participant]:
         return [
@@ -344,21 +346,24 @@ class Rooms:
         the room back, or takes their place in a room already brought back (US-120). Never
         for a room that is live here (its tokens are in the registry) or ended here, never
         with a token older than TOKEN_MAX_AGE_SECONDS, only within RESTORE_WINDOW_SECONDS of
-        this process starting, and within the same room ceilings as creating one."""
+        this process starting (to create it), and within the same ceilings as creating."""
         claims = read_token(token)
         if claims is None or claims.expired or claims.code != code or code in self.ended:
             return None
-        if now_ms() - self.started > config.RESTORE_WINDOW_SECONDS * 1000:
-            return None
         room = self.rooms.get(code)
         if room is None:
+            # Only bringing a room back from nothing is limited to soon after the restart; a
+            # room already back keeps taking its people (a laptop that wakes up later).
+            if now_ms() - self.started > config.RESTORE_WINDOW_SECONDS * 1000:
+                return None
             if len(self.rooms) >= config.MAX_ROOMS:
                 return None
             mine = sum(1 for r in self.rooms.values() if r.restored_by == client)
             if mine >= config.RESTORES_PER_IP:
                 return None
             room = Room(code=code, empty_since=now_ms(), joined=True, used=True)
-            room.restored = room.awaiting_restore = True
+            room.restored = True
+            room.restored_at = now_ms()
             room.restored_by = client
             self.rooms[code] = room
         pid = claims.participant_id

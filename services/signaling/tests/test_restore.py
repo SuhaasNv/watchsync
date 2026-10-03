@@ -198,7 +198,9 @@ def test_restore_only_soon_after_the_restart(monkeypatch: pytest.MonkeyPatch) ->
     assert fresh.rooms == {}
 
 
-def test_an_ended_room_never_comes_back(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_room_ended_in_this_process_never_comes_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     host = create()
     fresh = restart(monkeypatch)
     fresh.ended[host["code"]] = main.now_ms()
@@ -236,7 +238,19 @@ def test_restore_live_room_still_needs_a_live_token(monkeypatch: pytest.MonkeyPa
 # ROOM.RESTORE
 
 
-def test_first_restore_sets_the_room_and_everyone_hears(monkeypatch: pytest.MonkeyPatch) -> None:
+def restore(position: float, known_at: float, status: str = "playing") -> dict[str, Any]:
+    payload = {"media": MEDIA, "playback": playback(position, status), "knownAt": known_at}
+    return msg("ROOM.RESTORE", payload)
+
+
+def settle(ws: Any) -> None:
+    """Waits until the server has handled everything this socket sent."""
+    ws.send_json(msg("SYS.PING", {"t1": 1}))
+    while ws.receive_json()["type"] != "SYS.PONG":
+        pass
+
+
+def test_a_restore_sets_the_room_and_everyone_hears(monkeypatch: pytest.MonkeyPatch) -> None:
     host = create("Suhaas")
     friend = join(host["code"], "Asha")
     restart(monkeypatch)
@@ -245,19 +259,60 @@ def test_first_restore_sets_the_room_and_everyone_hears(monkeypatch: pytest.Monk
         a.receive_json()  # Asha joined
         b.receive_json()  # ROOM.STATE
         before = main.now_ms()
-        a.send_json(msg("ROOM.RESTORE", {"media": MEDIA, "playback": playback(2530)}))
+        a.send_json(restore(2530, 1000))
         for ws in (a, b):
             got = ws.receive_json()
             assert got["type"] == "ROOM.STATE"
             assert got["payload"]["media"] == MEDIA
             assert got["payload"]["playback"]["position"] == 2530
             assert got["payload"]["playback"]["updatedAt"] >= before  # server time, not 5
-        # The second one is too late: the room keeps the first.
-        b.send_json(msg("ROOM.RESTORE", {"media": MEDIA, "playback": playback(10, "paused")}))
-        b.send_json(msg("SYS.PING", {"t1": 1}))
-        assert b.receive_json()["type"] == "SYS.PONG"
+
+
+def test_the_newest_knowledge_wins_not_the_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A friend who was behind and comes back first can't rewind everyone."""
+    host = create("Suhaas")
+    friend = join(host["code"], "Asha")
+    restart(monkeypatch)
+    with client.websocket_connect(url(friend)) as b, client.websocket_connect(url(host)) as a:
+        b.send_json(restore(10, 500, "paused"))  # Asha's clock is older
+        settle(b)
         room = main.rooms.rooms[host["code"]]
-        assert room.playback is not None and room.playback["position"] == 2530
+        assert room.playback is not None and room.playback["position"] == 10
+        a.send_json(restore(2530, 1000))  # Suhaas heard the room more recently
+        settle(a)
+        assert room.playback["position"] == 2530 and room.playback["status"] == "playing"
+        b.send_json(restore(10, 500, "paused"))  # older again: ignored
+        settle(b)
+        assert room.playback["position"] == 2530
+
+
+def test_restores_are_weighed_only_just_after_the_room_is_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = create()
+    restart(monkeypatch)
+    monkeypatch.setattr(main, "RESTORE_SETTLE_MS", -1)  # the settling time is over
+    with client.websocket_connect(url(host)) as a:
+        a.receive_json()
+        a.send_json(restore(2530, 1000))
+        settle(a)
+        assert main.rooms.rooms[host["code"]].playback is None
+
+
+def test_a_restored_room_takes_its_people_after_the_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A laptop that wakes 40 minutes after a 3 am deploy finds its room, not "ended"."""
+    host = create("Suhaas")
+    friend = join(host["code"], "Asha")
+    other = create("Alex")
+    fresh = restart(monkeypatch)
+    with client.websocket_connect(url(friend)) as b:
+        b.receive_json()
+        fresh.started -= (config.RESTORE_WINDOW_SECONDS + 40 * 60) * 1000
+        with client.websocket_connect(url(host)) as a:
+            assert a.receive_json()["payload"]["code"] == host["code"]
+        assert refused(url(other)) == 1008  # but no room comes back from nothing
 
 
 def test_restore_is_ignored_once_the_room_has_a_clock(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -273,7 +328,7 @@ def test_restore_is_ignored_once_the_room_has_a_clock(monkeypatch: pytest.Monkey
             "titleId": "ep1",
         }
         a.send_json(msg("PLAYBACK.UPDATE", update))
-        a.send_json(msg("ROOM.RESTORE", {"media": MEDIA, "playback": playback(2530)}))
+        a.send_json(restore(2530, 1000))
         a.send_json(msg("SYS.PING", {"t1": 1}))
         assert a.receive_json()["type"] == "SYS.PONG"
         room = main.rooms.rooms[host["code"]]
@@ -284,7 +339,7 @@ def test_restore_is_ignored_in_a_room_that_never_restarted() -> None:
     host = create()
     with client.websocket_connect(url(host)) as a:
         a.receive_json()
-        a.send_json(msg("ROOM.RESTORE", {"media": MEDIA, "playback": playback(2530)}))
+        a.send_json(restore(2530, 1000))
         a.send_json(msg("SYS.PING", {"t1": 1}))
         assert a.receive_json()["type"] == "SYS.PONG"
         room = main.rooms.rooms[host["code"]]
@@ -523,3 +578,101 @@ def test_a_real_server_closes_with_restarting_on_sigterm() -> None:
     finally:
         server.kill()
         server.wait()
+
+
+# Socket ceilings
+
+
+def test_open_sockets_per_address_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = create()
+    friend = join(host["code"], "Asha")
+    monkeypatch.setattr(config, "WS_PER_IP", 1)
+    with client.websocket_connect(url(host)) as a:
+        a.receive_json()
+        with pytest.raises(WebSocketDisconnect) as e, client.websocket_connect(url(friend)) as b:
+            b.receive_json()
+        assert e.value.code == 1013  # try again later
+    with client.websocket_connect(url(friend)) as b:  # one closed: room for the next
+        assert b.receive_json()["type"] == "ROOM.STATE"
+    assert main.open_sockets == {}
+
+
+def test_a_silent_socket_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = create()
+    monkeypatch.setattr(config, "WS_IDLE_SECONDS", 0.3)
+    with client.websocket_connect(url(host)) as ws:
+        ws.receive_json()
+        for _ in range(3):  # pings keep it open
+            time.sleep(0.15)
+            ws.send_json(msg("SYS.PING", {"t1": 1}))
+            assert ws.receive_json()["type"] == "SYS.PONG"
+        with pytest.raises(WebSocketDisconnect) as e:
+            ws.receive_json()  # then silence
+        assert e.value.code == 1001
+
+
+# Two real processes, as a deploy runs them
+
+
+class Service:
+    """A room service process on its own port, with production's fixed secret."""
+
+    def __init__(self, **env: str) -> None:
+        self.port = free_port()
+        self.base = f"http://127.0.0.1:{self.port}"
+        all_env = os.environ | {"ROOM_SIGNING_SECRET": "r" * 32, "ENVIRONMENT": "development"}
+        self.proc = subprocess.Popen(  # noqa: S603 (fixed arguments)
+            [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(self.port)],
+            cwd=SERVICE,
+            env=all_env | env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        for _ in range(100):
+            try:
+                if httpx.get(f"{self.base}/health").status_code == 200:
+                    return
+            except httpx.TransportError:
+                time.sleep(0.1)
+
+    def connect(self, t: dict[str, str]) -> Any:
+        offer: Any = ["watchsync.v1", t["token"]]
+        return ws_connect(f"ws://127.0.0.1:{self.port}/ws/rooms/{t['code']}", subprotocols=offer)
+
+    def stop(self) -> None:
+        self.proc.send_signal(signal.SIGTERM)
+        self.proc.wait(timeout=10)
+
+
+def test_a_room_ended_before_a_restart_is_bounded_by_token_age() -> None:
+    """Which rooms ended lives in one process's memory (no disk, DEC-031): after a restart a
+    token kept from an ended room can bring it back, but only within TOKEN_MAX_AGE_SECONDS.
+    An accepted risk (docs/DEPLOY.md, Room tokens); this test pins the bound."""
+    a = Service()
+    try:
+        t = httpx.post(f"{a.base}/api/v1/rooms", json={"name": "Suhaas"}).json()
+        with a.connect(t) as ws:
+            ws.recv(timeout=5)
+            ws.send(json.dumps(msg("ROOM.LEAVE", {})))  # the last one out ends the room
+            with pytest.raises(ConnectionClosed):
+                ws.recv(timeout=5)
+        with pytest.raises(ConnectionClosed) as ended, a.connect(t) as ws:
+            ws.recv(timeout=5)
+        assert ended.value.rcvd is not None and ended.value.rcvd.code == 1008
+    finally:
+        a.stop()
+    # The new process has never heard of the room. Past the age limit, the token is refused.
+    b = Service(TOKEN_MAX_AGE_SECONDS="-1000")  # noqa: S106 (an age, not a password)
+    try:
+        with pytest.raises(ConnectionClosed) as old, b.connect(t) as ws:
+            ws.recv(timeout=5)
+        assert old.value.rcvd is not None and old.value.rcvd.code == 1008
+    finally:
+        b.stop()
+    # Within it, the residual: the room comes back (documented, not wanted).
+    c = Service()
+    try:
+        with c.connect(t) as ws:
+            assert json.loads(ws.recv(timeout=5))["type"] == "ROOM.STATE"
+    finally:
+        c.stop()

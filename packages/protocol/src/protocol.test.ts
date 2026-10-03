@@ -39,13 +39,14 @@ describe("protocol validators", () => {
       timestamp: 1,
       payload,
     });
-    expect(isClientMessage(restore({ media, playback }))).toBe(true);
-    expect(isClientMessage(restore({ media: null, playback: null }))).toBe(true);
-    expect(isClientMessage(restore({ media }))).toBe(false);
-    expect(isClientMessage(restore({ media, playback, chat: [] }))).toBe(false);
-    expect(isClientMessage(restore({ media, playback: { ...playback, position: -1 } }))).toBe(
-      false,
-    );
+    expect(isClientMessage(restore({ media, playback, knownAt: 1 }))).toBe(true);
+    expect(isClientMessage(restore({ media: null, playback: null, knownAt: 0 }))).toBe(true);
+    expect(isClientMessage(restore({ media, knownAt: 1 }))).toBe(false);
+    expect(isClientMessage(restore({ media, playback }))).toBe(false); // knownAt is required
+    expect(isClientMessage(restore({ media, playback, knownAt: -1 }))).toBe(false);
+    expect(isClientMessage(restore({ media, playback, knownAt: 1, chat: [] }))).toBe(false);
+    const behind = { ...playback, position: -1 };
+    expect(isClientMessage(restore({ media, playback: behind, knownAt: 1 }))).toBe(false);
   });
 
   it("does not accept server messages as client messages", () => {

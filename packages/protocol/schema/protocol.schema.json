@@ -222,7 +222,7 @@
       }
     },
     "RestoreRoom": {
-      "description": "After the room service restarted (US-120): the room's title and clock as this client last knew them, position re-projected to now. Taken once, from the first person back in a room brought back by its tokens; the server stamps updatedAt.",
+      "description": "After the room service restarted (US-120): the room's title and clock as this client last knew them, position re-projected to now. Sent only by a client the old service told it was restarting. For a few seconds after the room is back the most recent knowledge (knownAt) wins; the server stamps updatedAt.",
       "allOf": [{ "$ref": "#/$defs/Envelope" }],
       "type": "object",
       "properties": {
@@ -230,10 +230,15 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["media", "playback"],
+          "required": ["media", "playback", "knownAt"],
           "properties": {
             "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] },
-            "playback": { "anyOf": [{ "$ref": "#/$defs/Playback" }, { "type": "null" }] }
+            "playback": { "anyOf": [{ "$ref": "#/$defs/Playback" }, { "type": "null" }] },
+            "knownAt": {
+              "description": "The old service's time (ms) of the room clock this client last heard; 0 if none.",
+              "type": "number",
+              "minimum": 0
+            }
           }
         }
       }

@@ -55,3 +55,8 @@ RESTORE_WINDOW_SECONDS = int(os.environ.get("RESTORE_WINDOW_SECONDS", "600"))
 TOKEN_MAX_AGE_SECONDS = int(os.environ.get("TOKEN_MAX_AGE_SECONDS", "86400"))
 # Rooms one client address (IPv6: its /64) may bring back after a restart.
 RESTORES_PER_IP = int(os.environ.get("RESTORES_PER_IP", "3"))
+# Open WebSockets one client address may hold at once.
+WS_PER_IP = int(os.environ.get("WS_PER_IP", "20"))
+# A socket that sends nothing for this long is closed (the extension pings every 20 s), so a
+# socket held open and silent can't keep a room alive forever.
+WS_IDLE_SECONDS = float(os.environ.get("WS_IDLE_SECONDS", "120"))

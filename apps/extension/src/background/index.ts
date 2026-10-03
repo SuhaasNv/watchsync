@@ -1,6 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { JoinRoomRequest, Media, Playback, Service } from "@watchsync/protocol";
+import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -10,12 +10,7 @@ import {
   isRoomTicket,
   isServerMessage,
 } from "@watchsync/protocol";
-import {
-  bestSample,
-  type ClockSample,
-  clockSample,
-  expectedPosition,
-} from "@watchsync/sync-engine";
+import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
 import {
   type AppState,
   cleanName,
@@ -34,6 +29,8 @@ import {
   type UpdateCheck,
 } from "../shared/update";
 import { injectOpenTabs } from "./inject";
+import { restoreMessage } from "./restore";
+import { updateGate } from "./updates";
 
 const API = __API_URL__;
 
@@ -192,6 +189,8 @@ const RESTARTING = new Set([4002, 1012]);
 const UPDATE_GRACE = 60_000;
 /** When the room service said it was restarting; null when it didn't. */
 let updatingSince: number | null = null;
+/** The service told us it was restarting since we last heard the room (US-120). */
+let sawRestart = false;
 
 /** Someone opened the popup or a service page while we wait to retry: try right away. */
 function retryNow() {
@@ -245,7 +244,10 @@ function connect() {
       state.connection = "idle";
     } else if (state.session) {
       state.connection = "reconnecting";
-      if (RESTARTING.has(e.code)) updatingSince ??= Date.now();
+      if (RESTARTING.has(e.code)) {
+        updatingSince ??= Date.now();
+        sawRestart = true;
+      }
       // Back within seconds while it updates (1 to 3 s, jittered so a room's clients spread
       // out); past 60 s, the normal reconnect messages and backoff.
       state.updating = updatingSince !== null && Date.now() - updatingSince < UPDATE_GRACE;
@@ -256,18 +258,6 @@ function connect() {
     }
     changed();
   };
-}
-
-/**
- * Back in a room the restarted service brought back from our token (US-120): it knows who we
- * are but not what we watched. Tell it what we knew, with the clock moved on to now; the
- * first person back sets the room and everyone's drift check does the rest.
- */
-function restoreRoom(media: Media, playback: Playback | null) {
-  const serverNow = Date.now() + state.clockOffset;
-  const now = playback && { ...playback, position: expectedPosition(playback, serverNow) };
-  const msg = envelope<ClientMessageOf<"ROOM.RESTORE">>("ROOM.RESTORE", { media, playback: now });
-  if (isClientMessage(msg)) sendServer(msg);
 }
 
 // Keeps the people list in arrival order when someone's row is replaced.
@@ -291,9 +281,16 @@ function onServer(msg: AnyServerMessage) {
       for (const p of state.participants) order(p.id);
       state.media = msg.payload.media;
       state.playback = msg.payload.playback;
-      // A room's title never goes back to none, unless the service restarted (US-120).
-      if (msg.payload.media === null && known.media !== null)
-        restoreRoom(known.media, known.playback);
+      // Back in a room the restarted service brought back from our token (US-120): it
+      // knows who we are but not what we watched. Tell it what we knew.
+      const restore = restoreMessage(
+        known,
+        msg.payload.media,
+        sawRestart,
+        Date.now() + state.clockOffset,
+      );
+      sawRestart = false;
+      if (restore) sendServer(restore);
       break;
     }
     case "ROOM.PARTICIPANT": {
@@ -339,6 +336,7 @@ function reset() {
   seen.clear();
   attempt = 0;
   updatingSince = null;
+  sawRestart = false;
   Object.assign(state, {
     participants: [],
     media: null,
@@ -368,7 +366,13 @@ async function endSession(notice: string | null) {
   await chrome.storage.session.remove(["session", "lastTicket"]);
   await chrome.storage.local.remove("lastRoom");
   changed();
+  updates.left();
 }
+
+// An update mid-room would clear the room ticket and drop us out: wait until we're out. The
+// reload waits a moment so the popup gets its answer first.
+const updates = updateGate(() => setTimeout(() => chrome.runtime.reload(), 500));
+chrome.runtime.onUpdateAvailable.addListener(() => updates.available(state.session !== null));
 
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).

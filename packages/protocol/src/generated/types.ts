@@ -83,13 +83,17 @@ export type StartForce = Envelope & {
   payload?: {};
 };
 /**
- * After the room service restarted (US-120): the room's title and clock as this client last knew them, position re-projected to now. Taken once, from the first person back in a room brought back by its tokens; the server stamps updatedAt.
+ * After the room service restarted (US-120): the room's title and clock as this client last knew them, position re-projected to now. Sent only by a client the old service told it was restarting. For a few seconds after the room is back the most recent knowledge (knownAt) wins; the server stamps updatedAt.
  */
 export type RestoreRoom = Envelope & {
   type?: "ROOM.RESTORE";
   payload?: {
     media: Media | null;
     playback: Playback | null;
+    /**
+     * The old service's time (ms) of the room clock this client last heard; 0 if none.
+     */
+    knownAt: number;
   };
 };
 export type ClientMessage =
