@@ -28,9 +28,10 @@ test("two people chat both ways with movie times; text is inert; typing never pl
     // Closed on Asha's side: Suhaas's message shows up as unread on her chat button.
     await chatButton(hostTab).click();
     await expect(box(hostTab)).toBeEnabled(); // the room's state has arrived
-    await box(hostTab).click(); // two browsers: only one window has focus at a time
-    await hostTab.keyboard.type("hi");
-    await hostTab.keyboard.press("Enter");
+    // Two browsers share one screen: fill and press on the box itself, so focus moving to the
+    // other window can't swallow the keys (BUG-064).
+    await box(hostTab).fill("hi");
+    await box(hostTab).press("Enter");
     await expect(log(hostTab).getByText("hi", { exact: true })).toBeVisible();
     await expect(log(hostTab).getByText(/^You$/)).toBeVisible();
     await expect(chatButton(tab)).toHaveAttribute("aria-label", /, 1 unread$/);
@@ -43,13 +44,15 @@ test("two people chat both ways with movie times; text is inert; typing never pl
 
     // Script-like text is shown as typed and does nothing; Space and k stay in the box.
     const evil = `<img src=x onerror="document.title='owned'"> k`;
-    await box(tab).click();
-    await tab.keyboard.type(evil);
-    await tab.keyboard.press("Space");
+    // Typed into the box itself: with two browsers open, page.keyboard goes to whichever window
+    // has focus (BUG-064). These are still real key events inside the chat frame.
+    await box(tab).pressSequentially(evil);
+    await box(tab).press("Space");
     await expect.poll(() => playing(tab)).toBe(true);
-    await tab.keyboard.press("Shift+Enter");
-    await tab.keyboard.type("second line");
-    await tab.keyboard.press("Enter");
+    await box(tab).press("Shift+Enter");
+    await box(tab).pressSequentially("second line");
+    await expect(frame(tab).locator("#send")).toBeEnabled();
+    await box(tab).press("Enter");
     const sent = `${evil} \nsecond line`;
     await expect(log(hostTab).getByText(sent)).toBeVisible();
     await expect(header(hostTab, "Asha")).toHaveText(/Asha · 1:\d\d$/);
