@@ -33,6 +33,7 @@ import {
   RELEASES_API,
   type UpdateCheck,
 } from "../shared/update";
+import { badgeText } from "./badge";
 import { ChatFrames, wantsServerMessage } from "./chat-frames";
 import { type ChatSeen, chatRelay } from "./chat-relay";
 import { injectOpenTabs } from "./inject";
@@ -119,6 +120,25 @@ function shared(): AppState {
 }
 function changed() {
   for (const p of ports) p.postMessage({ kind: "state", state: shared() } satisfies Push);
+  showBadge();
+}
+
+/**
+ * Unread chat messages. UC-014 (US-044) keeps the count in AppState as `unread`; until that
+ * is merged there is none, so this reads 0.
+ */
+function unread(): number {
+  const n: unknown = Reflect.get(state, "unread");
+  return state.session && typeof n === "number" ? n : 0;
+}
+
+let badge: string | null = null;
+/** The toolbar badge (US-116): the unread count, 9+ past nine; dev builds show DEV at 0. */
+function showBadge() {
+  const text = badgeText(unread(), __CHANNEL__);
+  if (text === badge) return;
+  badge = text;
+  chrome.action.setBadgeText({ text }).catch(() => {});
 }
 
 async function restore() {
@@ -191,11 +211,9 @@ async function checkForUpdate() {
 }
 checkForUpdate().catch(() => {});
 
-// Testers run "WatchSync Dev" next to the real one; the badge tells them apart at a glance.
-if (__CHANNEL__ === "dev") {
-  chrome.action.setBadgeText({ text: "DEV" }).catch(() => {});
-  chrome.action.setBadgeBackgroundColor({ color: "#ffd25a" }).catch(() => {});
-}
+// Testers run "WatchSync Dev" next to the real one; its badge says DEV while nothing is unread.
+chrome.action.setBadgeBackgroundColor({ color: "#ffd25a" }).catch(() => {});
+showBadge();
 
 async function api(path: string, body: unknown) {
   let res: Response;
