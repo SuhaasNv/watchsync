@@ -6,6 +6,8 @@ const messages = [
   { who: "Maya", initial: "M", time: "42:31", text: "wait, go back a bit", you: false },
   { who: "You", initial: "Y", time: "42:36", text: "rewinding now", you: true },
 ] as const;
+// compact: the home page's lighter version (no second line, no replay button, short caption).
+const { compact = false } = Astro.props;
 const reactions = ["❤️", "😂", "😭", "🔥", "😱", "👏"] as const;
 // One burst of four taps on the fire reaction; only the first carries the sender's name.
 const burst = [{ name: "Sam" }, { name: "" }, { name: "" }, { name: "" }] as const;
@@ -18,19 +20,23 @@ const burst = [{ name: "Sam" }, { name: "" }, { name: "" }, { name: "" }] as con
       <p class="lede">
         Chat sits next to the player. Each message shows the minute of the film it was sent at.
       </p>
-      <p class="note">Tap a reaction a few times and everyone sees that many float up.</p>
-      <button class="btn ghost again" type="button" data-again>
-        <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-          <path
-            d="M4 10a6 6 0 1 0 1.8-4.3M4 3.5v3h3"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"></path>
-        </svg>
-        Send the reactions again
-      </button>
+      {!compact && (
+        <>
+          <p class="note">Tap a reaction a few times and everyone sees that many float up.</p>
+          <button class="btn ghost again" type="button" data-again>
+            <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <path
+                d="M4 10a6 6 0 1 0 1.8-4.3M4 3.5v3h3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"></path>
+            </svg>
+            Send the reactions again
+          </button>
+        </>
+      )}
     </div>
 
     <figure class="demo">
@@ -93,8 +99,11 @@ const burst = [{ name: "Sam" }, { name: "" }, { name: "" }, { name: "" }] as con
         </div>
       </div>
       <figcaption>
-        A demo, not a real room. Sam and Maya chat at 42:10 and 42:31, and four taps on the fire
-        reaction float up the screen.
+        {
+          compact
+            ? "A demo, not a real room."
+            : "A demo, not a real room. Sam and Maya chat at 42:10 and 42:31, and four taps on the fire reaction float up the screen."
+        }
       </figcaption>
     </figure>
   </div>
@@ -103,7 +112,7 @@ const burst = [{ name: "Sam" }, { name: "" }, { name: "" }, { name: "" }] as con
 <script>
   const section = document.querySelector<HTMLElement>("[data-chat-demo]");
   const again = section?.querySelector<HTMLButtonElement>("[data-again]");
-  if (section && again) {
+  if (section) {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
     const run = () => {
       if (reduce.matches) return;
@@ -112,7 +121,7 @@ const burst = [{ name: "Sam" }, { name: "" }, { name: "" }, { name: "" }] as con
       section.classList.add("go");
     };
     section.addEventListener("reveal", run, { once: true });
-    again.addEventListener("click", run);
+    again?.addEventListener("click", run);
   }
 </script>
 
