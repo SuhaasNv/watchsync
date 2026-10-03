@@ -67,20 +67,21 @@ test("on-page prompt and notices", async ({ ext }) => {
   }
 });
 
-test("sidebar: collapsed and open", async ({ ext }) => {
+test("chat: closed and open", async ({ ext }) => {
   const pop = await popup(ext, "Suhaas");
   await pop.getByRole("button", { name: "Create a room" }).click();
+  await audit(pop); // the room screen with its chat shortcut line
   const tab = await ext.context.newPage();
   await tab.goto(`${MOCK}/watch/ep1`);
-  const open = tab.getByRole("button", { name: "Open WatchSync sidebar" });
-  await expect(open).toBeVisible();
+  const chat = tab.getByRole("button", { name: /^Open chat/ });
+  await expect(chat).toBeVisible();
   await tab.mouse.move(20, 20); // not faded out while measured
-  await audit(tab, "watchsync-sidebar");
-  await audit(tab, "watchsync-overlay"); // the pill with its Open chat button
+  await audit(tab, "watchsync-overlay"); // the pill with its chat button, closed
 
-  await tab.getByRole("button", { name: "Open chat" }).click();
-  await expect(tab.getByRole("region", { name: "WatchSync", exact: true })).toBeVisible();
-  await audit(tab, "watchsync-sidebar");
+  await chat.click();
+  const frame = tab.frameLocator("watchsync-sidebar iframe");
+  await expect(frame.getByRole("button", { name: "Close chat" })).toBeFocused();
+  await audit(tab, "watchsync-sidebar"); // the panel and the chat frame inside it
   await audit(tab, "watchsync-overlay");
 });
 

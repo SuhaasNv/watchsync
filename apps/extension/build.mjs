@@ -46,6 +46,8 @@ const manifest = {
   icons: { 16: "icons/16.png", 32: "icons/32.png", 48: "icons/48.png", 128: "icons/128.png" },
   action: { default_popup: "popup.html", default_icon: { 16: "icons/16.png", 32: "icons/32.png" } },
   background: { service_worker: "background.js", type: "module" },
+  // Incognito windows get their own worker and room: no incognito chat in normal tabs.
+  incognito: "split",
   // scripting: add WatchSync to service tabs already open at install or update (BUG-052).
   permissions: ["storage", "scripting"],
   host_permissions: [`${api}/*`],
@@ -59,11 +61,21 @@ const manifest = {
     },
     { matches: [`${api}/j/*`], js: ["join-page.js"], run_at: "document_idle" },
   ],
-  // The sidebar shortcut (US-040); people can change it at chrome://extensions/shortcuts.
+  // The chat panel's frame (DEC-042), loadable only on the sites our content script runs on,
+  // and only through this session's dynamic address so pages can't probe for it. Chrome takes
+  // only whole origins here ("/*"); the background also serves a frame only with its pass.
+  web_accessible_resources: [
+    {
+      resources: ["sidebar.html"],
+      matches: [...new Set(serviceMatches.map((m) => `${new URL(m).origin}/*`))],
+      use_dynamic_url: true,
+    },
+  ],
+  // The chat shortcut (US-040); people can change it at chrome://extensions/shortcuts.
   commands: {
     "toggle-sidebar": {
       suggested_key: { default: "Alt+Shift+W", mac: "MacCtrl+Shift+W" },
-      description: "Open or close the WatchSync sidebar",
+      description: "Open or close WatchSync chat",
     },
   },
 };
@@ -110,6 +122,7 @@ const builds = [
       "netflix-bridge": "src/page/netflix-bridge.ts",
       "join-page": "src/content/join-page.ts",
       popup: "src/popup/main.tsx",
+      sidebar: "src/sidebar/main.ts",
       welcome: "src/welcome/main.ts",
     },
     format: "iife",

@@ -1,162 +1,214 @@
-// The WatchSync sidebar (UC-013): a slim panel over the right edge of the page, or one small
-// round button while collapsed. Its own shadow root keeps the service's CSS out and ours in;
-// the host moves into the fullscreen element so it stays visible in full screen.
-import { svgIcon } from "../shared/icons";
+// The shell of the WatchSync chat panel (UC-013) over the right edge of the page. The panel's
+// content lives in an extension page in an iframe (DEC-042): a service page can read keys typed
+// into its own document, shadow roots included, but never into another origin's frame. This
+// shell only places the frame, animates it open and closed, and follows the player into full
+// screen. It never carries chat or room data; the frame talks to the background itself.
+import type { ChatNonceReply, ChatNonceRequest } from "../shared/messages";
+
+/** Unread messages, shown on the pill's chat button (the one way into chat on the page). */
+export { setChatBadge as setCollapsedBadge } from "./overlay";
 
 const host = document.createElement("watchsync-sidebar");
-// Closed, so the service page can't read the room; test builds open it for Playwright.
+// Closed, so the service page can't reach the frame element; test builds open it.
 const root = host.attachShadow({ mode: __MOCK__ ? "open" : "closed" });
+// The host's own look is ours: the page can't hide or move it with its own styles, since
+// important rules from inside the shadow root win over the page's, inline ones included.
 root.innerHTML = `<style>
-  :host { all: initial; }
-  .panel, .toggle { font: 14px/20px -apple-system, system-ui, "Segoe UI", sans-serif;
-    color: #ecf2f1; -webkit-font-smoothing: antialiased; z-index: 2147483647; position: fixed; }
-  /* Below the pill and above the player's bottom controls, so neither is covered. */
-  .panel { right: 16px; top: 72px; bottom: 120px; width: 320px; max-width: calc(100vw - 32px);
-    min-height: 160px; box-sizing: border-box; display: flex; flex-direction: column;
-    border-radius: 16px; background: rgba(18, 26, 30, 0.95);
-    backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
+  :host { all: initial !important; }
+  /* Below the pill and above the player's bottom controls, so neither is covered. One under
+     the overlay, so a waiting or Sync prompt stays visible over it on narrow windows. */
+  .panel { position: fixed; z-index: 2147483646; right: 16px; top: 72px; bottom: 120px;
+    width: 320px; max-width: calc(100vw - 32px); min-height: 160px; box-sizing: border-box;
+    border-radius: 16px; overflow: hidden; background: rgb(18 26 30 / 0.97);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
-    animation: in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-  .panel[hidden], .toggle[hidden], .badge[hidden] { display: none; }
-  .head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 16px;
-    border-bottom: 1px solid rgba(214, 236, 240, 0.1); }
-  h2 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 650; }
-  .code { color: #a9b8b9; font-size: 13px; line-height: 18px; letter-spacing: 0.04em; }
-  .body { flex: 1; min-height: 0; overflow: auto; }
-  button { border: 0; padding: 0; font: inherit; cursor: pointer; display: grid;
-    place-items: center; transition: background 120ms; }
-  button:focus-visible { outline: 2px solid #ffd25a; outline-offset: 2px; }
-  .close { margin-left: auto; width: 32px; height: 32px; border-radius: 999px;
-    background: transparent; color: #a9b8b9; }
-  .close:hover { background: rgba(214, 236, 240, 0.1); color: #ecf2f1; }
-  .toggle { right: 16px; top: 50%; margin-top: -20px; width: 40px; height: 40px;
-    border-radius: 50%; background: rgba(18, 26, 30, 0.95); color: #ecf2f1;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
-    transition: background 120ms, opacity 0.3s ease-out; }
-  .toggle:hover { background: rgba(38, 50, 56, 0.95); }
-  .toggle.idle:not(:hover):not(:focus-visible) { opacity: 0; }
-  .badge { position: absolute; top: -4px; right: -4px; box-sizing: border-box; min-width: 18px;
-    height: 18px; padding: 0 5px; border-radius: 9px; background: #ffd25a; color: #1b1503;
-    font-size: 11px; font-weight: 750; line-height: 18px; text-align: center; }
+    contain: layout paint style; animation: in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .panel[hidden] { display: none; }
+  .panel.closing { animation: out 140ms cubic-bezier(0.4, 0, 1, 1) forwards; pointer-events: none; }
+  iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
   @keyframes in { from { opacity: 0; transform: translateX(16px); } }
+  @keyframes out { to { opacity: 0; transform: translateX(12px); } }
+  @keyframes fade-in { from { opacity: 0; } }
+  @keyframes fade-out { to { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) {
-    .panel { animation: none; }
-    button, .toggle { transition: none; }
+    .panel { animation: fade-in 150ms ease-out; }
+    .panel.closing { animation: fade-out 140ms ease-in forwards; }
   }
-</style>
-<button type="button" class="toggle" aria-expanded="false" aria-controls="ws-sidebar"
-  hidden><span class="badge" aria-hidden="true" hidden></span></button>
-<div class="panel" id="ws-sidebar" role="region" aria-labelledby="ws-sidebar-title" hidden>
-  <div class="head">
-    <h2 id="ws-sidebar-title">WatchSync</h2>
-    <span class="code"></span>
-    <button type="button" class="close" aria-label="Close WatchSync sidebar" title="Close"
-      aria-expanded="true" aria-controls="ws-sidebar"></button>
-  </div>
-  <!-- UC-014 fills this with the room's chat. -->
-  <section class="body" id="ws-sidebar-body" data-sidebar-body aria-label="Chat"></section>
-</div>`;
+</style><div class="panel" role="region" aria-label="WatchSync" hidden></div>`;
 
 const panel = root.querySelector(".panel") as HTMLDivElement;
-const toggle = root.querySelector(".toggle") as HTMLButtonElement;
-const badge = root.querySelector(".badge") as HTMLSpanElement;
-const close = root.querySelector(".close") as HTMLButtonElement;
-const codeText = root.querySelector(".code") as HTMLSpanElement;
-const body = root.querySelector(".body") as HTMLElement;
-toggle.prepend(svgIcon("chat", 18));
-close.append(svgIcon("close", 16));
+let frame: HTMLIFrameElement | null = null;
 
-/** The room this sidebar belongs to; null while not in a room (nothing on the page). */
-let code: string | null = null;
+let inRoom = false;
 let open = false;
 let retired = false;
-let unread = 0;
-/** Where focus was before the sidebar opened, to give it back on close. */
+/** The host belongs on the page: it was placed and hasn't been taken off by us. */
+let placed = false;
+/** Opening asked for focus before the frame existed: give it once the frame is there. */
+let focusWhenReady = false;
+/** Where focus was before the panel opened, to give it back on close. */
 let returnTo: HTMLElement | null = null;
+/** Where focus goes when `returnTo` is gone (the pill redrew, or the room ended). */
+let fallback: () => HTMLElement | null = () => null;
+let closing: ReturnType<typeof setTimeout> | undefined;
 const openers: (() => void)[] = [];
 const watchers: ((open: boolean) => void)[] = [];
 
+const where = () => document.fullscreenElement ?? document.documentElement;
+
+// If the page takes the host off or moves it, put it back. Child list of its parent only.
+const guard = new MutationObserver(() => {
+  if (placed && host.parentNode !== where()) mount();
+});
+
 function mount() {
-  if (retired || !code) return;
-  const parent = document.fullscreenElement ?? document.documentElement;
+  if (retired || !inRoom) return;
+  placed = true;
+  const parent = where();
   if (host.parentNode === parent) return;
-  // Moving the host in or out of full screen drops focus: keep it on the same control.
+  guard.disconnect();
+  guard.observe(parent, { childList: true });
+  // moveBefore (Chrome 133+) keeps the frame loaded, focused and scrolled. A plain append
+  // reloads the frame, which then gets a new pass and connects again (renewFrame).
+  if (host.isConnected && "moveBefore" in parent) {
+    try {
+      return parent.moveBefore(host, null);
+    } catch {
+      // A move the browser refuses (another document): fall back to a plain append.
+    }
+  }
   const focused = root.activeElement;
   parent.append(host);
   if (focused instanceof HTMLElement) focused.focus();
 }
 
-let idleTimer: ReturnType<typeof setTimeout> | undefined;
-
-// Like the pill and the player's own controls: the collapsed button fades after 3 s still.
-function wake() {
-  toggle.classList.remove("idle");
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => toggle.classList.add("idle"), 3000);
+function unmount() {
+  placed = false;
+  guard.disconnect();
+  host.remove();
 }
 
-function render() {
-  panel.hidden = !open;
-  toggle.hidden = open;
-  badge.hidden = unread === 0;
-  badge.textContent = unread > 99 ? "99+" : String(unread);
-  const label = "Open WatchSync sidebar";
-  toggle.setAttribute("aria-label", unread ? `${label}, ${unread} unread` : label);
-  toggle.title = label;
+/** A one-time pass from the background for the frame we load; null if it won't give one. */
+async function pass(): Promise<string | null> {
+  const reply: ChatNonceReply = await chrome.runtime.sendMessage({
+    kind: "chatNonce",
+  } satisfies ChatNonceRequest);
+  const nonce = typeof reply === "object" && reply !== null ? reply.nonce : null;
+  return typeof nonce === "string" && /^[\w-]{8,64}$/.test(nonce) ? nonce : null;
+}
+
+const frameUrl = (nonce: string) => `${chrome.runtime.getURL("sidebar.html")}#${nonce}`;
+
+/** Loads a new frame with a fresh pass, in place of any frame there was. */
+async function loadFrame() {
+  const nonce = await pass();
+  if (!nonce || retired || !inRoom) return;
+  const f = document.createElement("iframe");
+  f.title = "WatchSync chat";
+  f.src = frameUrl(nonce);
+  let loaded = false;
+  f.addEventListener("load", () => {
+    // A second load is a reload (the page took the host off and we put it back): its pass is
+    // spent, so a new frame with a new pass takes its place.
+    if (loaded) return renewFrame();
+    loaded = true;
+    // Focus given to the frame before its page loaded doesn't reach that page: give it again.
+    if (focusWhenReady && open) focusFrame(f);
+    focusWhenReady = false;
+  });
+  frame?.remove();
+  frame = f;
+  panel.append(f);
+  if (focusWhenReady && open) f.focus(); // off the page's control at once
+}
+
+/** Focus into the frame's page; it then puts focus on its first control. */
+function focusFrame(f: HTMLIFrameElement) {
+  f.focus();
+  f.contentWindow?.focus();
+}
+
+/**
+ * The frame's connection dropped (a worker restart) or it reloaded with a spent pass: a new
+ * frame with a new pass replaces it, and takes its focus if it had it.
+ */
+export function renewFrame() {
+  if (!frame) return;
+  if (root.activeElement === frame && open) focusWhenReady = true;
+  loadFrame().catch((e: unknown) => console.debug("watchsync: chat frame", e));
 }
 
 function changed() {
   for (const cb of watchers) cb(open);
 }
 
-/** In a room: show the sidebar's button with this room code. null takes it all off the page. */
-export function showSidebar(roomCode: string | null) {
-  if (retired || roomCode === code) return;
-  code = roomCode;
-  if (!roomCode) {
-    const was = open;
-    open = false;
-    returnTo = null;
-    host.remove();
-    render();
-    if (was) changed();
-    return;
-  }
-  codeText.textContent = `Room ${roomCode}`;
-  render();
-  mount();
-  wake();
+/** Gives focus back after the panel closes or goes away, if focus was in it. */
+function giveFocusBack() {
+  const back = returnTo;
+  returnTo = null;
+  const target = back?.isConnected && back !== document.body ? back : fallback();
+  if (target?.isConnected) target.focus();
+  else if (root.activeElement instanceof HTMLElement) root.activeElement.blur();
+}
+
+/** In a room the panel can open; out of one, it and its frame leave the page. */
+export function showSidebar(room: boolean) {
+  if (retired || room === inRoom) return;
+  inRoom = room;
+  if (room) return;
+  const was = open;
+  if (root.activeElement) giveFocusBack();
+  open = false;
+  returnTo = null;
+  focusWhenReady = false;
+  clearTimeout(closing);
+  panel.classList.remove("closing");
+  panel.hidden = true;
+  frame?.remove(); // its port closes with it; a new room gets a fresh frame
+  frame = null;
+  unmount();
+  if (was) changed();
 }
 
 /**
- * Opens the sidebar and moves focus into it. `from` gets focus back on close; it defaults to
+ * Opens the chat panel and moves focus into it. `from` gets focus back on close; it defaults to
  * whatever had focus. Already open: just moves focus in.
  */
 export function openSidebar(from: HTMLElement | null = focusedOnPage()) {
-  if (retired || !code) return;
+  if (retired || !inRoom) return;
   if (!open) {
     returnTo = from;
     open = true;
-    render();
+    clearTimeout(closing); // reopened mid-close: the close animation gives way
+    panel.classList.remove("closing");
+    panel.hidden = false;
     mount();
     for (const cb of openers) cb();
     changed();
   }
-  // UC-014 can mark its message box to take focus first.
-  (root.querySelector<HTMLElement>("[data-focus-first]") ?? close).focus();
+  // The frame puts focus on its first control when it gets focus.
+  if (frame) return focusFrame(frame);
+  focusWhenReady = true;
+  loadFrame().catch((e: unknown) => console.debug("watchsync: chat frame", e));
 }
 
-/** Collapses to the small button; focus goes back where it was if it was in the sidebar. */
+/** Closes the panel; focus goes back where it was if it was in the panel. */
 export function closeSidebar() {
   if (!open) return;
-  const inside = root.activeElement !== null;
-  const back = returnTo;
-  returnTo = null;
-  if (inside && root.activeElement instanceof HTMLElement) root.activeElement.blur();
   open = false;
-  render();
-  changed();
-  if (inside && back?.isConnected && back !== document.body) back.focus();
+  focusWhenReady = false;
+  const inside = root.activeElement !== null;
+  changed(); // the pill redraws first, so focus lands on its button as it now stands
+  if (inside) giveFocusBack();
+  panel.classList.add("closing");
+  const done = () => {
+    clearTimeout(closing);
+    panel.removeEventListener("animationend", done);
+    if (open) return;
+    panel.classList.remove("closing");
+    panel.hidden = true;
+  };
+  panel.addEventListener("animationend", done);
+  closing = setTimeout(done, 200); // no animation end (hidden tab, animations off)
 }
 
 export function toggleSidebar(from?: HTMLElement | null) {
@@ -166,32 +218,27 @@ export function toggleSidebar(from?: HTMLElement | null) {
 
 export const isSidebarOpen = () => open;
 
-/** The empty region UC-014 fills with chat. */
-export const sidebarBody = (): HTMLElement => body;
-
-/** Unread messages, shown on the collapsed button; 0 hides the count. */
-export function setCollapsedBadge(n: number) {
-  unread = Math.max(0, Math.floor(n));
-  render();
-}
-
-/** Called each time the sidebar opens (UC-014 clears unread then). */
+/** Called each time the panel opens (UC-014 clears unread then). */
 export function onSidebarOpen(cb: () => void) {
   openers.push(cb);
 }
 
-/** Called each time the sidebar opens or collapses. */
+/** Called each time the panel opens or closes. */
 export function onSidebarChange(cb: (open: boolean) => void) {
   watchers.push(cb);
 }
 
-/** This copy of the extension was replaced by an update: take the sidebar off for good. */
+/** Where focus goes on close when the control that opened the panel is gone. */
+export function focusFallback(find: () => HTMLElement | null) {
+  fallback = find;
+}
+
+/** This copy of the extension was replaced by an update: take the panel off for good. */
 export function retireSidebar() {
   retired = true;
-  host.remove();
-  clearTimeout(idleTimer);
-  document.removeEventListener("fullscreenchange", mount);
-  document.removeEventListener("mousemove", wake);
+  clearTimeout(closing);
+  unmount();
+  document.removeEventListener("fullscreenchange", onFullscreen);
 }
 
 /** The element with focus on the page, outside our own UI. */
@@ -200,22 +247,7 @@ function focusedOnPage(): HTMLElement | null {
   return el instanceof HTMLElement && el !== host ? el : null;
 }
 
-// Keys and clicks inside the sidebar are ours. Without this, Space or Enter on a sidebar
-// control would also reach the service's player as play or pause, and in full screen (where
-// the host sits inside the player) a click would land as a tap on the picture. Stopped at
-// the host, after our own controls have handled them.
-for (const type of ["keydown", "keyup", "keypress", "click", "dblclick", "mousedown", "mouseup"])
-  host.addEventListener(type, (e) => e.stopPropagation());
-for (const type of ["pointerdown", "pointerup", "wheel"])
-  host.addEventListener(type, (e) => e.stopPropagation(), { passive: true });
-
-toggle.addEventListener("click", () => openSidebar(toggle));
-close.addEventListener("click", closeSidebar);
-root.addEventListener("keydown", (e) => {
-  if (e instanceof KeyboardEvent && e.key === "Escape" && open) {
-    e.preventDefault();
-    closeSidebar();
-  }
-});
-document.addEventListener("fullscreenchange", mount);
-document.addEventListener("mousemove", wake, { passive: true });
+function onFullscreen() {
+  if (placed) mount();
+}
+document.addEventListener("fullscreenchange", onFullscreen);

@@ -12,6 +12,7 @@ import {
 } from "../shared/messages";
 import { align } from "./align";
 import {
+  chatButton,
   clearPrompt,
   focusedControl,
   notice,
@@ -24,9 +25,11 @@ import {
 import { apply, clock, hold, isEcho, listen, seekQuietly } from "./playback";
 import { providerFor } from "./providers";
 import {
+  closeSidebar,
+  focusFallback,
   isSidebarOpen,
   onSidebarChange,
-  openSidebar,
+  renewFrame,
   retireSidebar,
   showSidebar,
   toggleSidebar,
@@ -244,12 +247,13 @@ function onPush(m: Push) {
     toggleSidebar(focusedControl() ?? undefined);
     return;
   }
+  if (m.kind === "closeSidebar") return closeSidebar(); // Esc or close inside the chat frame
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
   const wasFollowing = room?.following;
   room = m.state;
-  showSidebar(room.session && room.connection !== "idle" ? room.session.code : null);
+  showSidebar(room.session !== null && room.connection !== "idle");
   showConnection();
   if (room.connection === "connected" && (!wasConnected || (room.following && !wasFollowing)))
     catchUp();
@@ -388,7 +392,7 @@ function drawPill() {
     playing: provider?.getState()?.playing === true,
     onPause: pauseTogether,
     onSyncAll: syncEveryone,
-    onChat: (from) => openSidebar(from),
+    onChat: (from) => toggleSidebar(from),
     chatOpen: isSidebarOpen(),
   });
 }
@@ -396,6 +400,8 @@ onSidebarChange((open) => {
   drawPill();
   noticesBesideSidebar(open);
 });
+// The control that opened chat can be gone by the time it closes: the pill's chat button.
+focusFallback(chatButton);
 
 /** Everyone jumps to exactly where I am, without pausing or counting down (owner, 2 Oct). */
 function syncEveryone() {
@@ -766,6 +772,8 @@ function connect() {
     port = null;
     setTimeout(connect, 1000);
   });
+  // A restarted worker dropped the chat frame's connection too: give it a new pass.
+  renewFrame();
   // Only a title is news. A page still reading its title (or a browse page in another
   // tab) would otherwise say "nothing open" over the tab that is watching: a reload
   // looked like closing the show. A tab that closes is reported by the background.

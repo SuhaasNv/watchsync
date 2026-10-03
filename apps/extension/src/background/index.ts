@@ -13,7 +13,10 @@ import {
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
 import {
   type AppState,
+  type ChatNonceReply,
+  type ChatNonceRequest,
   cleanName,
+  isSidebarEvent,
   nameProblem,
   type Push,
   type Reply,
@@ -28,6 +31,7 @@ import {
   RELEASES_API,
   type UpdateCheck,
 } from "../shared/update";
+import { ChatFrames } from "./chat-frames";
 import { injectOpenTabs } from "./inject";
 import { restoreMessage } from "./restore";
 import { RESTARTING, Retry } from "./retry";
@@ -491,29 +495,40 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   void injectOpenTabs(chrome);
 });
 
-/** The sidebar shortcut (US-040): only the tab it was pressed in opens or closes its sidebar. */
+/** Tells the content script of one tab, and no other, about its chat panel. */
+function toTab(tabId: number | undefined, msg: Push) {
+  if (tabId === undefined) return;
+  for (const p of ports) if (p.name === "tab" && p.sender?.tab?.id === tabId) p.postMessage(msg);
+}
+
+/** The chat shortcut (US-040): only the tab it was pressed in opens or closes its panel. */
 async function onCommand(command: string, tab?: chrome.tabs.Tab) {
   if (command !== "toggle-sidebar") return;
   const id = tab?.id ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id;
-  if (id === undefined) return;
-  for (const p of ports)
-    if (p.name === "tab" && p.sender?.tab?.id === id)
-      p.postMessage({ kind: "toggleSidebar" } satisfies Push);
+  toTab(id, { kind: "toggleSidebar" });
 }
 chrome.commands.onCommand.addListener((command, tab) => {
-  onCommand(command, tab).catch(() => {}); // no tab to tell: nothing to open
+  onCommand(command, tab).catch((e: unknown) => console.debug("watchsync: shortcut", e));
 });
 
 // Test builds only: lets end-to-end tests cut the connection like a network drop, and press
-// the sidebar shortcut (Playwright can't press extension commands).
+// the chat shortcut (Playwright can't press extension commands).
 if (__MOCK__)
   Object.assign(globalThis, {
     watchsyncDropSocket: () => socket?.close(),
     watchsyncCommand: onCommand,
   });
 
-chrome.runtime.onMessage.addListener((req: Request, sender, reply) => {
+const chatFrames = new ChatFrames();
+
+chrome.runtime.onMessage.addListener((req: Request | ChatNonceRequest, sender, reply) => {
   if (sender.id !== chrome.runtime.id) return false;
+  if (req.kind === "chatNonce") {
+    // Only a tab's content script (its top frame) gets a pass for its chat frame.
+    const nonce = chatFrames.issue(sender);
+    reply((nonce ? { nonce } : null) satisfies ChatNonceReply);
+    return false;
+  }
   handle(req).then(reply);
   return true;
 });
@@ -542,6 +557,7 @@ function titleTabGone() {
 
 // Closing the tab: no need to wait out the 3 s page-load allowance below.
 chrome.tabs.onRemoved.addListener((tabId) => {
+  chatFrames.forget(tabId);
   if (tabId === presenceTabId) presenceTabClosed();
 });
 // The retry: every 15 s make sure that tab still exists, so a missed close event can't
@@ -551,8 +567,31 @@ setInterval(() => {
   chrome.tabs.get(presenceTabId).catch(presenceTabClosed);
 }, 15_000);
 
+/**
+ * A chat frame's port is served only after it says hello with the pass its tab's content
+ * script was given (DEC-042); anything else, or silence, is disconnected unserved.
+ */
+function admitChatFrame(port: chrome.runtime.Port) {
+  const silent = setTimeout(() => port.disconnect(), 5000);
+  const hello = (e: unknown) => {
+    clearTimeout(silent);
+    port.onMessage.removeListener(hello);
+    if (!chatFrames.admit(port.sender, e)) return port.disconnect();
+    ports.add(port);
+    port.onDisconnect.addListener(() => ports.delete(port));
+    // Its close goes only to the content script of the tab it sits in.
+    port.onMessage.addListener((m: unknown) => {
+      if (isSidebarEvent(m) && m.kind === "close")
+        toTab(port.sender?.tab?.id, { kind: "closeSidebar" });
+    });
+    ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
+  };
+  port.onMessage.addListener(hello);
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
+  if (port.name === "sidebar") return admitChatFrame(port);
   ports.add(port);
   retryNow();
   port.onDisconnect.addListener(() => {
