@@ -375,6 +375,52 @@ def test_a_room_keeps_at_most_its_byte_budget(monkeypatch: pytest.MonkeyPatch) -
         assert [m["text"][0] for m in history] == ["a", "b", "c"]
 
 
+def restart(monkeypatch: pytest.MonkeyPatch) -> Rooms:
+    """What a new process holds (as in test_restore.py): no rooms, no live tokens."""
+    monkeypatch.setattr(config, "ROOM_SIGNING_SECRET", b"s" * 32)
+    fresh = Rooms()
+    monkeypatch.setattr(main, "rooms", fresh)
+    monkeypatch.setattr(main, "sockets", {})
+    monkeypatch.setattr(main, "away", {})
+    return fresh
+
+
+def test_a_room_brought_back_after_a_restart_has_no_earlier_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """US-120: chat lives in the old process's memory only; nothing carries it over (not the
+    tokens, not ROOM.RESTORE, not the snapshot), so a restored room starts with none."""
+    monkeypatch.setattr(config, "ROOM_SIGNING_SECRET", b"s" * 32)
+    host = create()
+    guest = join(host["code"])
+    with connected(host) as (ws, _):
+        say(ws, "before the restart")
+    restart(monkeypatch)
+    with connected(host) as (hws, history), connected(guest) as (_, guest_history):
+        assert history == [] and guest_history == []
+        room = main.rooms.rooms[host["code"]]
+        assert room.restored and list(room.chat) == [] and room.chat_bytes == 0
+        hws.send_json(msg("ROOM.RESTORE", {"media": None, "playback": None, "knownAt": 1}))
+        restored = next_of(hws, "ROOM.STATE")
+        assert "chat" not in json.dumps(restored["payload"]).lower()
+        assert chats(say(hws, "after")) == ["after"]
+
+
+def test_a_restored_room_keeps_every_chat_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "ROOM_SIGNING_SECRET", b"s" * 32)
+    host = create()
+    restart(monkeypatch)
+    with connected(host) as (ws, _):
+        assert refusal(say(ws, "x" * 501))["reason"] == "too_long"
+        assert refusal(say(ws, chr(0x3164)))["reason"] == "invalid"
+        for i in range(5):
+            assert chats(say(ws, f"ok {i}")) == [f"ok {i}"]
+        assert refusal(say(ws, "one too many"))["reason"] == "rate_limited"
+        again = [m["payload"] for m in say(ws, "ok 0", client_id="dup")]
+        assert again and again[0]["reason"] == "rate_limited"  # no budget, no new message
+    assert len(main.rooms.rooms[host["code"]].chat) == 5
+
+
 def test_all_rooms_together_keep_at_most_the_total_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
