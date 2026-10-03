@@ -126,6 +126,11 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) void refreshPin();
 });
 
+// Chrome has no API to pin an extension; its details page has a "Pin to toolbar" switch, one
+// click away. Brave and Edge open their own extensions page from the same address.
+$<HTMLButtonElement>("#pin-now").addEventListener("click", () => {
+  void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+});
 $<HTMLButtonElement>("#show-me").addEventListener("click", () => {
   pointer.hidden = false;
   $<HTMLButtonElement>("#pointer-close").focus();

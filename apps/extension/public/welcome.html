@@ -84,7 +84,7 @@
                   <circle cx="224" cy="34" r="5" class="ring" stroke-width="2.4" />
                   <circle cx="216" cy="34" r="6.2" class="dot" />
                 </g>
-                <path class="puzzle" d="M245 30.5h4a2.5 2.5 0 1 1 5 0h4v4a2.5 2.5 0 1 1 0 5v4h-13z" />
+                <path class="pin-glyph" d="M245 30.5h4a2.5 2.5 0 1 1 5 0h4v4a2.5 2.5 0 1 1 0 5v4h-13z" />
                 <circle class="avatar-dim" cx="284" cy="34" r="8" />
                 <circle class="rip rip1" cx="251" cy="36" r="13" />
                 <g class="menu">
@@ -321,9 +321,13 @@
               </span>
             </div>
             <p class="dim">
-              Click the puzzle icon at the top right of Chrome, then the pin next to WatchSync.
+              Chrome doesn't let an extension pin itself. This opens WatchSync's settings, where
+              "Pin to toolbar" is one switch.
             </p>
-            <button type="button" class="btn" id="show-me">Show me where</button>
+            <div class="row">
+              <button type="button" class="btn primary" id="pin-now">Open the pin switch</button>
+              <button type="button" class="ghost" id="show-me">Show me where</button>
+            </div>
           </div>
           <form class="box" id="name-form" data-reveal style="--d: 140ms" novalidate>
             <div class="box-head">
@@ -356,13 +360,15 @@
     </footer>
 
     <div class="pointer" id="pointer" hidden>
-      <svg class="pointer-arrow" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
-        <path d="M20 36V6M9 17 20 6l11 11" />
-      </svg>
       <div class="pointer-card">
         <p id="pointer-text">
-          Click the puzzle icon just above, right of the address bar, then the pin next to
-          WatchSync.
+          In your browser's toolbar, top right, click the puzzle icon
+          <svg class="pin-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4a2 2 0 0 0-2 2v3.8h1.5a2.7 2.7 0 0 1 0 5.4H2V20a2 2 0 0 0 2 2h3.8v-1.5a2.7 2.7 0 0 1 5.4 0V22H17a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 0-5Z"
+            />
+          </svg>
+          , then the pin next to WatchSync.
         </p>
         <button type="button" class="ghost" id="pointer-close">Got it</button>
       </div>
