@@ -7,7 +7,7 @@ import {
 } from "@watchsync/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Push } from "../shared/messages";
-import { type ChatSeen, chatRelay, type RelayPort } from "./chat-relay";
+import { type ChatSeen, chatRelay, type Link, type RelayPort } from "./chat-relay";
 
 class FakePort implements RelayPort {
   got: Push[] = [];
@@ -17,17 +17,18 @@ class FakePort implements RelayPort {
   }
 }
 
-function setup() {
+function setup(link: Link = "open") {
   const sent: ClientMessageOf<"CHAT.SEND">[] = [];
   const seen: ChatSeen[] = [];
   const open = new Set<RelayPort>();
   const deps = {
-    socketOpen: true,
+    linkNow: link,
     send(msg: ClientMessageOf<"CHAT.SEND">) {
-      if (!deps.socketOpen) return false;
+      if (deps.linkNow !== "open") return false;
       sent.push(msg);
       return true;
     },
+    link: () => deps.linkNow,
     you: () => "me",
     seen: (s: ChatSeen) => seen.push(s),
     connected: (port: RelayPort) => open.has(port),
@@ -64,6 +65,8 @@ const rejected = (clientId?: string): AnyServerMessage =>
 const chatEvent = (text: string, clientId: string, movieTime: number | null = 61) =>
   ({ kind: "chat", text, movieTime, titleId: "1", clientId }) as const;
 const failures = (p: FakePort) => p.got.filter((m) => m.kind === "chatFailed");
+const sending = (p: FakePort) => p.got.filter((m) => m.kind === "chatSending");
+const echo = (clientId: string) => message(said(clientId, "me", clientId));
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -89,20 +92,24 @@ describe("sending (US-042)", () => {
     expect(failures(tab)).toEqual([]);
   });
 
-  it("is confirmed by its own echo: no Not sent", () => {
+  it("is confirmed by its own echo: no Sending and no Not sent", () => {
     const { relay, port } = setup();
     const tab = port();
     relay.onTabEvent(tab, chatEvent("hi", "c-1"));
-    relay.onServer(message(said("hi", "me", "c-1")));
-    vi.advanceTimersByTime(10_000);
-    expect(failures(tab)).toEqual([]);
+    relay.onServer(echo("c-1"));
+    vi.advanceTimersByTime(60_000);
+    expect(tab.got).toEqual([]);
   });
 
-  it("says Not sent (offline) when no echo comes within 5 s, even with the socket open", () => {
+  it("shows Sending after 5 s and Not sent 30 s after the first send", () => {
     const { relay, port } = setup();
     const tab = port();
     relay.onTabEvent(tab, chatEvent("hi", "c-1"));
     vi.advanceTimersByTime(4999);
+    expect(tab.got).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(sending(tab)).toEqual([{ kind: "chatSending", clientId: "c-1" }]);
+    vi.advanceTimersByTime(24_999);
     expect(failures(tab)).toEqual([]);
     vi.advanceTimersByTime(1);
     expect(failures(tab)).toEqual([
@@ -110,25 +117,12 @@ describe("sending (US-042)", () => {
     ]);
   });
 
-  it("says Not sent at once when the socket isn't open", () => {
-    const { relay, deps, sent, port } = setup();
+  it("says Not sent at once when not in a room", () => {
+    const { relay, sent, port } = setup("closed");
     const tab = port();
-    deps.socketOpen = false;
     relay.onTabEvent(tab, chatEvent("hi", "c-1"));
     expect(sent).toEqual([]);
-    expect(failures(tab)).toEqual([
-      { kind: "chatFailed", reason: "offline", text: "hi", clientId: "c-1" },
-    ]);
-  });
-
-  it("says Not sent when the socket closes while waiting (a half-open connection)", () => {
-    const { relay, port } = setup();
-    const tab = port();
-    relay.onTabEvent(tab, chatEvent("hi", "c-1"));
-    relay.onSocketClosed();
     expect(failures(tab).map((m) => m.kind === "chatFailed" && m.reason)).toEqual(["offline"]);
-    vi.advanceTimersByTime(10_000);
-    expect(failures(tab)).toHaveLength(1); // once
   });
 
   it("says invalid, without sending, for text the room can't take", () => {
@@ -143,14 +137,18 @@ describe("sending (US-042)", () => {
     ]);
   });
 
-  it("a Retry with the same clientId takes over the earlier wait", () => {
+  it("a Retry reuses the clientId and starts the 30 s over", () => {
     const { relay, sent, port } = setup();
     const tab = port();
     relay.onTabEvent(tab, chatEvent("hi", "c-1"));
-    vi.advanceTimersByTime(4000);
-    relay.onTabEvent(tab, chatEvent("hi", "c-1"));
-    vi.advanceTimersByTime(2000);
-    expect(failures(tab)).toEqual([]); // the first wait was dropped
+    vi.advanceTimersByTime(30_000);
+    expect(failures(tab)).toHaveLength(1);
+    relay.onTabEvent(tab, chatEvent("hi", "c-1")); // Retry
+    vi.advanceTimersByTime(29_000);
+    expect(failures(tab)).toHaveLength(1);
+    relay.onServer(echo("c-1"));
+    vi.advanceTimersByTime(10_000);
+    expect(failures(tab)).toHaveLength(1);
     expect(sent.map((m) => m.payload.clientId)).toEqual(["c-1", "c-1"]);
   });
 
@@ -159,11 +157,95 @@ describe("sending (US-042)", () => {
     const tab = port();
     relay.onTabEvent(tab, chatEvent("hi", "c-1"));
     open.delete(tab);
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(30_000);
     expect(tab.got).toEqual([]);
   });
 });
 
+describe("while reconnecting (retry policy)", () => {
+  it("queues, then sends once on reconnect with the same clientId, spaced out", () => {
+    const { relay, deps, sent, port } = setup("reconnecting");
+    const tab = port();
+    for (const id of ["c-1", "c-2", "c-3"]) relay.onTabEvent(tab, chatEvent(id, id));
+    expect(sent).toEqual([]);
+    expect(failures(tab)).toEqual([]);
+    deps.linkNow = "open";
+    relay.onSocketOpen();
+    expect(sent.map((m) => m.payload.clientId)).toEqual(["c-1"]);
+    vi.advanceTimersByTime(1100);
+    vi.advanceTimersByTime(1100);
+    expect(sent.map((m) => m.payload.clientId)).toEqual(["c-1", "c-2", "c-3"]);
+    for (const id of ["c-1", "c-2", "c-3"]) relay.onServer(echo(id));
+    vi.advanceTimersByTime(60_000);
+    expect(sent).toHaveLength(3); // once each
+    expect(failures(tab)).toEqual([]);
+  });
+
+  it("keeps at most 10 waiting; the 11th is Not sent at once", () => {
+    const { relay, port } = setup("reconnecting");
+    const tab = port();
+    for (let i = 0; i < 11; i++) relay.onTabEvent(tab, chatEvent(`m${i}`, `c-${i}`));
+    expect(failures(tab)).toEqual([
+      { kind: "chatFailed", reason: "offline", text: "m10", clientId: "c-10" },
+    ]);
+  });
+
+  it("gives up 30 s after the first send, even when still reconnecting", () => {
+    const { relay, deps, sent, port } = setup("reconnecting");
+    const tab = port();
+    relay.onTabEvent(tab, chatEvent("hi", "c-1"));
+    vi.advanceTimersByTime(5000);
+    expect(sending(tab)).toHaveLength(1);
+    vi.advanceTimersByTime(25_000);
+    expect(failures(tab)).toHaveLength(1);
+    deps.linkNow = "open";
+    relay.onSocketOpen();
+    expect(sent).toEqual([]); // given up: never sent late
+  });
+
+  it("sends again what had no echo when the socket closed (a half-open connection)", () => {
+    const { relay, deps, sent, port } = setup();
+    const tab = port();
+    relay.onTabEvent(tab, chatEvent("hi", "c-1"));
+    deps.linkNow = "reconnecting";
+    relay.onSocketClosed();
+    expect(failures(tab)).toEqual([]);
+    vi.advanceTimersByTime(10_000);
+    deps.linkNow = "open";
+    relay.onSocketOpen();
+    expect(sent.map((m) => m.payload.clientId)).toEqual(["c-1", "c-1"]);
+    vi.advanceTimersByTime(20_000); // 30 s after the first send
+    expect(failures(tab)).toHaveLength(1);
+  });
+
+  it("doesn't send again what the room's history shows arrived", () => {
+    const { relay, deps, sent, port } = setup();
+    const tab = port();
+    relay.onTabEvent(tab, chatEvent("hi", "c-1"));
+    deps.linkNow = "reconnecting";
+    relay.onSocketClosed();
+    relay.onServer(history([said("hi", "me", "c-1")])); // the echo was lost, the message wasn't
+    deps.linkNow = "open";
+    relay.onSocketOpen();
+    expect(sent).toHaveLength(1);
+    vi.advanceTimersByTime(60_000);
+    expect(tab.got).toEqual([]);
+  });
+
+  it("never retries a refused message", () => {
+    const { relay, deps, sent, port } = setup();
+    const tab = port();
+    relay.onTabEvent(tab, chatEvent("hi", "c-1"));
+    expect(relay.onServer(rejected("c-1"))).toBe(tab);
+    deps.linkNow = "reconnecting";
+    relay.onSocketClosed();
+    deps.linkNow = "open";
+    relay.onSocketOpen();
+    vi.advanceTimersByTime(60_000);
+    expect(sent).toHaveLength(1);
+    expect(tab.got).toEqual([]);
+  });
+});
 describe("refusals go to the sending tab only", () => {
   it("routes CHAT.REJECTED to the tab that sent it, and ends its wait", () => {
     const { relay, port } = setup();

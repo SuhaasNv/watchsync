@@ -1,5 +1,6 @@
 // The background's side of chat (UC-014): tab events to the room, the room's chat back to tabs,
-// delivery confirmation, and the unread count. Kept apart from index.ts so it can be tested.
+// delivery (the v0.2 retry policy), and the unread count. Kept apart from index.ts so it can be
+// tested.
 import {
   type AnyServerMessage,
   type ClientMessageOf,
@@ -8,7 +9,10 @@ import {
   type ServerMessageOf,
 } from "@watchsync/protocol";
 import {
-  CHAT_CONFIRM_MS,
+  CHAT_FLUSH_GAP_MS,
+  CHAT_GIVE_UP_MS,
+  CHAT_QUEUE_MAX,
+  CHAT_SENDING_MS,
   type Chat,
   chatAfter,
   chatOpened,
@@ -30,9 +34,13 @@ export interface ChatSeen {
   lastSeen: string | null;
 }
 
+/** open: the room's socket is open; reconnecting: in a room, waiting for it; closed: no room. */
+export type Link = "open" | "reconnecting" | "closed";
+
 export interface RelayDeps {
   /** Send on the room's socket; false when it isn't open. */
   send(message: ClientMessageOf<"CHAT.SEND">): boolean;
+  link(): Link;
   /** Our participant id in the room. */
   you(): string | null;
   /** The unread count or last-seen id changed: keep it and show it. */
@@ -43,30 +51,51 @@ export interface RelayDeps {
 
 export type ChatTabEvent = Extract<TabEvent, { kind: "chat" | "chatOpened" }>;
 type Failure = Extract<Push, { kind: "chatFailed" }>["reason"];
-interface Pending {
+
+/** A message on its way: sent and waiting for its echo, or queued for the next connection. */
+interface Outgoing {
   port: RelayPort;
   text: string;
-  timer: ReturnType<typeof setTimeout>;
+  message: ClientMessageOf<"CHAT.SEND">;
+  queued: boolean;
+  timers: ReturnType<typeof setTimeout>[];
 }
 
-export function chatRelay(deps: RelayDeps, confirmMs = CHAT_CONFIRM_MS) {
+export function chatRelay(deps: RelayDeps) {
   let chat: Chat = NO_CHAT;
   /** The room's history has arrived since the last reset (or worker start). */
   let historyKnown = false;
-  const pending = new Map<string, Pending>();
+  /** In the order they were first sent (a Retry goes to the end). */
+  const outgoing = new Map<string, Outgoing>();
+  let flushing: ReturnType<typeof setTimeout> | undefined;
 
   const report = () => deps.seen({ unread: chat.unread, lastSeen: chat.lastSeen });
+  const queued = () => [...outgoing.values()].filter((o) => o.queued);
 
-  function fail(port: RelayPort, text: string, clientId: string, reason: Failure) {
-    if (deps.connected(port)) port.postMessage({ kind: "chatFailed", reason, text, clientId });
+  function post(port: RelayPort, message: Push) {
+    if (deps.connected(port)) port.postMessage(message);
   }
 
-  function settle(clientId: string): Pending | undefined {
-    const p = pending.get(clientId);
-    if (!p) return undefined;
-    clearTimeout(p.timer);
-    pending.delete(clientId);
-    return p;
+  function fail(port: RelayPort, text: string, clientId: string, reason: Failure) {
+    post(port, { kind: "chatFailed", reason, text, clientId });
+  }
+
+  /** The message arrived, was refused, or was given up on: stop trying. */
+  function settle(clientId: string): Outgoing | undefined {
+    const o = outgoing.get(clientId);
+    if (!o) return undefined;
+    for (const t of o.timers) clearTimeout(t);
+    outgoing.delete(clientId);
+    return o;
+  }
+
+  /** Queued messages go out one at a time, spaced so the room's rate limit never trips. */
+  function flush() {
+    flushing = undefined;
+    const next = queued()[0];
+    if (!next || !deps.send(next.message)) return;
+    next.queued = false;
+    if (queued().length > 0) flushing = setTimeout(flush, CHAT_FLUSH_GAP_MS);
   }
 
   return {
@@ -92,17 +121,26 @@ export function chatRelay(deps: RelayDeps, confirmMs = CHAT_CONFIRM_MS) {
         clientId,
       });
       if (!isClientMessage(message)) return fail(port, e.text, clientId, "invalid");
-      settle(clientId); // a Retry takes over the earlier wait
-      if (!deps.send(message)) return fail(port, e.text, clientId, "offline");
-      const timer = setTimeout(() => {
-        if (settle(clientId)) fail(port, e.text, clientId, "offline");
-      }, confirmMs);
-      pending.set(clientId, { port, text: e.text, timer });
+      settle(clientId); // a Retry starts over, with the same clientId
+      const link = deps.link();
+      const sent = link === "open" && queued().length === 0 && deps.send(message);
+      if (!sent && (link === "closed" || queued().length >= CHAT_QUEUE_MAX))
+        return fail(port, e.text, clientId, "offline");
+      const timers = [
+        setTimeout(() => post(port, { kind: "chatSending", clientId }), CHAT_SENDING_MS),
+        setTimeout(() => {
+          if (settle(clientId)) fail(port, e.text, clientId, "offline");
+        }, CHAT_GIVE_UP_MS),
+      ];
+      outgoing.set(clientId, { port, text: e.text, message, queued: !sent, timers });
+      // Connected while earlier ones are still going out: it follows them.
+      if (!sent && link === "open" && flushing === undefined)
+        flushing = setTimeout(flush, CHAT_FLUSH_GAP_MS);
     },
 
     /**
      * Where a server message goes: every port, only the tab whose send the room refused, or
-     * nowhere (a refusal nobody is waiting for any more).
+     * nowhere (a refusal nobody is waiting for any more). A refusal is never retried.
      */
     onServer(msg: AnyServerMessage): RelayPort | "all" | null {
       if (msg.type === "CHAT.REJECTED") {
@@ -111,7 +149,12 @@ export function chatRelay(deps: RelayDeps, confirmMs = CHAT_CONFIRM_MS) {
       }
       if (msg.type !== "CHAT.HISTORY" && msg.type !== "CHAT.MESSAGE") return "all";
       if (msg.type === "CHAT.MESSAGE") settle(msg.payload.clientId);
-      else historyKnown = true;
+      else {
+        historyKnown = true;
+        // Arrived before the connection dropped, with the echo lost: nothing to resend.
+        const you = deps.you();
+        for (const m of msg.payload.messages) if (m.fromId === you) settle(m.clientId);
+      }
       const before = chat;
       chat = chatAfter(chat, msg, deps.you());
       if (chat.unread !== before.unread || chat.lastSeen !== before.lastSeen) report();
@@ -126,18 +169,24 @@ export function chatRelay(deps: RelayDeps, confirmMs = CHAT_CONFIRM_MS) {
       port.postMessage({ kind: "server", message: history });
     },
 
-    /** The socket closed: nothing waiting for an echo will get one. */
+    /** Connected again: what waited goes out, with the same clientIds. */
+    onSocketOpen() {
+      clearTimeout(flushing);
+      flush();
+    },
+
+    /** The socket closed: whatever had no echo yet is sent again on the next connection. */
     onSocketClosed() {
-      for (const clientId of [...pending.keys()]) {
-        const p = settle(clientId);
-        if (p) fail(p.port, p.text, clientId, "offline");
-      }
+      clearTimeout(flushing);
+      flushing = undefined;
+      for (const o of outgoing.values()) o.queued = true;
     },
 
     /** Leaving, ending or switching rooms: the chat stays with the room. */
     reset() {
-      for (const p of pending.values()) clearTimeout(p.timer);
-      pending.clear();
+      for (const clientId of [...outgoing.keys()]) settle(clientId);
+      clearTimeout(flushing);
+      flushing = undefined;
       chat = NO_CHAT;
       historyKnown = false;
     },

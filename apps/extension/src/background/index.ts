@@ -86,6 +86,8 @@ const chat = chatRelay({
     socket.send(JSON.stringify(msg));
     return true;
   },
+  link: () =>
+    socket?.readyState === WebSocket.OPEN ? "open" : state.session ? "reconnecting" : "closed",
   you: () => state.session?.participantId ?? null,
   seen(seen) {
     state.unread = seen.unread;
@@ -282,12 +284,13 @@ function connect() {
     ping();
     pingTimer = setInterval(ping, 20_000);
     sendPresence();
+    chat.onSocketOpen(); // messages typed while reconnecting go out now
   };
   ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
     clearInterval(pingTimer);
-    chat.onSocketClosed(); // sends still waiting for their echo didn't make it
+    chat.onSocketClosed(); // sends with no echo yet go again on the next connection
     if (e.code === 1008) {
       // The room ended or our token was revoked; retrying can't help.
       void endSession(ENDED);

@@ -73,9 +73,14 @@ export type Push =
   /** The chat frame with this pass lost its connection (to its tab's port only). */
   | { kind: "chatFrameLost"; frame: string }
   /**
+   * This tab's chat message has had no echo for 5 s and is still being tried (it is sent again
+   * after a reconnect): show "Sending…".
+   */
+  | { kind: "chatSending"; clientId: string }
+  /**
    * This tab's chat message didn't reach the room: show "Not sent" and keep the text.
-   * offline: not connected, or no echo within 5 s (Retry can work); invalid: the text can't
-   * be sent as it is (no Retry).
+   * offline: no echo 30 s after it was first sent, not in a room, or too many waiting (Retry,
+   * with the same clientId, can work); invalid: the text can't be sent as it is (no Retry).
    */
   | { kind: "chatFailed"; reason: "offline" | "invalid"; text: string; clientId: string };
 

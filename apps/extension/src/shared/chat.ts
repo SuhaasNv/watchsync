@@ -10,8 +10,17 @@ import {
 
 /** As many as the room keeps (the service's CHAT_HISTORY). */
 export const CHAT_KEEP = 200;
-/** A send whose own copy hasn't come back by then didn't arrive: the tab says "Not sent". */
-export const CHAT_CONFIRM_MS = 5000;
+/**
+ * Chat sends (the v0.2 retry policy): no echo after CHAT_SENDING_MS, the tab says "Sending…";
+ * none CHAT_GIVE_UP_MS after the first send, "Not sent". Up to CHAT_QUEUE_MAX messages wait
+ * while reconnecting (memory only) and go out once, spaced by CHAT_FLUSH_GAP_MS so the room's
+ * 5-in-5-seconds limit never refuses them, with the same clientId (the room never keeps one
+ * twice).
+ */
+export const CHAT_SENDING_MS = 5000;
+export const CHAT_GIVE_UP_MS = 30_000;
+export const CHAT_QUEUE_MAX = 10;
+export const CHAT_FLUSH_GAP_MS = 1100;
 
 export interface Chat {
   /** Oldest first. */
