@@ -34,6 +34,12 @@ JOIN_PER_MINUTE = int(os.environ.get("JOIN_PER_MINUTE", "30"))
 FAILED_JOINS_PER_MINUTE = int(os.environ.get("FAILED_JOINS_PER_MINUTE", "100"))
 # Per connection, per 10 seconds.
 MESSAGES_PER_10S = int(os.environ.get("MESSAGES_PER_10S", "60"))
+# Chat (US-043): characters per message (code points), messages per person per 5 seconds, and
+# messages a room keeps for people who join later (DEC-032). The protocol caps the first at 500
+# and the last at 200; set those lower, never higher.
+CHAT_MAX_CHARS = int(os.environ.get("CHAT_MAX_CHARS", "500"))
+CHAT_PER_5S = int(os.environ.get("CHAT_PER_5S", "5"))
+CHAT_HISTORY = int(os.environ.get("CHAT_HISTORY", "200"))
 # Behind Railway's edge, the client address arrives in X-Real-IP (set by the edge).
 TRUST_PROXY = os.environ.get("TRUST_PROXY") == "1"
 # Request bodies are tiny ({"name": ...}); anything bigger is refused.

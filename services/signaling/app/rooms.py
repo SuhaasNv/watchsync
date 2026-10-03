@@ -7,6 +7,7 @@ import json
 import re
 import secrets
 import time
+from collections import deque
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
@@ -196,6 +197,9 @@ class Room:
     restored_ids: set[str] = field(default_factory=set)
     restored_playback: dict[str, Any] | None = None
     restore_known_at: float | None = None
+    # The last CHAT_HISTORY chat messages, oldest first, for people who join later. Memory
+    # only, never logged, cleared when the room ends (DEC-032).
+    chat: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=config.CHAT_HISTORY))
 
     def holding(self) -> list[Participant]:
         return [

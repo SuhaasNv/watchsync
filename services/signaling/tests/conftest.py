@@ -1,4 +1,8 @@
+import json
+from typing import Any
+
 import pytest
+from starlette.testclient import WebSocketTestSession
 
 from app import config, main
 
@@ -14,3 +18,23 @@ def fresh_limiters(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "failed_join_limiter", main.Limiter(limit, 60))
     monkeypatch.setattr(main, "connect_limiter", main.Limiter(10_000, 60))
     monkeypatch.setattr(main, "message_limiter", main.Limiter(config.MESSAGES_PER_10S, 10))
+    monkeypatch.setattr(main, "chat_limiter", main.Limiter(config.CHAT_PER_5S, 5))
+
+
+@pytest.fixture(autouse=True)
+def without_chat_history(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests written before chat read each socket's messages in order: skip the CHAT.HISTORY
+    every connect now gets right after ROOM.STATE. A module that tests it sets
+    SEES_CHAT_HISTORY = True (test_chat.py)."""
+    if getattr(request.module, "SEES_CHAT_HISTORY", False):
+        return
+    receive = WebSocketTestSession.receive
+
+    def skipping(self: WebSocketTestSession) -> Any:
+        while True:
+            m = receive(self)
+            text = m.get("text")
+            if not isinstance(text, str) or json.loads(text)["type"] != "CHAT.HISTORY":
+                return m
+
+    monkeypatch.setattr(WebSocketTestSession, "receive", skipping)

@@ -33,6 +33,7 @@ Scaling: environments differ only in variables. If one room-service instance is 
 - The process runs as a non-root user. WebSocket frames are capped at 16 KB and request bodies at 2 KB.
 - `TRUST_PROXY=1` (set in `Dockerfile.signaling`): per-client limits key on `X-Real-IP` instead of the TCP peer, which on Railway is always the edge. See "Client addresses" below.
 - Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `WS_PER_IP=20` open WebSockets per client, `WS_IDLE_SECONDS=120` before a socket that sends nothing (not even the extension's 20 s pings) is closed with 1001, `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
+- Chat limits (US-043; defaults, override with service variables; the protocol caps `CHAT_MAX_CHARS` at 500 and `CHAT_HISTORY` at 200, so only lower those): `CHAT_MAX_CHARS=500` characters per message, counted in code points as the extension counts them; `CHAT_PER_5S=5` messages per person per 5 seconds (past it the sender gets `CHAT.REJECTED` `rate_limited` with their text back); `CHAT_HISTORY=200` messages a room keeps for people who join later.
 
 ### Room tokens
 
