@@ -123,19 +123,13 @@ function changed() {
   showBadge();
 }
 
-/**
- * Unread chat messages. UC-014 (US-044) keeps the count in AppState as `unread`; until that
- * is merged there is none, so this reads 0.
- */
-function unread(): number {
-  const n: unknown = Reflect.get(state, "unread");
-  return state.session && typeof n === "number" ? n : 0;
-}
-
 let badge: string | null = null;
-/** The toolbar badge (US-116): the unread count, 9+ past nine; dev builds show DEV at 0. */
+/**
+ * The toolbar badge (US-116): the same unread count as the chat button (US-044), 9+ past
+ * nine, none out of a room; dev builds show DEV at 0.
+ */
 function showBadge() {
-  const text = badgeText(unread(), __CHANNEL__);
+  const text = badgeText(state.session ? state.unread : 0, __CHANNEL__);
   if (text === badge) return;
   badge = text;
   chrome.action.setBadgeText({ text }).catch(() => {});
