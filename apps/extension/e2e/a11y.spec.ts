@@ -1,7 +1,7 @@
 // WCAG 2.2 AA gate (DEC-022): every WatchSync surface, in each state a person can reach.
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { expect, MOCK, room, test } from "./fixtures";
+import { expect, MOCK, popup, room, test } from "./fixtures";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -65,6 +65,23 @@ test("on-page prompt and notices", async ({ ext }) => {
   } finally {
     await friend.context.close();
   }
+});
+
+test("sidebar: collapsed and open", async ({ ext }) => {
+  const pop = await popup(ext, "Suhaas");
+  await pop.getByRole("button", { name: "Create a room" }).click();
+  const tab = await ext.context.newPage();
+  await tab.goto(`${MOCK}/watch/ep1`);
+  const open = tab.getByRole("button", { name: "Open WatchSync sidebar" });
+  await expect(open).toBeVisible();
+  await tab.mouse.move(20, 20); // not faded out while measured
+  await audit(tab, "watchsync-sidebar");
+  await audit(tab, "watchsync-overlay"); // the pill with its Open chat button
+
+  await tab.getByRole("button", { name: "Open chat" }).click();
+  await expect(tab.getByRole("region", { name: "WatchSync", exact: true })).toBeVisible();
+  await audit(tab, "watchsync-sidebar");
+  await audit(tab, "watchsync-overlay");
 });
 
 test("the popup works by keyboard alone", async ({ ext }) => {

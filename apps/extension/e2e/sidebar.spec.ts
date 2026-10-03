@@ -228,3 +228,107 @@ test("the collapsed button fades with the controls and comes back on mouse move"
   await tab.mouse.move(40, 40);
   await expect.poll(opacity).toBe("1");
 });
+
+// ---- US-108: keyboard and screen reader ----
+
+const playing = (p: Page) => p.evaluate(() => !document.querySelector("video")?.paused);
+
+/**
+ * Stands in for a service's player: Space or Enter anywhere on the page plays or pauses, and
+ * a click on the player is a tap on the picture. Counts what reached it.
+ */
+const playerKeys = (tab: Page) =>
+  tab.evaluate(() => {
+    const reached = () => {
+      document.body.dataset.reached = String(Number(document.body.dataset.reached ?? 0) + 1);
+    };
+    for (const type of ["keydown", "keyup", "keypress"])
+      document.addEventListener(type, (e) => {
+        if (!(e instanceof KeyboardEvent) || (e.key !== " " && e.key !== "Enter")) return;
+        reached();
+        const v = document.querySelector("video");
+        if (type === "keydown" && v) v.paused ? void v.play() : v.pause();
+      });
+    document.getElementById("player")?.addEventListener("click", reached);
+  });
+const reached = (tab: Page) => tab.evaluate(() => Number(document.body.dataset.reached ?? 0));
+
+test("Space and Enter in the sidebar act on it, never on the player", async ({ ext }) => {
+  const { tab } = await inRoom(ext);
+  await expect.poll(() => playing(tab)).toBe(true);
+  await playerKeys(tab);
+
+  await openButton(tab).focus();
+  await tab.keyboard.press("Enter");
+  await expect(closeButton(tab)).toBeFocused();
+  await tab.keyboard.press("Space");
+  await expect(sidebar(tab)).toBeHidden();
+  await expect(openButton(tab)).toBeFocused();
+  await tab.keyboard.press("Space");
+  await expect(closeButton(tab)).toBeFocused();
+  await tab.keyboard.press("Enter");
+  await expect(sidebar(tab)).toBeHidden();
+  expect(await reached(tab)).toBe(0);
+  expect(await playing(tab)).toBe(true);
+
+  // In full screen the sidebar sits inside the player: its clicks stay its own.
+  await tab.getByRole("button", { name: "Full screen" }).click();
+  await expect.poll(() => inFullscreen(tab)).toBe("player");
+  await openButton(tab).click();
+  await closeButton(tab).click();
+  expect(await reached(tab)).toBe(0);
+
+  // The stand-in does hear the page's own keys.
+  await tab.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await tab.keyboard.press("Space");
+  expect(await reached(tab)).toBeGreaterThan(0);
+});
+
+test("by keyboard: reachable, visible focus, states announced, 24 px targets", async ({ ext }) => {
+  const { tab } = await inRoom(ext);
+  await tab.getByRole("button", { name: "Full screen" }).focus();
+  const focused = () => openButton(tab).evaluate((b) => b.matches(":focus"));
+  for (let i = 0; i < 15 && !(await focused()); i++) await tab.keyboard.press("Tab");
+  await expect(openButton(tab)).toBeFocused();
+  const ring = (b: HTMLElement | SVGElement) => {
+    const s = getComputedStyle(b);
+    return `${s.outlineStyle} ${s.outlineColor}`;
+  };
+  expect(await openButton(tab).evaluate(ring)).toBe("solid rgb(255, 210, 90)");
+  await expect(openButton(tab)).toHaveAttribute("aria-expanded", "false");
+
+  await tab.keyboard.press("Enter");
+  await expect(sidebar(tab)).toBeVisible();
+  await expect(closeButton(tab)).toBeFocused();
+  expect(await closeButton(tab).evaluate(ring)).toBe("solid rgb(255, 210, 90)");
+  await expect(closeButton(tab)).toHaveAttribute("aria-expanded", "true");
+  await expect(tab.getByRole("button", { name: "Open chat" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  // Tab moves on out of the sidebar: no trap.
+  await tab.keyboard.press("Tab");
+  await expect(closeButton(tab)).not.toBeFocused();
+
+  for (const b of [closeButton(tab), tab.getByRole("button", { name: "Open chat" })]) {
+    const box = await b.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(24);
+    expect(box?.height).toBeGreaterThanOrEqual(24);
+  }
+  await closeButton(tab).click();
+  const box = await openButton(tab).boundingBox();
+  expect(Math.min(box?.width ?? 0, box?.height ?? 0)).toBeGreaterThanOrEqual(24);
+});
+
+test("with reduced motion the sidebar appears without sliding", async ({ ext }) => {
+  const { tab } = await inRoom(ext);
+  const animation = () => sidebar(tab).evaluate((p) => getComputedStyle(p).animationName);
+  await tab.getByRole("button", { name: "Open chat" }).click();
+  expect(await animation()).toBe("in");
+  await closeButton(tab).click();
+  await tab.emulateMedia({ reducedMotion: "reduce" });
+  await tab.getByRole("button", { name: "Open chat" }).click();
+  expect(await animation()).toBe("none");
+});

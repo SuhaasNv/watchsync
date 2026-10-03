@@ -139,6 +139,28 @@ describe("opening and closing", () => {
     expect(shadow().activeElement).toBe(el(".close"));
   });
 
+  test("keys and clicks inside never reach the page's own listeners", () => {
+    const page = vi.fn();
+    const types = ["keydown", "keyup", "keypress", "click", "pointerdown", "wheel"];
+    for (const t of types) document.addEventListener(t, page);
+    s.showSidebar("ABC234");
+    s.openSidebar();
+    for (const t of types)
+      el(".close").dispatchEvent(new Event(t, { bubbles: true, composed: true }));
+    expect(page).not.toHaveBeenCalled();
+    // The page's own keys still reach it.
+    pageButton().dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(page).toHaveBeenCalledTimes(1);
+    for (const t of types) document.removeEventListener(t, page);
+  });
+
+  test("the toggles say whether the sidebar is expanded", () => {
+    s.showSidebar("ABC234");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(el(".close").getAttribute("aria-expanded")).toBe("true");
+    expect(toggle().getAttribute("aria-controls")).toBe(panel().id);
+  });
+
   test("the collapsed button counts unread messages in its name", () => {
     s.showSidebar("ABC234");
     s.setCollapsedBadge(3);

@@ -39,6 +39,10 @@ root.innerHTML = `<style>
     height: 18px; padding: 0 5px; border-radius: 9px; background: #ffd25a; color: #1b1503;
     font-size: 11px; font-weight: 750; line-height: 18px; text-align: center; }
   @keyframes in { from { opacity: 0; transform: translateX(16px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .panel { animation: none; }
+    button, .toggle { transition: none; }
+  }
 </style>
 <button type="button" class="toggle" aria-expanded="false" aria-controls="ws-sidebar"
   hidden><span class="badge" aria-hidden="true" hidden></span></button>
@@ -195,6 +199,15 @@ function focusedOnPage(): HTMLElement | null {
   const el = document.activeElement;
   return el instanceof HTMLElement && el !== host ? el : null;
 }
+
+// Keys and clicks inside the sidebar are ours. Without this, Space or Enter on a sidebar
+// control would also reach the service's player as play or pause, and in full screen (where
+// the host sits inside the player) a click would land as a tap on the picture. Stopped at
+// the host, after our own controls have handled them.
+for (const type of ["keydown", "keyup", "keypress", "click", "dblclick", "mousedown", "mouseup"])
+  host.addEventListener(type, (e) => e.stopPropagation());
+for (const type of ["pointerdown", "pointerup", "wheel"])
+  host.addEventListener(type, (e) => e.stopPropagation(), { passive: true });
 
 toggle.addEventListener("click", () => openSidebar(toggle));
 close.addEventListener("click", closeSidebar);
