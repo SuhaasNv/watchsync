@@ -23,6 +23,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect as ws_connect
 
 from app import config, main
+from app import rooms as rooms_module
 from app.rooms import Rooms, read_token, sign_token
 
 client = TestClient(main.app)
@@ -290,6 +291,125 @@ def test_restore_is_ignored_in_a_room_that_never_restarted() -> None:
         assert room.media is None and room.playback is None
 
 
+# Security audit (UC-046): expiry, ceilings, spent places, one spelling, token out of the URL
+
+
+def signed(claims: dict[str, Any]) -> str:
+    """A token this service would accept the signature of, with any claims."""
+    payload = json.dumps(claims, separators=(",", ":")).encode()
+    return f"{rooms_module._b64(payload)}.{rooms_module._b64(rooms_module._mac(payload))}"
+
+
+def claims_for(t: dict[str, str], name: str, issued: object) -> dict[str, Any]:
+    return {"c": t["code"], "p": t["participantId"], "n": name, "i": issued, "r": "00"}
+
+
+def test_old_and_future_tokens_are_expired() -> None:
+    now = int(time.time())
+    t = {"code": "ABCDEF", "participantId": "p1"}
+    fresh = read_token(signed(claims_for(t, "Asha", now - 3600)))
+    assert fresh is not None and not fresh.expired
+    old = read_token(signed(claims_for(t, "Asha", now - 90 * 86400)))
+    assert old is not None and old.expired
+    future = read_token(signed(claims_for(t, "Asha", now + 3600)))
+    assert future is not None and future.expired
+    for issued in (str(now), float(now), True, None):
+        assert read_token(signed(claims_for(t, "Asha", issued))) is None
+
+
+def test_an_old_token_never_brings_a_room_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = create()
+    now = int(time.time())
+    fresh = restart(monkeypatch)
+    for issued in (now - 90 * 86400, now + 3600):
+        old = signed(claims_for(host, "Suhaas", issued))
+        assert refused(f"/ws/rooms/{host['code']}?token={old}") == 1008
+    assert fresh.rooms == {}
+
+
+def test_a_long_night_keeps_its_live_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expiry is for restores and retakes; a live token is checked against the room."""
+    host = create()
+    with client.websocket_connect(url(host)) as ws:
+        ws.receive_json()
+    monkeypatch.setattr(config, "TOKEN_MAX_AGE_SECONDS", -1000)  # every token is now too old
+    with client.websocket_connect(url(host)) as ws:
+        assert ws.receive_json()["payload"]["you"] == host["participantId"]
+    body = {"name": "Suhaas", "token": host["token"]}
+    again = client.post(f"/api/v1/rooms/{host['code']}/join", json=body)
+    assert again.status_code == 201
+    assert again.json()["participantId"] != host["participantId"]  # no retake: someone new
+
+
+def test_restores_respect_the_room_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    a, b = create("Suhaas"), create("Alex")
+    friend = join(a["code"], "Asha")
+    fresh = restart(monkeypatch)
+    monkeypatch.setattr(config, "MAX_ROOMS", 1)
+    with client.websocket_connect(url(a)) as ws:
+        ws.receive_json()
+    assert refused(url(b)) == 1008  # full: no second room comes back
+    with client.websocket_connect(url(friend)) as ws:  # into the restored room still works
+        assert ws.receive_json()["payload"]["code"] == a["code"]
+    assert list(fresh.rooms) == [a["code"]]
+
+
+def test_restores_per_client_address_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    a, b = create("Suhaas"), create("Alex")
+    friend = join(a["code"], "Asha")
+    fresh = restart(monkeypatch)
+    monkeypatch.setattr(config, "RESTORES_PER_IP", 1)
+    with client.websocket_connect(url(a)) as ws:
+        ws.receive_json()
+    assert refused(url(b)) == 1008
+    with client.websocket_connect(url(friend)) as ws:
+        assert ws.receive_json()["payload"]["code"] == a["code"]
+    assert list(fresh.rooms) == [a["code"]]
+
+
+def test_someone_who_joined_a_restored_room_and_left_stays_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = create()
+    restart(monkeypatch)
+    with client.websocket_connect(url(host)) as a:
+        a.receive_json()
+        newcomer = join(host["code"], "Ravi")  # joins after the restart
+        with client.websocket_connect(url(newcomer)) as b:
+            b.receive_json()
+            b.send_json(msg("ROOM.LEAVE", {}))
+        assert refused(url(newcomer)) == 1008
+
+
+def test_a_token_has_one_spelling() -> None:
+    token = sign_token("ABCDEF", "p1", "Asha")
+    body, sig = token.split(".")
+    # 32 bytes in 43 characters leave 2 spare bits in the last one: flip the lowest.
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    other = sig[:-1] + alphabet[alphabet.index(sig[-1]) ^ 1]
+    assert rooms_module._unb64(other) == rooms_module._unb64(sig)
+    assert read_token(f"{body}.{other}") is None
+
+
+def test_the_token_can_come_in_the_subprotocol_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = create()
+    path = f"/ws/rooms/{host['code']}"
+    with client.websocket_connect(path, subprotocols=["watchsync.v1", host["token"]]) as ws:
+        assert ws.accepted_subprotocol == "watchsync.v1"  # never the token
+        assert ws.receive_json()["payload"]["you"] == host["participantId"]
+    for offered in (["watchsync.v1", "nope"], ["watchsync.v1"]):
+        with (
+            pytest.raises(WebSocketDisconnect) as e,
+            client.websocket_connect(path, subprotocols=offered) as ws,
+        ):
+            assert ws.accepted_subprotocol == "watchsync.v1"
+            ws.receive_json()
+        assert e.value.code == 1008
+    restart(monkeypatch)  # restores work the same way
+    with client.websocket_connect(path, subprotocols=["watchsync.v1", host["token"]]) as ws:
+        assert ws.receive_json()["payload"]["code"] == host["code"]
+
+
 # Startup and shutdown
 
 
@@ -390,7 +510,9 @@ def test_a_real_server_closes_with_restarting_on_sigterm() -> None:
             except httpx.TransportError:
                 time.sleep(0.1)
         t = httpx.post(f"{base}/api/v1/rooms", json={"name": "Suhaas"}).json()
-        with ws_connect(f"ws://127.0.0.1:{port}/ws/rooms/{t['code']}?token={t['token']}") as ws:
+        offer: Any = ["watchsync.v1", t["token"]]  # the token as the extension sends it
+        with ws_connect(f"ws://127.0.0.1:{port}/ws/rooms/{t['code']}", subprotocols=offer) as ws:
+            assert ws.subprotocol == "watchsync.v1"
             assert json.loads(ws.recv(timeout=5))["type"] == "ROOM.STATE"
             server.send_signal(signal.SIGTERM)
             with pytest.raises(ConnectionClosed) as closed:

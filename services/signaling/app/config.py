@@ -50,3 +50,8 @@ if ENVIRONMENT == "production" and len(_secret.encode()) < 32:
 ROOM_SIGNING_SECRET = _secret.encode() if _secret else secrets.token_bytes(32)
 # How long after the process starts a room may be brought back by its people (US-120).
 RESTORE_WINDOW_SECONDS = int(os.environ.get("RESTORE_WINDOW_SECONDS", "600"))
+# A token older than this can't bring a room back or take back a place (security audit,
+# UC-046). A live connection is checked against the room's own list, so long nights go on.
+TOKEN_MAX_AGE_SECONDS = int(os.environ.get("TOKEN_MAX_AGE_SECONDS", "86400"))
+# Rooms one client address (IPv6: its /64) may bring back after a restart.
+RESTORES_PER_IP = int(os.environ.get("RESTORES_PER_IP", "3"))

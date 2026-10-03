@@ -75,11 +75,19 @@ def sign_token(code: str, participant_id: str, name: str) -> str:
     return f"{_b64(payload)}.{_b64(_mac(payload))}"
 
 
+# Clocks of the old and the new process may differ a little (a deploy can move hosts).
+CLOCK_TOLERANCE_SECONDS = 300
+
+
 @dataclass(frozen=True)
 class Claims:
     code: str
     participant_id: str
     name: str
+    issued_at: int
+    # Older than TOKEN_MAX_AGE_SECONDS, or issued in the future: genuine, but not to be used
+    # to bring a room back or take back a place.
+    expired: bool
 
 
 def read_token(token: str) -> Claims | None:
@@ -91,6 +99,9 @@ def read_token(token: str) -> Claims | None:
         payload, mac = _unb64(body), _unb64(sig)
     except ValueError:
         return None
+    # One spelling per token: base64 that decodes the same with other spare bits is refused.
+    if _b64(payload) != body or _b64(mac) != sig:
+        return None
     if not hmac.compare_digest(mac, _mac(payload)):
         return None
     try:
@@ -99,10 +110,15 @@ def read_token(token: str) -> Claims | None:
         return None
     if not isinstance(claims, dict):
         return None
-    code, pid, name = claims.get("c"), claims.get("p"), claims.get("n")
+    code, pid, name, issued = claims.get("c"), claims.get("p"), claims.get("n"), claims.get("i")
     if not (isinstance(code, str) and isinstance(pid, str) and isinstance(name, str)):
         return None
-    return Claims(code, pid, name)
+    if not isinstance(issued, int) or isinstance(issued, bool):
+        return None
+    age = time.time() - issued
+    expired = age > config.TOKEN_MAX_AGE_SECONDS + CLOCK_TOLERANCE_SECONDS
+    expired |= age < -CLOCK_TOLERANCE_SECONDS
+    return Claims(code, pid, name, issued, expired)
 
 
 class RoomError(Exception):
@@ -170,10 +186,12 @@ class Room:
     creator: str | None = None
     joined: bool = False
     used: bool = False
-    # Brought back after a restart by its people's signed tokens (US-120): who came back so
-    # far (each person once; after leaving, their token is spent), and whether the room still
-    # waits for the first ROOM.RESTORE to say what it was watching.
+    # Brought back after a restart by its people's signed tokens (US-120): by which client
+    # address, everyone who has been in it since (each person once: after leaving, their
+    # token is spent), and whether it still waits for the first ROOM.RESTORE to say what it
+    # was watching.
     restored: bool = False
+    restored_by: str | None = None
     restored_ids: set[str] = field(default_factory=set)
     awaiting_restore: bool = False
 
@@ -250,6 +268,9 @@ class Rooms:
         # dropped friend's place, so without the token it's someone new (BUG-041); the away
         # row goes when its grace period ends.
         found = self.tokens.get(token) if token else None
+        claims = read_token(token) if found and token else None
+        if claims is None or claims.expired:
+            found = None  # too old to take back a place: someone new
         stale = room.participants.get(found[1]) if found and found[0] == room.code else None
         if stale is not None and stale.connected:
             stale = None
@@ -266,6 +287,8 @@ class Rooms:
             rejoined=stale is not None or name in room.gone,
         )
         p.token = sign_token(room.code, p.id, name)
+        if room.restored:
+            room.restored_ids.add(p.id)
         room.gone.discard(name)
         room.participants[p.id] = p
         self.tokens[p.token] = (room.code, p.id)
@@ -304,7 +327,9 @@ class Rooms:
             del self.rooms[room.code]
             self.ended[room.code] = now_ms()
 
-    def authenticate(self, code: str, token: str) -> tuple[Room, Participant] | None:
+    def authenticate(
+        self, code: str, token: str, client: str = "unknown"
+    ) -> tuple[Room, Participant] | None:
         self.sweep()
         found = self.tokens.get(token)
         if found is not None:
@@ -312,22 +337,29 @@ class Rooms:
                 return None
             room = self.rooms[code]
             return room, room.participants[found[1]]
-        return self.restore(code, token)
+        return self.restore(code, token, client)
 
-    def restore(self, code: str, token: str) -> tuple[Room, Participant] | None:
+    def restore(self, code: str, token: str, client: str) -> tuple[Room, Participant] | None:
         """After a restart, someone connecting with a token the last process signed brings
         the room back, or takes their place in a room already brought back (US-120). Never
-        for a room that is live here (its tokens are in the registry) or ended here, and only
-        within RESTORE_WINDOW_SECONDS of this process starting."""
+        for a room that is live here (its tokens are in the registry) or ended here, never
+        with a token older than TOKEN_MAX_AGE_SECONDS, only within RESTORE_WINDOW_SECONDS of
+        this process starting, and within the same room ceilings as creating one."""
         claims = read_token(token)
-        if claims is None or claims.code != code or code in self.ended:
+        if claims is None or claims.expired or claims.code != code or code in self.ended:
             return None
         if now_ms() - self.started > config.RESTORE_WINDOW_SECONDS * 1000:
             return None
         room = self.rooms.get(code)
         if room is None:
+            if len(self.rooms) >= config.MAX_ROOMS:
+                return None
+            mine = sum(1 for r in self.rooms.values() if r.restored_by == client)
+            if mine >= config.RESTORES_PER_IP:
+                return None
             room = Room(code=code, empty_since=now_ms(), joined=True, used=True)
             room.restored = room.awaiting_restore = True
+            room.restored_by = client
             self.rooms[code] = room
         pid = claims.participant_id
         if not room.restored or pid in room.restored_ids or pid in room.participants:

@@ -20,6 +20,8 @@ const build = mkdtempSync(path.join(tmpdir(), "watchsync-restart-"));
 const UPDATING = "WatchSync is updating, back in a moment";
 
 let server: ChildProcess | null = null;
+/** Everything the room service printed, access log included: tokens must never be in it. */
+let serverLog = "";
 
 async function startService() {
   server = spawn(
@@ -27,7 +29,7 @@ async function startService() {
     ["-m", "uvicorn", "app.main:app", "--port", String(PORT)],
     {
       cwd: service,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         ROOM_SIGNING_SECRET: "e2e-restart-secret-0123456789abcdef",
@@ -36,6 +38,10 @@ async function startService() {
       },
     },
   );
+  for (const out of [server.stdout, server.stderr])
+    out?.on("data", (chunk: Buffer) => {
+      serverLog += chunk.toString();
+    });
   await expect
     .poll(
       () =>
@@ -120,6 +126,11 @@ test("a server update mid-room: both come back to the same room and stay in sync
     expect(Date.now() - restartedAt).toBeLessThan(10_000);
     await expect(host.getByText("Test player · Demo Show, E1").first()).toBeVisible();
     for (const tab of [hostTab, friendTab]) await expect(tab.getByText(UPDATING)).toHaveCount(0);
+
+    // The token travels in the WebSocket subprotocol header, so the access log, which
+    // prints every URL, never holds one (security audit).
+    expect(serverLog).toContain("/ws/rooms/");
+    expect(serverLog).not.toContain("token=");
 
     // And they stay in sync: a jump on one side reaches the other.
     await hostTab.waitForTimeout(3600); // past the restored title's settling window

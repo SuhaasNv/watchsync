@@ -34,6 +34,16 @@ Scaling: environments differ only in variables. If one room-service instance is 
 - `TRUST_PROXY=1` (set in `Dockerfile.signaling`): per-client limits key on `X-Real-IP` instead of the TCP peer, which on Railway is always the edge. See "Client addresses" below.
 - Abuse limits (defaults; override with service variables): `CREATE_PER_MINUTE=10` and `JOIN_PER_MINUTE=30` per client, `FAILED_JOINS_PER_MINUTE=100` wrong codes from everyone together (past it every join gets 429 for the rest of the minute, BUG-042), `ROOMS_PER_IP=3` live rooms per client that nobody else has joined (BUG-040), `UNUSED_ROOM_EXPIRY_SECONDS=120` for rooms nobody ever connected to, `ROOM_IDLE_EXPIRY_SECONDS=900` for rooms that have emptied, `MAX_ROOMS=2000` in all. A "client" is an IPv4 address or an IPv6 /64.
 
+### Room tokens
+
+A token is the room code, the person's id, their name and when it was issued, signed with `ROOM_SIGNING_SECRET` (HMAC-SHA256); anyone can read it, nobody can forge one. The extension sends it in the `Sec-WebSocket-Protocol` header (`watchsync.v1, <token>`), so it is not in any URL or access log; `?token=` still works for v0.1.x extensions until v0.8. After a restart a token brings its room back only if it is under `TOKEN_MAX_AGE_SECONDS` (default 86400) old and not dated in the future (5 minutes of clock tolerance), within `RESTORE_WINDOW_SECONDS` of the start, within `MAX_ROOMS`, and within `RESTORES_PER_IP` rooms per client address (default 3). Someone who left a room brought back in this process can't come back with their old token. A live connection is checked against the room's own list, so a long night isn't cut off by the age limit.
+
+Accepted risks (security audit, October 2026):
+
+- Which rooms ended is kept in memory only (no disk, no database), so after a restart a token kept from a room that ended before it can bring that room back, within the age limit and the restore window. The extension drops its token when a room ends, so this takes someone deliberately keeping one.
+- The token carries the person's display name in readable form. It no longer travels in URLs, so it doesn't reach logs.
+- The service needs up to 2 seconds after SIGTERM to tell every connection it is restarting. Railway must leave more than that between SIGTERM and killing the process (owner to confirm in the service settings).
+
 ### Client addresses
 
 The service reads `X-Real-IP` only when `TRUST_PROXY=1`; without it, a client-sent `X-Real-IP` is ignored (tested in `services/signaling/tests/test_rooms.py`). Railway's edge sets `X-Real-IP` to the client's remote address on every request it forwards (Railway docs, Networking > Specs & Limits > Technical specifications). The docs do not say in so many words that a value the client sent is replaced rather than passed through, so check it once on the dev service before relying on it, never on production:

@@ -208,9 +208,13 @@ function connect() {
   clearTimeout(retry);
   if (state.connection !== "reconnecting") state.connection = "connecting";
   changed();
-  const ws = new WebSocket(
-    `${API.replace(/^http/, "ws")}/ws/rooms/${s.code}?token=${encodeURIComponent(s.token)}`,
-  );
+  // The token goes as a subprotocol next to ours, never in the URL, so no log that prints
+  // URLs holds it. A token that isn't a valid subprotocol would throw: the room refuses us.
+  const token = /^[A-Za-z0-9_.-]+$/.test(s.token) ? [s.token] : [];
+  const ws = new WebSocket(`${API.replace(/^http/, "ws")}/ws/rooms/${s.code}`, [
+    "watchsync.v1",
+    ...token,
+  ]);
   socket = ws;
   ws.onmessage = (e) => {
     let msg: unknown;

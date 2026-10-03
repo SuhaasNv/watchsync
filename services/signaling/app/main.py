@@ -612,21 +612,39 @@ def start_state(room: Room, phase: str, not_ready: list[str]) -> dict[str, Any]:
     }
 
 
+# The extension sends its room token as a WebSocket subprotocol next to this one, so the
+# token stays out of URLs and the logs that print them (security audit, UC-046).
+SUBPROTOCOL = "watchsync.v1"
+
+
+def socket_token(ws: WebSocket) -> tuple[str, str | None]:
+    """The room token and the subprotocol to accept: from Sec-WebSocket-Protocol
+    ("watchsync.v1, <token>"), else from ?token= as v0.1.x extensions send it."""
+    offered = [x.strip() for x in ws.headers.get("sec-websocket-protocol", "").split(",")]
+    if SUBPROTOCOL in offered:
+        others = [x for x in offered if x and x != SUBPROTOCOL]
+        return (others[0] if len(others) == 1 else ""), SUBPROTOCOL
+    # TODO(v0.8): drop ?token= once no v0.1.x extension is left.
+    return ws.query_params.get("token", ""), None
+
+
 @app.websocket("/ws/rooms/{code}")
 async def room_socket(ws: WebSocket, code: str) -> None:
+    token, subprotocol = socket_token(ws)
+    # Accept first, always with the subprotocol the browser asked for (else Chrome fails the
+    # handshake): a close before accept reaches browsers as 1006, which looks like a network
+    # drop and makes the extension retry forever (BUG-009).
     if not connect_limiter.allow(client_ip(ws)):
-        await ws.accept()
+        await ws.accept(subprotocol)
         await ws.close(code=status.WS_1013_TRY_AGAIN_LATER)  # the extension backs off
         return
-    found = rooms.authenticate(code, ws.query_params.get("token", ""))
+    found = rooms.authenticate(code, token, client_ip(ws))
     if found is None:
-        # Accept first: a close before accept reaches browsers as 1006, which looks like a
-        # network drop and makes the extension retry forever (BUG-009).
-        await ws.accept()
+        await ws.accept(subprotocol)
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     room, p = found
-    await ws.accept()
+    await ws.accept(subprotocol)
     old = sockets.get(p.id)
     sockets[p.id] = ws
     if old is not None:  # the same person reconnected (network change, restart): newest wins
