@@ -588,28 +588,29 @@ function RoomScreen({ state }: { state: AppState }) {
         </section>
         <OpenTitle state={state} me={s.participantId} />
         <OpenChat shortcut={shortcut} unread={state.unread} />
-        <span className="grow" />
-        {!alone && (
-          <div className="invite">
-            <p className="hint">
-              Invite more · <span data-testid="room-code">{s.code}</span>
-            </p>
-            {copyRow(false)}
+        <div className="bottom">
+          {!alone && (
+            <div className="invite">
+              <p className="hint">
+                Invite more · <span data-testid="room-code">{s.code}</span>
+              </p>
+              {copyRow(false)}
+            </div>
+          )}
+          <div className="row">
+            <button
+              className="btn grow"
+              type="button"
+              onClick={() => send({ kind: "follow", following: !state.following })}
+            >
+              <Icon name="sync" />
+              {state.following ? "Watch on my own" : "Watch with the room"}
+            </button>
+            <button className="btn danger" type="button" onClick={() => send({ kind: "leave" })}>
+              <Icon name="leave" />
+              Leave room
+            </button>
           </div>
-        )}
-        <div className="row">
-          <button
-            className="btn grow"
-            type="button"
-            onClick={() => send({ kind: "follow", following: !state.following })}
-          >
-            <Icon name="sync" />
-            {state.following ? "Watch on my own" : "Watch with the room"}
-          </button>
-          <button className="btn danger" type="button" onClick={() => send({ kind: "leave" })}>
-            <Icon name="leave" />
-            Leave room
-          </button>
         </div>
         <p className="sr-only" role="status">
           {copied}
