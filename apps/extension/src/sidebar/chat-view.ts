@@ -1,7 +1,7 @@
 // The chat's message list (UC-014, US-042): grouping, names, movie times, sending states and
 // what a screen reader hears. Plain DOM (DEC-041); user text only ever goes in textContent.
 import type { ChatMessagePayload } from "@watchsync/protocol";
-import { CHAT_KEEP } from "../shared/chat";
+import { CHAT_KEEP } from "../shared/chat-text";
 import { svgIcon } from "../shared/icons";
 import { initialOf, toneOf } from "../shared/people";
 

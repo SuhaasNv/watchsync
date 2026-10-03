@@ -401,7 +401,7 @@ function onServer(msg: AnyServerMessage) {
     }
   }
   const to = chat.onServer(msg); // chat: unread count, and a refusal for its own tab only
-  changed();
+  if (msg.type !== "REACTION.SHOW") changed(); // a reaction changes no state: no pill rebuild
   // Chat goes only to the chat frames, never to a service page's content script (DEC-042),
   // and a refusal only to the frame whose message it was.
   if (to === "all") {

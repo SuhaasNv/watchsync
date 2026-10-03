@@ -3,7 +3,7 @@
 // the content script only places the frame. UC-014: the room's messages and the message box.
 import type { AnyServerMessage, ChatMessagePayload, Participant } from "@watchsync/protocol";
 import { NOTICES_KEY, noticesOn } from "../shared/activity";
-import { CHAT_KEEP, isChatText, isTypedText } from "../shared/chat";
+import { CHAT_KEEP, isChatText, isTypedText } from "../shared/chat-text";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
