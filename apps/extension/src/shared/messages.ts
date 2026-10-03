@@ -35,6 +35,8 @@ export interface AppState {
   updating: boolean;
   /** Still not back after 2 minutes: say so plainly and offer Try now (retries go on). */
   unreachable: boolean;
+  /** Chat messages from other people since the chat was last opened (US-044). */
+  unread: number;
 }
 
 /** One-shot requests to the background (chrome.runtime.sendMessage). */
@@ -52,7 +54,11 @@ export type Request =
 
 export type Reply = { ok: true; state: AppState } | { ok: false; error: string; state: AppState };
 
-/** Background → popup and content scripts, over a long-lived port. */
+/**
+ * Background → popup and content scripts, over a long-lived port. Chat arrives as server
+ * messages: CHAT.HISTORY (replaces the list; also replayed to a tab when it connects),
+ * CHAT.MESSAGE and CHAT.REJECTED.
+ */
 export type Push =
   | { kind: "state"; state: AppState }
   | { kind: "server"; message: AnyServerMessage }
@@ -65,7 +71,9 @@ export type Push =
   /** The chat frame with this pass connected (to its tab's port only). */
   | { kind: "chatFrameReady"; frame: string }
   /** The chat frame with this pass lost its connection (to its tab's port only). */
-  | { kind: "chatFrameLost"; frame: string };
+  | { kind: "chatFrameLost"; frame: string }
+  /** This tab's chat message never left (not connected, or invalid): show "Not sent". */
+  | { kind: "chatFailed"; text: string };
 
 /**
  * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first
@@ -101,7 +109,11 @@ export type TabEvent =
   | { kind: "startReady" }
   | { kind: "startForce" }
   /** The tab came back into view: if the connection is down, try it again now. */
-  | { kind: "retryNow" };
+  | { kind: "retryNow" }
+  /** Send a chat message marked with this tab's movie time (null: no title open). */
+  | { kind: "chat"; text: string; movieTime: number | null; titleId: string | null }
+  /** The chat was opened: clear the unread count. */
+  | { kind: "chatOpened" };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {

@@ -1,6 +1,6 @@
 // Owns the room: REST calls, the WebSocket, and fan-out to the popup and the tab.
 
-import type { JoinRoomRequest, Media, Service } from "@watchsync/protocol";
+import type { ChatMessagePayload, JoinRoomRequest, Media, Service } from "@watchsync/protocol";
 import {
   type AnyClientMessage,
   type AnyServerMessage,
@@ -9,8 +9,10 @@ import {
   isClientMessage,
   isRoomTicket,
   isServerMessage,
+  type ServerMessageOf,
 } from "@watchsync/protocol";
 import { bestSample, type ClockSample, clockSample } from "@watchsync/sync-engine";
+import { chatAfter } from "../shared/chat";
 import {
   type AppState,
   type ChatNonceReply,
@@ -54,7 +56,10 @@ const state: AppState = {
   update: null,
   updating: false,
   unreachable: false,
+  unread: 0,
 };
+/** The room's last messages, to show a tab that opens. Memory only, never chrome.storage. */
+let chatLog: ChatMessagePayload[] = [];
 const ENDED = "This room is no longer available. Ask your friend for a new code.";
 const DAY = 24 * 3600 * 1000;
 let lastTicket: Session | null = null;
@@ -327,6 +332,14 @@ function onServer(msg: AnyServerMessage) {
       state.clockOffset = bestSample(samples)?.offset ?? 0;
       break;
     }
+    case "CHAT.HISTORY":
+    case "CHAT.MESSAGE": {
+      const you = state.session?.participantId ?? null;
+      const chat = chatAfter({ messages: chatLog, unread: state.unread }, msg, you);
+      chatLog = chat.messages;
+      state.unread = chat.unread;
+      break;
+    }
   }
   changed();
   // Chat goes only to the chat frames, never to a service page's content script (DEC-042).
@@ -340,6 +353,7 @@ function reset() {
   socket = null;
   seen.clear();
   sawRestart = false;
+  chatLog = []; // a room's chat stays with it: leaving, ending or switching forgets it
   Object.assign(state, {
     participants: [],
     media: null,
@@ -347,6 +361,7 @@ function reset() {
     connection: "idle",
     updating: false,
     unreachable: false,
+    unread: 0,
   });
 }
 
@@ -644,6 +659,22 @@ chrome.runtime.onConnect.addListener((port) => {
       if (e.kind === "startReady") return sendServer(envelope("START.READY", {}));
       if (e.kind === "startForce") return sendServer(envelope("START.FORCE", {}));
       if (e.kind === "retryNow") return retryNow();
+      if (e.kind === "chat") {
+        const { text, movieTime, titleId } = e;
+        const msg = envelope<ClientMessageOf<"CHAT.SEND">>("CHAT.SEND", {
+          text,
+          movieTime,
+          titleId,
+        });
+        // Offline, or something the room would refuse anyway: the tab keeps the text.
+        if (socket?.readyState !== WebSocket.OPEN || !isClientMessage(msg))
+          return port.postMessage({ kind: "chatFailed", text } satisfies Push);
+        return sendServer(msg);
+      }
+      if (e.kind === "chatOpened") {
+        state.unread = 0;
+        return changed();
+      }
       const tabId = port.sender?.tab?.id;
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).
@@ -655,5 +686,12 @@ chrome.runtime.onConnect.addListener((port) => {
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
-  ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
+  ready.then(() => {
+    port.postMessage({ kind: "state", state: shared() } satisfies Push);
+    // A tab that opens (or reloads) shows the room's earlier messages, as a reconnect does.
+    if (port.name !== "tab" || !state.session) return;
+    const messages = chatLog;
+    const history = envelope<ServerMessageOf<"CHAT.HISTORY">>("CHAT.HISTORY", { messages });
+    port.postMessage({ kind: "server", message: history } satisfies Push);
+  });
 });
