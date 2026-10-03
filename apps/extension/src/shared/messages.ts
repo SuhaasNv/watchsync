@@ -58,7 +58,9 @@ export type Request =
   | { kind: "forgetRoom" }
   | { kind: "follow"; following: boolean }
   /** Try the room connection again now (the long-outage notice's Try now). */
-  | { kind: "retryNow" };
+  | { kind: "retryNow" }
+  /** Bring the room's tab forward with chat open (US-115); error "no_tab" if none is open. */
+  | { kind: "openChat" };
 
 export type Reply = { ok: true; state: AppState } | { ok: false; error: string; state: AppState };
 
@@ -74,6 +76,8 @@ export type Push =
   | { kind: "report" }
   /** The chat shortcut was pressed in this tab (to its port only). */
   | { kind: "toggleSidebar" }
+  /** Open chat with focus in it: the popup's Open chat (to its port only, US-115). */
+  | { kind: "openSidebar" }
   /** The chat panel in this tab asked to close: Esc or its close button (to its port only). */
   | { kind: "closeSidebar" }
   /** The chat frame with this pass connected (to its tab's port only). */
@@ -129,6 +133,9 @@ export function isSidebarEvent(v: unknown): v is SidebarEvent {
 /** Content script → background: a one-time pass for the chat frame it is about to load. */
 export type ChatNonceRequest = { kind: "chatNonce" };
 export type ChatNonceReply = { nonce: string } | null;
+
+/** Popup → background: whether a supported service tab is open for Open chat (boolean). */
+export type ChatTabRequest = { kind: "hasChatTab" };
 
 /** Content script → background, over its port. */
 export type TabEvent =

@@ -36,6 +36,7 @@ import {
   isSidebarOpen,
   onChatOff,
   onSidebarChange,
+  openSidebar,
   renewFrame,
   retireSidebar,
   showSidebar,
@@ -259,6 +260,7 @@ function onPush(m: Push) {
     toggleSidebar(focusedControl() ?? undefined);
     return;
   }
+  if (m.kind === "openSidebar") return openSidebar(); // the popup's Open chat
   if (m.kind === "closeSidebar") return closeSidebar(); // Esc or close inside the chat frame
   if (m.kind === "chatFrameReady") return chatFrameReady(m.frame);
   if (m.kind === "chatFrameLost") return chatFrameLost(m.frame);
