@@ -139,3 +139,53 @@ docker build -f Dockerfile.website -t watchsync-website .
 docker run --rm -p 8080:8080 watchsync-website
 curl -sI http://localhost:8080/
 ```
+
+## Switching installs to the Chrome Web Store
+
+The website has one setting for this: `PUBLIC_STORE_URL`, read at build time in `apps/website/src/lib/site.ts`. While it is unset the site offers the zip and the seven-step guide, exactly as before. Once it holds the listing's address:
+
+- every Download button becomes **Add to Chrome** and opens the listing ("Free, on the Chrome Web Store" under it);
+- `/install/` becomes three steps (Add to Chrome, pin it, make a room). The "Is it safe?" section and the "Is it safe?" link under the buttons go, because the store review covers it; the FAQ answer and the home page's trust section say it is published through the store;
+- the zip guide, with the checksum and attestation checks, moves to `/install/manual/` (noindex, not in the sitemap), linked from `/install/` as "Can't use the Chrome Web Store? Install it from the zip.";
+- the FAQ, the home page's "How it works" and the goodbye page stop mentioning Developer mode.
+
+Only an `https` address on `chromewebstore.google.com` (or `chrome.google.com/webstore`) counts. Anything else, including a typo, counts as unset, so the site stays on the zip rather than linking somewhere wrong. The dev site (`PUBLIC_CHANNEL=dev`) always keeps the WatchSync Dev zip, even if the variable is set there.
+
+`/install/manual/` exists in both modes. Until the switch it shows the same guide as `/install/` (noindex), so nothing links to it and nothing breaks if someone finds it.
+
+### Steps
+
+Do this after the listing is approved and public, not while it is in review.
+
+1. Copy the listing's address from the Chrome Web Store: `https://chromewebstore.google.com/detail/watchsync/odlngcfniaebaekgiaaghfehnchgkihc`. Open it in a private window to check it loads for someone who isn't signed in.
+2. Railway, project `watchsync`, environment `production`, service `website`, Variables: add `PUBLIC_STORE_URL` with that address. `Dockerfile.website` declares it as a build arg, so Railway passes it to the build. Don't set it in the `dev` environment.
+3. Deploy the staged variable change on the website service. Railway rebuilds the image, and the variable only takes effect through that build: a restart is not enough. This doesn't touch the room service or its rooms.
+4. Check the live site:
+   - `https://watchsync.space/`: the header and hero buttons say Add to Chrome and open the listing.
+   - `https://watchsync.space/install/`: three steps, no Developer mode, no "Is it safe?" section.
+   - `https://watchsync.space/install/manual/`: the seven-step zip guide, and `<meta name="robots" content="noindex">` in the page source.
+   - `https://watchsync.space/sitemap.xml` doesn't list `/install/manual/`.
+   - The dev site still offers the WatchSync Dev zip.
+5. To undo, delete the variable and redeploy.
+
+The room service has its own, separate `STORE_URL` variable (`services/signaling/app/config.py`). When it is set to the same address, the invite page's button reads "Add WatchSync to Chrome" and opens the listing; unset, it reads "Get WatchSync for Chrome" and opens the website's `/install/`. Set it on the `room-service` service in `production` and redeploy it separately; the website's variable doesn't reach it, and a room-service deploy follows the usual rules above (ask first).
+
+To preview the store build locally: `cd apps/website && pnpm e2e:store` (builds into `dist-store/` with a test listing address and runs `e2e/store.spec.ts`), or `PUBLIC_STORE_URL=<address> pnpm build` and `pnpm preview`.
+
+### README text for the switch
+
+The README isn't built by the website, so it doesn't follow the variable. When the store goes live, replace its "Install" section with this (fill in the address):
+
+```markdown
+## Install
+
+[Add WatchSync to Chrome](https://chromewebstore.google.com/detail/watchsync/<extension id>) from the Chrome Web Store. It works in Brave too.
+
+1. Open the listing and press **Add to Chrome**, then **Add extension**.
+2. Pin WatchSync from the puzzle icon in the toolbar.
+3. Click the WatchSync icon, type your name, press **Create a room** and send the link.
+
+Chrome and Brave keep it up to date. Can't use the Chrome Web Store? The [zip guide](https://watchsync.space/install/manual/) loads it with Developer mode instead.
+```
+
+and start its "Is it safe?" section with: "WatchSync is reviewed and published through the Chrome Web Store, and all of its code is in this repository. This is what it can reach, from its [manifest](apps/extension/build.mjs):". Keep the checksum part, but introduce it as "If you install from the zip, compare it with the release's SHA-256:".
