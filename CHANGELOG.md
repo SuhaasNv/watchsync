@@ -4,6 +4,9 @@
 
 Talk Together: free voice while you watch, and the room stays together through ads.
 
+### Changed
+- WatchSync installed from the Chrome Web Store updates through Chrome, so it no longer shows the "new version" notice. Installs from the zip still do, with a pointer to the store for automatic updates.
+
 ## [0.2.0] - 2026-10-04
 
 Chat and reactions: talk with your room while you watch, without leaving the film.

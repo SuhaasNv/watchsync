@@ -51,6 +51,10 @@ main    owner says dev is stable; CI green on the exact dev commit being release
 tag     tag vX.Y.Z on that merge commit right away (owner's yes): until then the public site
         describes features its download doesn't have
         → the release workflow runs the guard, builds the zip, publishes the release
+store   upload that same release zip to the Chrome Web Store (developer dashboard, item
+        odlngcfniaebaekgiaaghfehnchgkihc), choose "publish after I approve", submit for review;
+        when it passes, publish it (owner's yes) as close to the tag as possible — store users
+        update through Chrome, zip users get the GitHub notice
 next    when the next version's work starts: merge main back into dev, bump the version and
         label it ("prerelease": "beta.1" or "rc.1")
 ```
@@ -69,8 +73,11 @@ in `apps/extension/package.json`, `services/signaling/pyproject.toml` and
   variables go in with deploys skipped, then deploy once.
 - **Extension from the website:** the zip is the release. A fix is a higher version
   (`vX.Y.1`), never a replaced file.
-- **Chrome Web Store (when the listing is live):** use staged rollout (a small percentage first,
-  then more) and pause it if reports come in; stores do not allow going back, so a rollback is a
-  new, higher version.
+- **Chrome Web Store** ([listing](https://chromewebstore.google.com/detail/watchsync/odlngcfniaebaekgiaaghfehnchgkihc),
+  live since v0.2.0): every release (`vX.Y.Z` only — dev builds and candidates never go to the
+  store) is uploaded and reviewed; review usually takes hours to a few days, longer when
+  permissions change. The store accepts only a higher version than it has. Once the listing is
+  eligible, use staged rollout (a small percentage first) and pause it if reports come in; the
+  store cannot go back, so a rollback is a new, higher version.
 - **Hotfix:** branch from `main`, fix, merge the fix into `dev` as well, label a dev build, test it,
   then release `vX.Y.1` through the same steps.
