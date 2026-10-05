@@ -90,6 +90,9 @@ jobs:
         run: |
           PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm exec playwright install --with-deps chromium
           PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm e2e
+      - name: Website end-to-end with the Chrome Web Store switch on (PUBLIC_STORE_URL)
+        working-directory: apps/website
+        run: PLAYWRIGHT_BROWSERS_PATH="$PWD/.browsers" pnpm e2e:store
       - name: The dev channel builds too
         run: PUBLIC_CHANNEL=dev pnpm --filter @watchsync/website exec astro build --outDir /tmp/dev-site
 

@@ -12,6 +12,10 @@ export const PAGES = [
   "/nope/",
 ];
 
+/** The listing address the store build is made with (playwright.store.config.ts). */
+export const TEST_STORE_URL =
+  "https://chromewebstore.google.com/detail/watchsync/abcdefghijklmnopabcdefghijklmnop";
+
 export const ZIP_SHA256 = "0123456789abcdef".repeat(4);
 
 export const RELEASE = {
