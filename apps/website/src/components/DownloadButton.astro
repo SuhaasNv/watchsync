@@ -1,29 +1,51 @@
 ---
-import { DOWNLOAD_URL, FALLBACK_VERSION } from "../lib/site";
+import { DOWNLOAD_URL, FALLBACK_VERSION, STORE_URL } from "../lib/site";
 
 interface Props {
   /** Show the version line under the button. */
   withVersion?: boolean;
   size?: "default" | "compact";
   class?: string;
+  /** Always the zip, even when installs go through the Chrome Web Store (the manual guide). */
+  zip?: boolean;
 }
-const { withVersion = false, size = "default", class: className } = Astro.props;
+const { withVersion = false, size = "default", class: className, zip = false } = Astro.props;
+/** The store listing once it is set (lib/site.ts), otherwise the zip on GitHub Releases. */
+const store = zip ? null : STORE_URL;
+/** Only the zip needs "Is it safe?"; in store mode its notes live on the manual guide. */
+const safeHref = store ? null : STORE_URL ? "/install/manual/#safe" : "/install/#safe";
 ---
 
 <div class:list={["download", size, className]} data-download-block>
   <div class="actions">
-  <a class="btn primary" href={DOWNLOAD_URL}>
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-      <path
-        d="M10 3v9.2m0 0 3.6-3.6M10 12.2 6.4 8.6M4 15.5h12"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"></path>
-    </svg>
-    {size === "compact" ? <span>Download</span> : <span>Download for Chrome &amp; Brave</span>}
-  </a>
+  {
+    store ? (
+      <a class="btn primary store" href={store}>
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path
+            d="M10 4v12M4 10h12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"></path>
+        </svg>
+        <span>Add to Chrome</span>
+      </a>
+    ) : (
+      <a class="btn primary" href={DOWNLOAD_URL}>
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path
+            d="M10 3v9.2m0 0 3.6-3.6M10 12.2 6.4 8.6M4 15.5h12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"></path>
+        </svg>
+        {size === "compact" ? <span>Download</span> : <span>Download for Chrome &amp; Brave</span>}
+      </a>
+    )
+  }
   <slot />
   </div>
   {
@@ -33,9 +55,13 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
         <p class="meta">
           <span data-version>{FALLBACK_VERSION}</span>
           <span aria-hidden="true"> · </span>
-          <span>Free, from our public GitHub</span>
-          <span aria-hidden="true"> · </span>
-          <a href="/install/#safe">Is it safe?</a>
+          <span>{store ? "Free, on the Chrome Web Store" : "Free, from our public GitHub"}</span>
+          {safeHref && (
+            <>
+              <span aria-hidden="true"> · </span>
+              <a href={safeHref}>Is it safe?</a>
+            </>
+          )}
         </p>
         <div class="device-note" data-device-note hidden>
           <p data-device-text />
@@ -70,6 +96,10 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
     .btn.primary:hover svg {
       transform: translateY(2px);
     }
+    /* The store button's plus turns a quarter instead. */
+    .btn.primary.store:hover svg {
+      transform: rotate(90deg);
+    }
   }
   .compact .btn {
     min-height: 40px;
@@ -77,6 +107,15 @@ const { withVersion = false, size = "default", class: className } = Astro.props;
     border-radius: 10px;
     font-size: 0.95rem;
     gap: 8px;
+  }
+  /* "Add to Chrome" is longer than "Download": one line, and no icon on a narrow header. */
+  .compact .store {
+    white-space: nowrap;
+  }
+  @media (max-width: 420px) {
+    .compact .store svg {
+      display: none;
+    }
   }
   /* Small screens only: someone on a narrow window should know before they download. */
   .needs {

@@ -1,5 +1,5 @@
 ---
-import { REPO_URL } from "../lib/site";
+import { FROM_STORE, REPO_URL } from "../lib/site";
 
 interface Props {
   /** "paper" is the light section on the home page; "panel" sits inside the install guide. */
@@ -60,18 +60,33 @@ const Sub = headingLevel === 2 ? "h3" : "h4";
           <li>Cookies, analytics or ads</li>
         </ul>
       </div>
+      {
+        FROM_STORE ? (
+          <div>
+            <Sub>Where it comes from</Sub>
+            <p>
+              WatchSync is published through the Chrome Web Store, which reviews extensions before
+              they go live.
+            </p>
+            <p>
+              The code is on our <a href={REPO_URL} rel="noopener">public GitHub</a>, where you can
+              read every line of it.
+            </p>
+          </div>
+        ) : (
       <div>
         <Sub>Why Developer mode?</Sub>
         <p>
-          WatchSync isn't on the Chrome Web Store yet, so you load it yourself, and Chrome calls
-          that Developer mode. Chrome then shows a banner about developer-mode extensions. That's
-          expected.
+          This guide loads WatchSync from the zip file yourself, and Chrome calls that Developer
+          mode. Chrome then shows a banner about developer-mode extensions. That's expected.
         </p>
         <p>
           Downloads come from our <a href={REPO_URL} rel="noopener">public GitHub</a>, where you can
           read every line of the code.
         </p>
       </div>
+        )
+      }
     </div>
     <p class="more"><a href="/privacy/">Read the full privacy notice</a></p>
   </div>

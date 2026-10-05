@@ -3,7 +3,7 @@
 // Nothing here is sent anywhere: each reason opens an answer on the page, and the only way
 // to tell us more is an email the person writes themselves.
 import Base from "../layouts/Base.astro";
-import { CONTACT_EMAIL, DOWNLOAD_URL } from "../lib/site";
+import { CONTACT_EMAIL, DOWNLOAD_URL, STORE_URL } from "../lib/site";
 
 const reasons = [
   {
@@ -11,11 +11,17 @@ const reasons = [
     a: "Make sure everyone has the same title open and is on the latest version (the popup says when a newer one is out). If someone falls behind, they get a Catch up button, and Bring everyone here lines the room up at your spot.",
     link: { href: "/faq/", label: "Read the FAQ" },
   },
-  {
-    q: "Installing it was too fiddly",
-    a: "For now WatchSync installs from a zip with Developer mode, which takes about a minute. A one-click Chrome Web Store version is planned.",
-    link: { href: "/install/", label: "See the install guide" },
-  },
+  STORE_URL
+    ? {
+        q: "Setting it up was confusing",
+        a: "Add it from the Chrome Web Store, pin it from the puzzle piece, then press Create a room and send the link. The install guide shows each step with pictures.",
+        link: { href: "/install/", label: "See the install guide" },
+      }
+    : {
+        q: "Installing it was too fiddly",
+        a: "This build installs from a zip with Developer mode, which takes about a minute.",
+        link: { href: "/install/", label: "See the install guide" },
+      },
   {
     q: "My streaming service isn't supported",
     a: "WatchSync works with Netflix, Prime Video and JioHotstar today. YouTube and Disney+ are next.",
@@ -29,7 +35,9 @@ const reasons = [
   {
     q: "I was just trying it out",
     a: "Thanks for giving it a go. It's free, and it'll be here for your next movie night.",
-    link: { href: DOWNLOAD_URL, label: "Download it again" },
+    link: STORE_URL
+      ? { href: STORE_URL, label: "Add it again" }
+      : { href: DOWNLOAD_URL, label: "Download it again" },
   },
 ];
 ---
@@ -69,7 +77,13 @@ const reasons = [
       <a href={`mailto:${CONTACT_EMAIL}?subject=WatchSync%20feedback`}>{CONTACT_EMAIL}</a>.
     </p>
     <p class="links">
-      <a class="btn primary" href={DOWNLOAD_URL}>Download WatchSync again</a>
+      {
+        STORE_URL ? (
+          <a class="btn primary" href={STORE_URL}>Add WatchSync again</a>
+        ) : (
+          <a class="btn primary" href={DOWNLOAD_URL}>Download WatchSync again</a>
+        )
+      }
       <a class="btn ghost" href="/">Back to home</a>
     </p>
   </div>

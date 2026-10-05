@@ -1,4 +1,5 @@
 ---
+import { FROM_STORE } from "../../lib/site";
 import Mark from "../Mark.astro";
 ---
 
@@ -22,7 +23,13 @@ import Mark from "../Mark.astro";
           </div>
         </div>
         <h3>Add it to Chrome or Brave</h3>
-        <p>Download the zip and load it into your browser. The install guide shows every click.</p>
+        {
+          FROM_STORE ? (
+            <p>Add it from the Chrome Web Store in one click. It works in Brave too.</p>
+          ) : (
+            <p>Download the zip and load it into your browser. The install guide shows every click.</p>
+          )
+        }
       </li>
       <li>
         <span class="num" aria-hidden="true">2</span>
