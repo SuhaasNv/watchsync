@@ -1,0 +1,185 @@
+---
+/**
+ * The Chrome Web Store install: add it, pin it, make a room. /install/ shows this once
+ * PUBLIC_STORE_URL is set; the zip guide moves to /install/manual/.
+ */
+import { CONTACT_EMAIL, REPO_URL } from "../../lib/site";
+import DownloadButton from "../DownloadButton.astro";
+import Steps from "./Steps.astro";
+
+interface Props {
+  storeUrl: string;
+}
+const { storeUrl } = Astro.props;
+---
+
+<div class="wrap">
+  <header class="page-head">
+    <p class="eyebrow">Install guide</p>
+    <h1>Install it in <span class="em">three steps.</span></h1>
+    <p class="lede">
+      WatchSync is on the Chrome Web Store, and it works in Brave too. Add it once and your browser
+      keeps it up to date. You'll need a computer: WatchSync doesn't run on phones.
+    </p>
+    <p class="reassure">
+      The code is <a href={REPO_URL} rel="noopener">public on GitHub</a>, and WatchSync only
+      runs on Netflix, Prime Video and JioHotstar.
+    </p>
+    <div class="head-cta">
+      <DownloadButton withVersion />
+    </div>
+  </header>
+
+  <section class="guide" aria-labelledby="guide-title">
+    <h2 id="guide-title" class="sr-only">Steps</h2>
+    <Steps browser="chrome" storeUrl={storeUrl} />
+    <p class="manual">
+      Can't use the Chrome Web Store? <a href="/install/manual/">Install it from the zip.</a>
+    </p>
+  </section>
+
+  <p class="tip">
+    Once you are in a room, press Chat on the pill or use Alt+Shift+W (Control+Shift+W on a Mac)
+    to talk while you watch.
+  </p>
+
+  <section class="help" aria-labelledby="help-title">
+    <h2 id="help-title">If something <span class="em">looks wrong.</span></h2>
+    <div class="issues">
+      <article>
+        <h3>WatchSync isn't in the toolbar</h3>
+        <p>
+          Click the puzzle piece next to the address bar, then the pin beside WatchSync.
+        </p>
+      </article>
+      <article>
+        <h3>You have two WatchSyncs</h3>
+        <p>
+          If you loaded WatchSync from the zip before, remove that copy on{" "}
+          <code>chrome://extensions</code> (or <code>brave://extensions</code>) so only the one
+          from the Chrome Web Store is left.
+        </p>
+      </article>
+      <article>
+        <h3>Your browser won't add it</h3>
+        <p>
+          On a work or school computer, the administrator may block extensions. Ask them, or use
+          your own computer.
+        </p>
+      </article>
+      <article>
+        <h3>Something else?</h3>
+        <p>
+          Write to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>, or read the{" "}
+          <a href="/faq/">FAQ</a>.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <section class="update" id="updating" aria-labelledby="update-title">
+    <h2 id="update-title">Getting a <span class="em">new version.</span></h2>
+    <p>
+      Nothing to do. Chrome and Brave update extensions from the Chrome Web Store on their own, so
+      each new version reaches you by itself.
+    </p>
+  </section>
+</div>
+
+<script>
+  import { initStepsProgress } from "../../scripts/steps-progress";
+  initStepsProgress();
+</script>
+
+<style>
+  .reassure {
+    max-width: 38em;
+    margin-top: 14px;
+    color: var(--text2);
+    font-size: 1rem;
+  }
+  .reassure a {
+    color: var(--text);
+    font-weight: 600;
+  }
+  /* The lede already says it needs a computer. */
+  .head-cta :global(.needs) {
+    display: none;
+  }
+  .head-cta {
+    margin-top: 32px;
+  }
+  .tip {
+    max-width: 44rem;
+    margin-top: clamp(24px, 4vw, 40px);
+    color: var(--text2);
+  }
+  .guide {
+    margin-top: clamp(24px, 4vw, 48px);
+  }
+  .manual {
+    padding-top: 20px;
+    box-shadow: inset 0 1px 0 var(--line);
+    color: var(--text2);
+    font-size: 0.95rem;
+  }
+  .manual a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .help,
+  .update {
+    padding-top: clamp(40px, 10vw, 140px);
+  }
+  .help h2,
+  .update h2 {
+    margin-top: 18px;
+    font-size: clamp(2.4rem, 5.4vw, 4.4rem);
+    letter-spacing: -0.04em;
+  }
+  .issues {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 clamp(32px, 5vw, 72px);
+    margin-top: 40px;
+  }
+  .issues article {
+    padding-block: 24px;
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+  .issues h3 {
+    font-family: var(--sans);
+    font-size: 1.15rem;
+    font-weight: 750;
+    letter-spacing: 0;
+    line-height: 1.3;
+    margin-bottom: 8px;
+  }
+  .issues p,
+  .update p {
+    color: var(--text2);
+  }
+  .issues a {
+    color: var(--text);
+  }
+  .update p {
+    max-width: 44rem;
+    margin-top: 28px;
+    font-size: 1.1rem;
+  }
+  code {
+    color: var(--text);
+    background: var(--raised);
+    padding: 0.1em 0.4em;
+    border-radius: 6px;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 760px) {
+    .issues {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

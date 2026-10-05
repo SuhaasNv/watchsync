@@ -1,0 +1,16 @@
+---
+import ZipGuide from "../../components/install/ZipGuide.astro";
+import Base from "../../layouts/Base.astro";
+
+// The zip guide, for anyone who can't use the Chrome Web Store. Linked in small print from
+// /install/, kept out of search results and the sitemap. Until PUBLIC_STORE_URL is set it
+// shows the same guide as /install/, so an old link to it never breaks.
+---
+
+<Base
+  title="Install WatchSync from the zip · WatchSync"
+  description="Load the WatchSync extension into Chrome or Brave from the zip: download, unzip, turn on Developer mode, load it, pin it and make your first room."
+  noindex
+>
+  <ZipGuide />
+</Base>

@@ -4,13 +4,55 @@ import Mark from "../Mark.astro";
 
 interface Props {
   browser: "chrome" | "brave";
+  /**
+   * The Chrome Web Store listing: three steps (add, pin, make a room) instead of the zip's
+   * seven. Brave installs from the same listing, so the store guide has no browser tabs.
+   */
+  storeUrl?: string;
 }
-const { browser } = Astro.props;
+const { browser, storeUrl } = Astro.props;
 const name = browser === "chrome" ? "Chrome" : "Brave";
 const address = `${browser}://extensions`;
+/** Pin and Make a room come after the install steps, whichever way it was installed. */
+const pinStep = storeUrl ? 2 : 6;
 ---
 
 <ol class="steps">
+  {
+    storeUrl && (
+      <li class="step">
+        <div class="text">
+          <span class="n" aria-hidden="true">1</span>
+          <h3>Add it to Chrome</h3>
+          <p>
+            Open WatchSync on the Chrome Web Store, press Add to Chrome, then Add extension. Chrome
+            lists what WatchSync can access before it adds it.
+          </p>
+          <p>Using Brave? Open the same page in Brave: it installs from there too.</p>
+          <p>
+            <a class="btn primary small" href={storeUrl}>Open the Chrome Web Store</a>
+          </p>
+        </div>
+        <div class="art" aria-hidden="true">
+          <div class="browser shrink">
+            <div class="urlbar">
+              <span class="lock" />
+              <span class="host">chromewebstore.google.com</span>
+            </div>
+            <div class="listing">
+              <Mark size={32} />
+              <span>
+                <strong>WatchSync</strong>
+                <span>Watch together, in sync</span>
+              </span>
+              <span class="pb add hl">Add to Chrome</span>
+            </div>
+          </div>
+        </div>
+      </li>
+    )
+  }
+  {!storeUrl && (<>
   <li class="step">
     <div class="text">
       <span class="n" aria-hidden="true">1</span>
@@ -131,9 +173,11 @@ const address = `${browser}://extensions`;
     </div>
   </li>
 
+  </>)}
+
   <li class="step">
     <div class="text">
-      <span class="n" aria-hidden="true">6</span>
+      <span class="n" aria-hidden="true">{pinStep}</span>
       <h3>Pin WatchSync</h3>
       <p>
         Click the puzzle piece next to the address bar, then the pin beside WatchSync. Its icon
@@ -169,7 +213,7 @@ const address = `${browser}://extensions`;
 
   <li class="step">
     <div class="text">
-      <span class="n" aria-hidden="true">7</span>
+      <span class="n" aria-hidden="true">{pinStep + 1}</span>
       <h3>Make or join a room</h3>
       <p>
         Click the WatchSync icon and type your name. Press Create a room and send the link, or paste
@@ -457,6 +501,41 @@ const address = `${browser}://extensions`;
     font-size: 0.8rem;
     font-weight: 650;
     box-shadow: inset 0 0 0 1px var(--line2);
+  }
+  /* The store's address is one long word: on a narrow phone it trails off instead of overflowing. */
+  .shrink {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .host {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .listing {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--raised);
+  }
+  .listing > span:nth-child(2) {
+    display: grid;
+    flex: 1;
+    min-width: 8rem;
+    font-size: 0.8rem;
+    color: var(--text2);
+  }
+  .listing strong {
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  .add {
+    background: var(--acc);
+    color: var(--on-acc);
+    box-shadow: none;
   }
   .card {
     display: flex;

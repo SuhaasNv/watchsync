@@ -1,0 +1,15 @@
+---
+import StoreGuide from "../../components/install/StoreGuide.astro";
+import ZipGuide from "../../components/install/ZipGuide.astro";
+import Base from "../../layouts/Base.astro";
+import { FROM_STORE, STORE_URL } from "../../lib/site";
+
+// The Chrome Web Store guide once PUBLIC_STORE_URL is set; the zip guide until then.
+const description = FROM_STORE
+  ? "How to install the WatchSync extension in Chrome or Brave: add it from the Chrome Web Store, pin it and make your first room."
+  : "A step-by-step guide to installing the WatchSync extension in Chrome or Brave: download, unzip, turn on Developer mode, load it, pin it and make your first room.";
+---
+
+<Base title="Install WatchSync in Chrome or Brave · WatchSync" description={description}>
+  {STORE_URL ? <StoreGuide storeUrl={STORE_URL} /> : <ZipGuide />}
+</Base>
