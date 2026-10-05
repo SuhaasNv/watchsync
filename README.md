@@ -41,18 +41,17 @@ Not affiliated with Netflix, Amazon or JioStar.
 
 ## Install
 
-WatchSync isn't in the Chrome Web Store yet, so you load it yourself. It takes a minute:
+[Add WatchSync to Chrome](https://chromewebstore.google.com/detail/watchsync/odlngcfniaebaekgiaaghfehnchgkihc) from the Chrome Web Store. It works in Brave too.
 
-1. [Download the zip](https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip) and unzip it. Keep the folder.
-2. Open `chrome://extensions` (or `brave://extensions`) and turn on **Developer mode**.
-3. Click **Load unpacked** and choose the unzipped folder.
-4. Pin WatchSync from the puzzle icon in the toolbar.
+1. Open the listing and press **Add to Chrome**, then **Add extension**.
+2. Pin WatchSync from the puzzle icon in the toolbar.
+3. Click the WatchSync icon, type your name, press **Create a room** and send the link.
 
-The [install guide](https://watchsync.space/install/) walks through it with pictures. When a new version is out, the popup tells you.
+Chrome and Brave keep it up to date. Can't use the Chrome Web Store? The [zip guide](https://watchsync.space/install/manual/) loads it with Developer mode instead.
 
 ## Is it safe?
 
-You install WatchSync from outside the Chrome Web Store, so Google hasn't reviewed it. This is what it can reach, from its [manifest](apps/extension/build.mjs):
+WatchSync is reviewed and published through the Chrome Web Store, and all of its code is in this repository. This is what it can reach, from its [manifest](apps/extension/build.mjs):
 
 - **`storage`**: your name, and your room for up to 24 hours so you can rejoin after a restart.
 - **The room service at `join.watchsync.space`**: sends play, pause and the position to your room, and opens invite links.
@@ -62,7 +61,7 @@ You install WatchSync from outside the Chrome Web Store, so Google hasn't review
 
 It never reads the picture, the sound or the rest of the page, never sees passwords, payments or browsing history, runs on no other site, loads no code from the internet, and has no analytics or ads.
 
-Each release zip is built by GitHub Actions from a tagged commit on `main` with the public [release workflow](.github/workflows/release.yml). The [release notes](https://github.com/SuhaasNv/watchsync/releases) name the commit, link to the build, and list the SHA-256 of every file (also in `SHA256SUMS.txt`). To check your download, compare it with the release's SHA-256:
+Each release zip is built by GitHub Actions from a tagged commit on `main` with the public [release workflow](.github/workflows/release.yml). The [release notes](https://github.com/SuhaasNv/watchsync/releases) name the commit, link to the build, and list the SHA-256 of every file (also in `SHA256SUMS.txt`). If you install from the zip, compare it with the release's SHA-256:
 
 ```bash
 shasum -a 256 watchsync-extension.zip                       # macOS
