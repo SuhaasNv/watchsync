@@ -17,9 +17,11 @@ RUN pnpm install --frozen-lockfile --filter "@watchsync/website..."
 COPY apps/website ./apps/website
 COPY CHANGELOG.md ./CHANGELOG.md
 # Railway passes service variables to declared build args: the site's own URL (canonical links,
-# sitemap) and its channel, "dev" for the testing site (DEC-026).
+# sitemap), its channel, "dev" for the testing site (DEC-026), and the Chrome Web Store listing
+# (unset: the zip guide; see docs/DEPLOY.md, "Switching installs to the Chrome Web Store").
 ARG PUBLIC_SITE_URL
 ARG PUBLIC_CHANNEL
+ARG PUBLIC_STORE_URL
 RUN pnpm --filter @watchsync/website build
 
 FROM caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
