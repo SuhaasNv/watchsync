@@ -4,8 +4,12 @@
 
 Talk Together: free voice while you watch, and the room stays together through ads.
 
-### Changed
-- WatchSync installed from the Chrome Web Store updates through Chrome, so it no longer shows the "new version" notice. Installs from the zip still do, with a pointer to the store for automatic updates.
+## [0.2.1] - 2026-10-06
+
+A small update for WatchSync installed from the Chrome Web Store.
+
+### Fixed
+- WatchSync installed from the Chrome Web Store no longer says a new version is out with a link to download it from GitHub: Chrome updates it by itself. Installs from the zip still get the notice, now with a pointer to the store for automatic updates.
 
 ## [0.2.0] - 2026-10-04
 
