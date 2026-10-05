@@ -74,7 +74,7 @@ in `apps/extension/package.json`, `services/signaling/pyproject.toml` and
 - **Extension from the website:** the zip is the release. A fix is a higher version
   (`vX.Y.1`), never a replaced file.
 - **Chrome Web Store** ([listing](https://chromewebstore.google.com/detail/watchsync/odlngcfniaebaekgiaaghfehnchgkihc),
-  live since v0.2.0): every release (`vX.Y.Z` only — dev builds and candidates never go to the
+  listed since v0.1.1, 4 Oct 2026): every release (`vX.Y.Z` only — dev builds and candidates never go to the
   store) is uploaded and reviewed; review usually takes hours to a few days, longer when
   permissions change. The store accepts only a higher version than it has. Once the listing is
   eligible, use staged rollout (a small percentage first) and pause it if reports come in; the
