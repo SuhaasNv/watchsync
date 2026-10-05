@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   CHECK_EVERY,
   compareVersions,
+  fromStore,
   isUpdate,
   latestRelease,
   parseRelease,
@@ -127,6 +128,15 @@ describe("checking at most once a day", () => {
       await latestRelease(d.deps);
       expect(d.calls()).toBe(1);
     }
+  });
+});
+
+describe("store installs", () => {
+  test("a manifest with an update_url came from the Chrome Web Store", () => {
+    expect(fromStore({ update_url: "https://clients2.google.com/service/update2/crx" })).toBe(true);
+    expect(fromStore({})).toBe(false);
+    expect(fromStore({ update_url: "" })).toBe(false);
+    expect(fromStore({ update_url: 1 })).toBe(false);
   });
 });
 
