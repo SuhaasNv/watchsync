@@ -1,5 +1,6 @@
 // "A newer WatchSync is out" (UC-012): the latest GitHub release, looked up at most once a day.
 // Installs from the zip don't update themselves, so the popup says when there is a new one.
+// Chrome Web Store installs are updated by Chrome itself, so they never look or say anything.
 
 export const RELEASES_API = "https://api.github.com/repos/SuhaasNv/watchsync/releases/latest";
 /** The WatchSync Dev build checks the rolling pre-release testers download (DEC-026). */
@@ -9,7 +10,18 @@ const DEV_TAG = "dev-latest";
 /** A dev release's version is the short commit it was built from. */
 const COMMIT = /^[0-9a-f]{7}$/;
 const RELEASE_PAGES = "https://github.com/SuhaasNv/watchsync/releases/";
+/** Where the prod build lives on the Chrome Web Store. */
+export const STORE_URL =
+  "https://chromewebstore.google.com/detail/watchsync/odlngcfniaebaekgiaaghfehnchgkihc";
 export const CHECK_EVERY = 24 * 3600 * 1000;
+
+/**
+ * Whether this install came from the Chrome Web Store: Chrome adds an `update_url` to the
+ * installed manifest for store installs. Unpacked and zip installs have none (the build adds none).
+ */
+export function fromStore(manifest: { update_url?: unknown }): boolean {
+  return typeof manifest.update_url === "string" && manifest.update_url !== "";
+}
 
 export interface Update {
   /** As tagged, without the leading v: "0.1.1" or "0.2.0-rc.1"; a dev build's short commit. */
