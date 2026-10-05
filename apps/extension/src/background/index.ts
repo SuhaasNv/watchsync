@@ -39,6 +39,7 @@ import {
 import { RateWindow, REACTIONS_PER_5S } from "../shared/reactions";
 import {
   DEV_RELEASE_API,
+  fromStore,
   isUpdate,
   latestRelease,
   RELEASES_API,
@@ -190,8 +191,10 @@ function isSaved(v: unknown): v is { code: string; at: number } {
 }
 const ready = restore();
 
-/** Looks for a newer release at most once a day; any failure just means no notice. */
+/** Looks for a newer release at most once a day; any failure just means no notice. Store installs skip it. */
 async function checkForUpdate() {
+  // Chrome updates a Web Store install itself: no GitHub lookup, no notice.
+  if (fromStore(chrome.runtime.getManifest())) return;
   const latest = await latestRelease({
     now: Date.now(),
     load: async () => (await chrome.storage.local.get("updateCheck")).updateCheck,
