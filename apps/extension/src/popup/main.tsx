@@ -18,6 +18,7 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
+import { STORE_URL } from "../shared/update";
 
 export const inviteLink = (code: string) => `${__API_URL__}/j/${code}`;
 
@@ -632,6 +633,15 @@ function Footer({ update }: { update: AppState["update"] }) {
           <a href={update.url} target="_blank" rel="noreferrer">
             Download
           </a>
+          {__CHANNEL__ !== "dev" && (
+            <>
+              <br />
+              <a href={STORE_URL} target="_blank" rel="noreferrer">
+                Get it from the Chrome Web Store
+              </a>{" "}
+              to update automatically
+            </>
+          )}
         </p>
       )}
       <p className="foot-row">
