@@ -4,6 +4,7 @@ import type { Media, Service } from "@watchsync/protocol";
 import { type ClientMessageOf, envelope, isClientMessage } from "@watchsync/protocol";
 import { isTypedText } from "../shared/chat";
 import { type Edge, isSidebarEvent, type Push, type TabEvent } from "../shared/messages";
+import { micSettingsUrl } from "../voice/help";
 import { isTalkCmd } from "../voice/messages";
 import { ChatFrames } from "./chat-frames";
 import { chat, react, retryNow, sendServer } from "./connection";
@@ -203,6 +204,12 @@ export function onConnect(port: chrome.runtime.Port) {
       }
       if (e.kind === "react") return react(e.emoji, e.count, port);
       if (e.kind === "voice") return isTalkCmd(e.cmd) ? voiceCommand(e.cmd) : undefined;
+      if (e.kind === "micSettings") {
+        // The address is built here, from our own origin: a page can't point this elsewhere.
+        const origin = new URL(chrome.runtime.getURL("")).origin;
+        void chrome.tabs.create({ url: micSettingsUrl(origin) });
+        return;
+      }
       if (e.kind === "voiceWant") {
         const msg = envelope<ClientMessageOf<"VOICE.WANT">>("VOICE.WANT", {});
         return isClientMessage(msg) ? sendServer(msg) : undefined;

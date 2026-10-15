@@ -21,8 +21,9 @@ import {
 import { initialOf, toneOf } from "../shared/people";
 import { cannotTalk, joinNames, VOICE_MAX, voiceOffer } from "../voice/capability";
 import { MODE_AUTO_KEY, MODE_KEY, micMode } from "../voice/echo";
+import { detectOs, micHelp, micSettingsUrl } from "../voice/help";
 import { watchTalkKey } from "../voice/keys";
-import { type MicMode, NO_VOICE, type VoiceView } from "../voice/messages";
+import { type BlockedBy, type MicMode, NO_VOICE, type VoiceView } from "../voice/messages";
 import { talkWords } from "../voice/words";
 
 export const inviteLink = (code: string) => `${__API_URL__}/j/${code}`;
@@ -465,6 +466,34 @@ function useChatShortcut() {
 
 const NO_TAB = "Open the title on a supported service first.";
 
+/** The mic is blocked (US-057): the exact steps, and a button to Chrome's settings for WatchSync. */
+function MicHelpCard({ by }: { by: BlockedBy }) {
+  const help = micHelp(detectOs(navigator.platform), by);
+  return (
+    <section className="mic-help" aria-labelledby="mic-help-title">
+      <h2 className="mic-help-title" id="mic-help-title">
+        {help.title}
+      </h2>
+      <p className="hint">{help.text}</p>
+      <ol>
+        {help.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      {help.button && (
+        <button
+          className="btn primary"
+          type="button"
+          onClick={() => void chrome.tabs.create({ url: micSettingsUrl(location.origin) })}
+        >
+          {help.button}
+        </button>
+      )}
+      <p className="hint">{help.footer}</p>
+    </section>
+  );
+}
+
 /**
  * Talk in the popup (US-056): the same button as on the page, and Alt+T. Pressed, the tab
  * playing the title acts on it (and asks first if the mic isn't allowed yet: the question is
@@ -686,6 +715,7 @@ function RoomScreen({ state, voice }: { state: AppState; voice: VoiceView }) {
         </section>
         <OpenTitle state={state} me={s.participantId} />
         <TalkRow state={state} voice={voice} />
+        {voice.mic === "blocked" && <MicHelpCard by={voice.blocked ?? "chrome"} />}
         <OpenChat shortcut={shortcut} unread={state.unread} />
         <div className="bottom">
           {!alone && (

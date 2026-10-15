@@ -138,6 +138,7 @@ root.innerHTML = `<style>
   .sheet ol { margin: 8px 0 0; padding-left: 20px; color: #ecf2f1; font-size: 13px;
     line-height: 18px; }
   .sheet li + li { margin-top: 6px; }
+  .sheet p.foot { margin-top: 10px; }
   .sheet .actions { margin-top: 12px; }
   @keyframes pop { from { transform: scale(0.8); } }
   @keyframes in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
@@ -370,6 +371,8 @@ export interface Sheet {
   text: string;
   /** Numbered steps under the text. */
   steps?: string[];
+  /** A quiet line under the steps. */
+  footer?: string;
   actions: Action[];
 }
 
@@ -405,6 +408,12 @@ export function showSheet(key: string, sheet: Sheet) {
       list.append(li);
     }
     parts.push(list);
+  }
+  if (sheet.footer) {
+    const foot = document.createElement("p");
+    foot.className = "foot";
+    foot.textContent = sheet.footer;
+    parts.push(foot);
   }
   const row = document.createElement("div");
   row.className = "actions";

@@ -6,6 +6,7 @@ import type { Participant } from "@watchsync/protocol";
 import type { AppState, Edge, TabEvent } from "../shared/messages";
 import { joinNames, updateToTalk, VOICE_MAX, voiceOffer } from "../voice/capability";
 import { MODE_KEY } from "../voice/echo";
+import { detectOs, micHelp } from "../voice/help";
 import { NO_VOICE, type TalkCmd, type VoiceView } from "../voice/messages";
 import { talkWords } from "../voice/words";
 import { closeSheet, notice, type PillVoice, showSheet, toast } from "./overlay";
@@ -94,6 +95,8 @@ export function talkRoom(next: AppState | null, hasTitle: boolean) {
   if (!live) {
     closeSheet("talk");
     toldReady = null;
+    toldBlocked = false;
+    closeSheet("mic-help");
     toldFailed.clear();
     toldConnecting.clear();
   }
@@ -104,9 +107,8 @@ export function talkRoom(next: AppState | null, hasTitle: boolean) {
 export function talkView(next: VoiceView) {
   const before = view;
   view = next;
-  if (next.mic === "blocked" && before.mic !== "blocked") {
-    toast("Chrome blocked your microphone.", 8000, { icon: "alert", tone: "warn" });
-  }
+  if (next.mic === "blocked" && before.mic !== "blocked") sayBlocked();
+  if (next.mic === "on") closeSheet("mic-help"); // fixed: Talk worked, no reload
   if (next.frame && !before.frame) sayReady();
   if (next.mic === "on" && before.mic !== "on") sayHint();
   if (next.live && !before.live) sayLive();
@@ -119,6 +121,35 @@ export function talkView(next: VoiceView) {
   watchConnecting();
   checkFailures();
   redraw();
+}
+
+/**
+ * Chrome (or the system) said no (US-057). The first time: one line and one way to the steps.
+ * Pressing Talk again and being refused again: the steps at once. Sync and chat go on.
+ */
+let toldBlocked = false;
+function sayBlocked() {
+  if (view.blocked === "none") toldBlocked = true; // nothing the settings can do: the steps say so
+  if (toldBlocked) return showHelp();
+  toldBlocked = true;
+  toast("Chrome blocked your microphone.", 10_000, { icon: "alert", tone: "warn" }, [
+    { label: "Show me how", primary: true, run: showHelp },
+  ]);
+}
+
+/** The exact steps, for this system, with a button that opens Chrome's settings for WatchSync. */
+function showHelp() {
+  const help = micHelp(detectOs(navigator.platform), view.blocked ?? "chrome");
+  const actions = [{ label: "Close", run: () => {} }];
+  const open = help.button;
+  if (open) actions.unshift({ label: open, run: () => post({ kind: "micSettings" }) });
+  showSheet("mic-help", {
+    title: help.title,
+    text: help.text,
+    steps: help.steps,
+    footer: help.footer,
+    actions,
+  });
 }
 
 /** Push-to-talk by default, the first time the mic opens: how to talk, and the way out. */
