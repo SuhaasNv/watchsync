@@ -4,6 +4,7 @@
 // announced here: the on-page notice already says it.
 import type { AnyServerMessage, Media, Participant, Playback } from "@watchsync/protocol";
 import { closedText, joinedText, leftText, movedText, rejoinedText } from "../shared/activity";
+import { titleKey } from "../shared/title";
 
 export interface ActivityItem {
   id: string;
@@ -32,7 +33,8 @@ export class ActivityFeed {
 
   /** The room as the frame last heard it, before any message changes it. */
   sync(room: RoomView) {
-    for (const p of room.participants) if (!this.titles.has(p.id)) this.titles.set(p.id, p.titleId);
+    for (const p of room.participants)
+      if (!this.titles.has(p.id)) this.titles.set(p.id, titleKey(p));
   }
 
   /** Adds the line a server message makes, if any. True when the feed changed. */
@@ -43,14 +45,14 @@ export class ActivityFeed {
       if (byId === room.you) return false;
       const title =
         media.titleName ??
-        room.participants.find((p) => p.titleId === media.titleId && p.titleName)?.titleName ??
+        room.participants.find((p) => titleKey(p) === titleKey(media) && p.titleName)?.titleName ??
         "a title";
       return this.add(movedText(byName, how, title), at);
     }
     if (msg.type === "ROOM.PARTICIPANT") {
       const { participant: p, event } = msg.payload;
       const was = this.titles.get(p.id);
-      this.titles.set(p.id, p.titleId);
+      this.titles.set(p.id, titleKey(p));
       if (p.id === room.you) return false;
       if (event === "left") {
         const item = this.make(leftText(p.name), at);
@@ -67,7 +69,7 @@ export class ActivityFeed {
         }
         return this.add(event === "joined" ? joinedText(p.name) : rejoinedText(p.name), at);
       }
-      const roomTitle = room.media?.titleId;
+      const roomTitle = titleKey(room.media);
       if (roomTitle && p.connected && was === roomTitle && p.titleId === null)
         return this.add(closedText(p.name), at);
     }

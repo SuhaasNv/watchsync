@@ -1498,3 +1498,81 @@ def test_a_title_someone_cant_play_moves_nobody_and_the_flag_clears_with_the_nex
     finally:
         gcm.__exit__(None, None, None)
         hcm.__exit__(None, None, None)
+
+
+# ---- BUG-083: a title is its service and its ID ----
+
+
+def presence_on(ws: Any, service: str, title_id: str | None) -> None:
+    media = (
+        {"service": service, "titleId": title_id, "titleName": None, "titleUrl": None}
+        if title_id
+        else None
+    )
+    ws.send_json(msg("PRESENCE.UPDATE", {"service": service, "following": True, "media": media}))
+
+
+def person(pid: str, service: str, title_id: str | None) -> main.Participant:
+    return main.Participant(
+        id=pid,
+        name=pid,
+        token=pid,
+        service=service,
+        title_id=title_id,
+        following=True,
+        connected=True,
+    )
+
+
+def test_a_title_is_its_service_and_its_id() -> None:
+    assert person("a", "netflix", "1").title == ("netflix", "1")
+    assert person("a", "netflix", None).title is None
+    assert person("a", "netflix", "1").title != person("b", "jiohotstar", "1").title
+    assert person("a", "netflix", "1").title == person("b", "netflix", "1").title
+
+
+def test_start_together_waits_only_for_people_on_the_same_service_title() -> None:
+    room = main.Room(code="ABC234")
+    room.media = {"service": "netflix", "titleId": "1", "titleName": None, "titleUrl": None}
+    other = person("other", "jiohotstar", "1")  # same ID, another service: a different title
+    same = person("same", "netflix", "1")
+    room.participants = {"other": other, "same": same}
+    assert room.eligible(("netflix", "1")) == [same]
+    assert room.eligible(("jiohotstar", "1")) == [other]
+
+
+def test_the_same_id_on_another_service_is_another_title() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)  # both on netflix "1"
+    try:
+        room = main.rooms.rooms[host["code"]]
+        # moves and picked: she watched netflix "1" and opens jiohotstar "1"; the room follows.
+        presence_on(gws, "jiohotstar", "1")
+        assert next_of(hws, "ROOM.MEDIA")["payload"]["media"]["service"] == "jiohotstar"
+        assert room.title == ("jiohotstar", "1")
+        # abandoned: he is on netflix "1", the same ID but not the room's title. When she
+        # leaves hers for nothing, the room goes to him instead of staying on an empty title.
+        presence_on(gws, "jiohotstar", None)
+        assert next_of(hws, "ROOM.MEDIA")["payload"]["media"]["service"] == "netflix"
+        assert room.title == ("netflix", "1")
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_same_id_same_service_is_the_same_title() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        room = main.rooms.rooms[host["code"]]
+        presence_on(gws, "netflix", "1")  # her again: the room doesn't move
+        sync_point(gws, 1)
+        assert room.title == ("netflix", "1")
+        presence_on(hws, "netflix", None)  # he leaves; she is still on the title, so no move
+        sync_point(hws, 2)
+        assert room.title == ("netflix", "1")
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)

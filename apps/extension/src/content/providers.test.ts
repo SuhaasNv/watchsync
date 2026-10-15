@@ -70,6 +70,14 @@ test("align follows the room to the next episode only for someone who was with i
     titleUrl: "https://www.amazon.in/gp/video/detail/B0ABC12345",
   };
   expect(align(ep("1"), prime, ep("1"), true)).toEqual({ kind: "prompt", url: prime.titleUrl });
+  // BUG-083: the same ID on another service is another title, so the tab is asked, not "in line".
+  const hotstar: Media = {
+    service: "jiohotstar",
+    titleId: "1",
+    titleName: "Dark",
+    titleUrl: "https://www.hotstar.com/in/movies/dark/1000001/watch",
+  };
+  expect(align(ep("1"), hotstar, ep("1"), true).kind).toBe("prompt");
   expect(align(null, { ...ep("2"), titleUrl: "https://evil.example/" }, null, true).kind).toBe(
     "none",
   );

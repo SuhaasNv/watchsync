@@ -7,6 +7,7 @@ import { CHAT_KEEP, isChatText, isTypedText } from "../shared/chat-text";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
+import { titleKey } from "../shared/title";
 import { ActivityFeed } from "./activity";
 import {
   announcement,
@@ -222,7 +223,7 @@ function showNotice(text: string) {
 function presence(p: Participant, s: AppState): { mark: string; label: string } {
   const me = p.id === s.session?.participantId;
   const online = !me || s.connection === "connected";
-  const onTitle = p.titleId === (s.media?.titleId ?? null);
+  const onTitle = titleKey(p) === titleKey(s.media);
   const synced = p.connected && online && p.following && onTitle && !p.hold;
   const words = !p.connected
     ? "away"

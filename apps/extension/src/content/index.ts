@@ -32,6 +32,7 @@ import {
   type TabEvent,
   UNREACHABLE,
 } from "../shared/messages";
+import { titleKey } from "../shared/title";
 import { align } from "./align";
 import { baseRate, type NudgeView, nudgeAvailable, nudgeDriftMs, startNudging } from "./nudge";
 import {
@@ -101,6 +102,7 @@ let roomMedia: Media | null = null;
  * can repeat across services, so then nothing is synced, in either direction.
  */
 const sameService = () => !room?.media || !mine || room.media.service === mine.service;
+/** The key (service and ID, BUG-083) of the title whose prompt was dismissed. */
 let dismissed: string | null = null;
 /** Who last moved the room's clock, so drift can say whose position it is. */
 let lastActor: { id: string; name: string } | null = null;
@@ -175,7 +177,9 @@ function checkUnavailable() {
 
 function friendOn(media: Media): string | null {
   const me = room?.session?.participantId;
-  return room?.participants.find((x) => x.id !== me && x.titleId === media.titleId)?.name ?? null;
+  return (
+    room?.participants.find((x) => x.id !== me && titleKey(x) === titleKey(media))?.name ?? null
+  );
 }
 
 function whoIsOn(media: Media): string {
@@ -186,7 +190,8 @@ function whoIsOn(media: Media): string {
 function nameOf(media: Media): string | null {
   if (media.titleName) return media.titleName;
   return (
-    room?.participants.find((x) => x.titleId === media.titleId && x.titleName)?.titleName ?? null
+    room?.participants.find((x) => titleKey(x) === titleKey(media) && x.titleName)?.titleName ??
+    null
   );
 }
 
@@ -209,10 +214,10 @@ function reconcile(roomBefore: Media | null) {
   if (new URL(step.url).pathname === location.pathname) {
     // Same page, different episode (Prime changes episodes inside its player): there is
     // no address to open, so say where the room is instead of reloading the page.
-    if (dismissed === media.titleId) return;
+    if (dismissed === titleKey(media)) return;
     return prompt(
       `${whoIsOn(media)} is on ${title}. Pick it in the player to watch together.`,
-      [{ label: "OK", run: () => (dismissed = media.titleId) }],
+      [{ label: "OK", run: () => (dismissed = titleKey(media)) }],
       "align",
       { who: friendOn(media), icon: "title" },
     );
@@ -246,11 +251,11 @@ function reconcile(roomBefore: Media | null) {
       .finally(() => location.assign(step.url));
     return;
   }
-  if (dismissed === media.titleId) return;
+  if (dismissed === titleKey(media)) return;
   prompt(
     `${whoIsOn(media)} is watching ${title}. Open it?`,
     [
-      { label: "Not now", run: () => (dismissed = media.titleId) },
+      { label: "Not now", run: () => (dismissed = titleKey(media)) },
       { label: "Open", primary: true, run: () => location.assign(step.url) },
     ],
     "align",
@@ -429,7 +434,7 @@ function onPush(m: Push) {
   drawWait();
   offerRejoin();
   const next = room.session ? room.media : null;
-  if (next?.titleId !== roomMedia?.titleId) {
+  if (titleKey(next) !== titleKey(roomMedia)) {
     const before = roomMedia;
     roomMedia = next;
     reconcile(before);
@@ -444,12 +449,12 @@ function onPush(m: Push) {
  * the background sends the new state before the participant message.
  */
 function noticeClosedShows(before: AppState | null, after: AppState) {
-  const roomTitle = roomMedia?.titleId;
+  const roomTitle = titleKey(roomMedia);
   const me = after.session?.participantId;
   if (!before?.session || !roomTitle) return;
   for (const p of after.participants) {
     const was = before.participants.find((x) => x.id === p.id);
-    if (p.id !== me && p.connected && was?.titleId === roomTitle && p.titleId === null)
+    if (p.id !== me && p.connected && titleKey(was) === roomTitle && p.titleId === null)
       roomNotice(closedText(p.name), 4000, { who: p.name, icon: "leave" });
   }
 }

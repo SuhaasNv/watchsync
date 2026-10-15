@@ -55,6 +55,11 @@ def clean_title(name: str | None) -> str | None:
     return kept or None
 
 
+def media_title(media: dict[str, Any] | None) -> tuple[str, str] | None:
+    """A title is its service and its ID: two services can share an ID (BUG-083)."""
+    return (media["service"], media["titleId"]) if media else None
+
+
 def safe_media(media: dict[str, Any] | None) -> dict[str, Any] | None:
     """The media with a clean title name, and its titleUrl dropped unless it is a title page of
     its own service. The title itself still counts (sync works); only the link others would
@@ -186,6 +191,10 @@ class Participant:
     level: int = LEVEL_V02
     told_to_update: bool = False
 
+    @property
+    def title(self) -> tuple[str, str] | None:
+        return (self.service, self.title_id) if self.title_id is not None else None
+
     def public(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -243,6 +252,10 @@ class Room:
     chat: deque[dict[str, Any]] = field(default_factory=deque)
     chat_bytes: int = 0
 
+    @property
+    def title(self) -> tuple[str, str] | None:
+        return media_title(self.media)
+
     def holding(self) -> list[Participant]:
         return [
             x
@@ -254,7 +267,9 @@ class Room:
             and x.id not in self.skip_hold
         ]
 
-    def eligible(self, title_id: str | None, left: Collection[str] = ()) -> list[Participant]:
+    def eligible(
+        self, title: tuple[str, str] | None, left: Collection[str] = ()
+    ) -> list[Participant]:
         """Who a Start together waits for: connected, following, and on the title, or on its
         service with no title yet: their player is still loading it (BUG-057). Someone in
         `left` had the title during this start and closed it: no wait (BUG-050)."""
@@ -266,7 +281,7 @@ class Room:
             and x.following
             and not x.unavailable
             and (
-                x.title_id == title_id
+                x.title == title
                 or (x.title_id is None and x.service == service and x.id not in left)
             )
         ]

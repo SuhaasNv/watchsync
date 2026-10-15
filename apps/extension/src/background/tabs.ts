@@ -4,6 +4,7 @@ import type { Media, Service } from "@watchsync/protocol";
 import { type ClientMessageOf, envelope, isClientMessage } from "@watchsync/protocol";
 import { isTypedText } from "../shared/chat";
 import { isSidebarEvent, type Push, type TabEvent } from "../shared/messages";
+import { titleKey } from "../shared/title";
 import { ChatFrames } from "./chat-frames";
 import { chat, react, retryNow, sendServer } from "./connection";
 import { checkRules } from "./rules";
@@ -75,7 +76,7 @@ export async function serviceTabs(): Promise<chrome.tabs.Tab[]> {
  */
 export async function openChat(): Promise<boolean> {
   const tabs = await serviceTabs();
-  const title = state.media?.titleId;
+  const title = titleKey(state.media);
   const tab = tabs.find((t) => t.id !== undefined && title && tabTitles.get(t.id) === title);
   const target = tab ?? tabs[0];
   if (target?.id === undefined) return false;
@@ -115,7 +116,13 @@ function myTime(): { movieTime: number | null; titleId: string | null } {
   const titleId = presence.media?.titleId ?? null;
   const pb = state.playback;
   const me = state.participants.find((p) => p.id === state.session?.participantId);
-  if (titleId === null || !pb || pb.titleId !== titleId || me?.hold === "ad")
+  if (
+    titleId === null ||
+    !pb ||
+    titleKey(presence.media) !== titleKey(state.media) ||
+    pb.titleId !== titleId ||
+    me?.hold === "ad"
+  )
     return { movieTime: null, titleId };
   const now = Date.now() + state.clockOffset;
   const elapsed = pb.status === "playing" ? ((now - pb.updatedAt) / 1000) * pb.rate : 0;
@@ -218,7 +225,7 @@ export function onConnect(port: chrome.runtime.Port) {
         return;
       }
       const tabId = port.sender?.tab?.id;
-      if (tabId !== undefined) tabTitles.set(tabId, e.media?.titleId ?? null);
+      if (tabId !== undefined) tabTitles.set(tabId, titleKey(e.media));
       // A browse page in another tab mustn't hide the tab still playing a title; that
       // tab's close is reported by tabs.onRemoved (BUG-049).
       if (!e.media && presence.media && presenceTabId !== undefined && tabId !== presenceTabId)

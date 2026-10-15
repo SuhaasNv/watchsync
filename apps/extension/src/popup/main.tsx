@@ -19,6 +19,7 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
+import { titleKey } from "../shared/title";
 
 export const inviteLink = (code: string) => `${__API_URL__}/j/${code}`;
 
@@ -299,8 +300,11 @@ function Watching({ p }: { p: Participant }) {
 }
 
 /** Where a person stands against the room: in sync, held up, or nothing to say. */
-function standing(p: Participant, roomTitle: string | null): "sync" | "ad" | "loading" | null {
-  if (!p.connected || !p.following || roomTitle === null || p.titleId !== roomTitle) return null;
+export function standing(
+  p: Participant,
+  roomTitle: string | null,
+): "sync" | "ad" | "loading" | null {
+  if (!p.connected || !p.following || roomTitle === null || titleKey(p) !== roomTitle) return null;
   if (p.unavailable) return null; // can't play it: not in sync, and not waited for (US-128)
   if (p.hold === "ad") return "ad";
   if (p.hold === "buffering") return "loading";
@@ -336,16 +340,18 @@ function Person({ p, me, roomTitle }: { p: Participant; me: boolean; roomTitle: 
 }
 
 /** One line on what the room is doing, e.g. "Everyone's together" or "Asha is on another title". */
-function summary(state: AppState, me: string): string {
+export function summary(state: AppState, me: string): string {
   const media = state.media;
   if (!media) return "Nobody has a title open yet. Open one on Netflix, Prime Video or JioHotstar.";
   if (!state.following) return "You're watching on your own. The room carries on without you.";
   const self = state.participants.find((p) => p.id === me);
-  if (self && self.titleId !== media.titleId) return "You're on a different title from the room.";
+  if (self && titleKey(self) !== titleKey(media))
+    return "You're on a different title from the room.";
   const others = state.participants.filter((p) => p.id !== me && p.connected);
-  const odd = others.find((p) => standing(p, media.titleId) !== "sync");
+  const odd = others.find((p) => standing(p, titleKey(media)) !== "sync");
   if (!odd) return "Everyone's together.";
-  if (odd.unavailable && odd.titleId === media.titleId) return `${odd.name} can't play this here.`;
+  if (odd.unavailable && titleKey(odd) === titleKey(media))
+    return `${odd.name} can't play this here.`;
   if (odd.hold === "ad") return `${odd.name} is on an ad.`;
   if (odd.hold === "buffering") return `${odd.name} is loading.`;
   if (!odd.following) return `${odd.name} is watching on their own.`;
@@ -402,7 +408,7 @@ function roomTitleName(state: AppState): string | null {
   if (!media) return null;
   return (
     media.titleName ??
-    state.participants.find((p) => p.titleId === media.titleId && p.titleName)?.titleName ??
+    state.participants.find((p) => titleKey(p) === titleKey(media) && p.titleName)?.titleName ??
     null
   );
 }
@@ -411,7 +417,7 @@ function roomTitleName(state: AppState): string | null {
 function someoneOn(state: AppState): boolean {
   const media = state.media;
   return (
-    Boolean(media) && state.participants.some((p) => p.connected && p.titleId === media?.titleId)
+    Boolean(media) && state.participants.some((p) => p.connected && titleKey(p) === titleKey(media))
   );
 }
 
@@ -420,11 +426,11 @@ function OpenTitle({ state, me }: { state: AppState; me: string }) {
   const media = state.media;
   const url = safeTitleUrl(media?.titleUrl);
   const self = state.participants.find((p) => p.id === me);
-  if (!media || !url || self?.titleId === media.titleId) return null;
+  if (!media || !url || titleKey(self) === titleKey(media)) return null;
   // Only offer a title someone is watching now: after everyone closes it, the room still
   // remembers it, and "Open the room's title" alone in a room made no sense (owner, 2 Oct).
   const watched = state.participants.some(
-    (p) => p.id !== me && p.connected && p.titleId === media.titleId,
+    (p) => p.id !== me && p.connected && titleKey(p) === titleKey(media),
   );
   if (!watched) return null;
   return (
@@ -558,7 +564,7 @@ function RoomScreen({ state }: { state: AppState }) {
           key={p.id}
           p={p}
           me={p.id === s.participantId}
-          roomTitle={alone ? null : (media?.titleId ?? null)}
+          roomTitle={alone ? null : titleKey(media)}
         />
       ))}
     </ul>
