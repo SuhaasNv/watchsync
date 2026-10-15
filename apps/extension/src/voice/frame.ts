@@ -258,6 +258,37 @@ function releaseMic() {
   publish();
 }
 
+/**
+ * A different microphone was picked while this one is live: open it (openMic falls back to the
+ * default if that id is gone), put its track on every connection, then let the old one go.
+ */
+async function switchMic() {
+  const old = track;
+  if (!old) return;
+  let next: MediaStream;
+  try {
+    ({ stream: next } = await openMic(micId));
+  } catch (e) {
+    console.debug("watchsync: voice mic switch", e);
+    return; // keep the mic that works
+  }
+  const t = next.getAudioTracks()[0];
+  if (!t || track !== old) {
+    for (const x of next.getTracks()) x.stop();
+    return;
+  }
+  const oldStream = stream;
+  t.enabled = live;
+  t.addEventListener("ended", releaseMic);
+  old.removeEventListener("ended", releaseMic);
+  stream = next;
+  track = t;
+  mesh?.setMic(t);
+  ownLevel?.stop();
+  watchOwnLevel(next);
+  for (const x of oldStream?.getTracks() ?? [old]) x.stop();
+}
+
 /** My own level from the mic itself, for the ring on my face (only while I am live). */
 function watchOwnLevel(s: MediaStream) {
   const ctx = new AudioContext();
@@ -289,7 +320,9 @@ function applySettings(s: {
   relay: boolean;
   micId: string | null;
 }) {
-  micId = s.micId; // used the next time the microphone opens
+  const switched = s.micId !== micId;
+  micId = s.micId;
+  if (switched && mic === "on") void switchMic(); // else used the next time the mic opens
   chosen = s.chosen;
   found = s.found ?? found;
   injectedPolicy = s.relay ? "relay" : "all";
