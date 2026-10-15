@@ -142,6 +142,8 @@ curl -sI http://localhost:8080/
 
 ## Switching installs to the Chrome Web Store
 
+> **Not in use.** The listing (item `odlngcfniaebaekgiaaghfehnchgkihc`) was unpublished in October 2026 and WatchSync installs from the zip only. Leave `PUBLIC_STORE_URL` and `STORE_URL` unset everywhere. The steps below are kept for if it is ever published again.
+
 The website has one setting for this: `PUBLIC_STORE_URL`, read at build time in `apps/website/src/lib/site.ts`. While it is unset the site offers the zip and the seven-step guide, exactly as before. Once it holds the listing's address:
 
 - every Download button becomes **Add to Chrome** and opens the listing ("Free, on the Chrome Web Store" under it);

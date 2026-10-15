@@ -51,10 +51,6 @@ main    owner says dev is stable; CI green on the exact dev commit being release
 tag     tag vX.Y.Z on that merge commit right away (owner's yes): until then the public site
         describes features its download doesn't have
         → the release workflow runs the guard, builds the zip, publishes the release
-store   upload that same release zip to the Chrome Web Store (developer dashboard, item
-        odlngcfniaebaekgiaaghfehnchgkihc), choose "publish after I approve", submit for review;
-        when it passes, publish it (owner's yes) as close to the tag as possible — store users
-        update through Chrome, zip users get the GitHub notice
 next    when the next version's work starts: merge main back into dev, bump the version and
         label it ("prerelease": "beta.1" or "rc.1")
 ```
@@ -73,11 +69,8 @@ in `apps/extension/package.json`, `services/signaling/pyproject.toml` and
   variables go in with deploys skipped, then deploy once.
 - **Extension from the website:** the zip is the release. A fix is a higher version
   (`vX.Y.1`), never a replaced file.
-- **Chrome Web Store** ([listing](https://chromewebstore.google.com/detail/watchsync/odlngcfniaebaekgiaaghfehnchgkihc),
-  listed since v0.1.1, 4 Oct 2026): every release (`vX.Y.Z` only — dev builds and candidates never go to the
-  store) is uploaded and reviewed; review usually takes hours to a few days, longer when
-  permissions change. The store accepts only a higher version than it has. Once the listing is
-  eligible, use staged rollout (a small percentage first) and pause it if reports come in; the
-  store cannot go back, so a rollback is a new, higher version.
+- **Chrome Web Store:** not used. WatchSync was listed with v0.1.1 on 4 Oct 2026 and unpublished
+  in October 2026 (owner's decision); releases ship as the zip only. The store-mode code stays
+  switched off (see `docs/DEPLOY.md`, "Switching installs to the Chrome Web Store").
 - **Hotfix:** branch from `main`, fix, merge the fix into `dev` as well, label a dev build, test it,
   then release `vX.Y.1` through the same steps.
