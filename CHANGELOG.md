@@ -5,7 +5,7 @@
 Talk Together: free voice while you watch, and the room stays together through ads.
 
 ### Changed
-- The website's install page points to the Chrome Web Store, and the zip guide moves to /install/manual/.
+- The "new version" notice in the popup no longer points to the Chrome Web Store: WatchSync installs from the zip.
 
 ## [0.2.1] - 2026-10-06
 

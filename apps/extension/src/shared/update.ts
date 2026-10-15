@@ -10,9 +10,6 @@ const DEV_TAG = "dev-latest";
 /** A dev release's version is the short commit it was built from. */
 const COMMIT = /^[0-9a-f]{7}$/;
 const RELEASE_PAGES = "https://github.com/SuhaasNv/watchsync/releases/";
-/** Where the prod build lives on the Chrome Web Store. */
-export const STORE_URL =
-  "https://chromewebstore.google.com/detail/watchsync/odlngcfniaebaekgiaaghfehnchgkihc";
 export const CHECK_EVERY = 24 * 3600 * 1000;
 
 /**
