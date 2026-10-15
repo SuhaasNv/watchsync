@@ -1,5 +1,6 @@
 import type { Media } from "@watchsync/protocol";
 import { safeTitleUrl } from "../shared/messages";
+import { titleKey } from "../shared/title";
 
 export type Alignment =
   | { kind: "none" }
@@ -17,10 +18,11 @@ export function align(
   mine: Media | null,
   following: boolean,
 ): Alignment {
-  if (!room || mine?.titleId === room.titleId) return { kind: "none" };
+  if (!room || titleKey(mine) === titleKey(room)) return { kind: "none" };
   const url = safeTitleUrl(room.titleUrl, room.service);
   if (!url) return { kind: "none" };
-  const wasWithRoom = mine !== null && roomBefore !== null && mine.titleId === roomBefore.titleId;
+  const wasWithRoom =
+    mine !== null && roomBefore !== null && titleKey(mine) === titleKey(roomBefore);
   if (following && wasWithRoom && mine.service === room.service) return { kind: "follow", url };
   return { kind: "prompt", url };
 }

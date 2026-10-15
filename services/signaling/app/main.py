@@ -35,7 +35,7 @@ from .protocol import (
     now_ms,
 )
 from .ratelimit import Limiter
-from .rooms import Participant, Room, RoomError, rooms, safe_media
+from .rooms import Participant, Room, RoomError, media_title, rooms, safe_media
 
 
 class NoFrameLogs(logging.Filter):
@@ -404,15 +404,15 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         await send(p, "SYS.PONG", {"t1": payload["t1"], "serverTime": now_ms()})
     elif msg["type"] == "PRESENCE.UPDATE":
         media = safe_media(payload["media"])
-        room_title = room.media["titleId"] if room.media else None
+        room_title = room.title
         # Straight from the room's title to another one of the same show: the next episode.
         # A different show (say, a film the service autoplays after the credits) is a new
         # title, so friends are asked (BUG-019). Unknown names count as the same show.
         shows = (show(media), show(room.media)) if media and room.media else (None, None)
         same_show = None in shows or shows[0] == shows[1]
-        straight = room_title is not None and p.title_id == room_title and same_show
+        straight = room_title is not None and p.title == room_title and same_show
         # Picked another title after watching here: last opened wins (DEC-030).
-        picked = p.watched and media is not None and media["titleId"] != p.title_id
+        picked = p.watched and media is not None and media_title(media) != p.title
         p.service = payload["service"]
         p.following = payload["following"]
         p.title_id = media["titleId"] if media else None
@@ -424,7 +424,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         p.unavailable = payload.get("unavailable") is True and media is not None
         # Off the room's title or watching on their own: the room can't be waiting for this
         # person's ad or loading any more, and their tab can't say so once closed (BUG-050).
-        if p.hold and (p.title_id != room_title or not p.following or p.unavailable):
+        if p.hold and (p.title != room_title or not p.following or p.unavailable):
             p.hold = None
             p.ad_left = None
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
@@ -433,7 +433,7 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         if (
             media is not None
             and room.media is not None
-            and media["titleId"] == room.media["titleId"]
+            and media_title(media) == room_title
             and media["titleName"]
             and not room.media.get("titleName")
         ):
@@ -446,12 +446,12 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
             media is not None
             and p.following
             and not p.unavailable
-            and media["titleId"] != room_title
+            and media_title(media) != room_title
         )
         # Once nobody here has the room's title open, it goes to whoever follows the room on
         # another title, so the order of leaving and opening doesn't matter (BUG-047).
         abandoned = room_title is not None and not any(
-            x.connected and x.title_id == room_title for x in room.participants.values()
+            x.connected and x.title == room_title for x in room.participants.values()
         )
         mover = p if moves and (room_title is None or picked or abandoned) else None
         if mover is None and abandoned:
@@ -704,7 +704,11 @@ async def hold_update(
         room.skip_hold.discard(p.id)
     await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
     playing = room.playback is not None and room.playback["status"] == "playing"
-    on_title = room.playback is not None and room.playback["titleId"] == p.title_id
+    on_title = (
+        room.playback is not None
+        and room.playback["titleId"] == p.title_id
+        and p.title == room.title
+    )
     paused_for_ad = (
         reason == "ad"
         and room.paused_by is not None
@@ -743,6 +747,7 @@ async def start_request(room: Room, p: Participant, position: float, title_id: s
         "by": p.name,
         "position": position,
         "titleId": title_id,
+        "title": (p.service, title_id) if title_id is not None else None,
         "ready": set(),
         "had": set(),
     }
@@ -756,10 +761,8 @@ async def start_progress(room: Room) -> None:
     start = room.start
     if start is None:
         return
-    start["had"] |= {x.id for x in room.participants.values() if x.title_id == start["titleId"]}
-    waiting = [
-        x for x in room.eligible(start["titleId"], start["had"]) if x.id not in start["ready"]
-    ]
+    start["had"] |= {x.id for x in room.participants.values() if x.title == start["title"]}
+    waiting = [x for x in room.eligible(start["title"], start["had"]) if x.id not in start["ready"]]
     if not waiting:
         await start_go(room)
         return
