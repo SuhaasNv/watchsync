@@ -30,6 +30,7 @@ import {
   type TabEvent,
   UNREACHABLE,
 } from "../shared/messages";
+import { watchTalkKey } from "../voice/keys";
 import { align } from "./align";
 import { baseRate, type NudgeView, nudgeAvailable, nudgeDriftMs, startNudging } from "./nudge";
 import {
@@ -80,7 +81,7 @@ import {
   showSidebar,
   toggleSidebar,
 } from "./sidebar";
-import { initTalk, press, retireTalk, talkPill, talkRoom, talkView } from "./talk";
+import { initTalk, press, retireTalk, talkMark, talkPill, talkRoom, talkView } from "./talk";
 import { renewVoiceFrame, retireVoiceFrame, voiceFrameLost, voiceFrameReady } from "./voice-frame";
 
 const provider = providerFor(location.host);
@@ -541,7 +542,9 @@ function drawPill() {
         : p.hold || (p.id === me && !online)
           ? "wait"
           : "none";
-    return { name: p.name, label: `${name}, ${state}`, mark } as const;
+    const voice = talkMark(p);
+    const heard = voice.mic === "on" ? ", mic on" : voice.mic === "off" ? ", muted" : "";
+    return { name: p.name, label: `${name}, ${state}${heard}`, mark, ...voice } as const;
   });
   renderPill({
     people,
@@ -562,6 +565,9 @@ function drawPill() {
   });
 }
 initTalk({ post, redraw: drawPill });
+// Alt+T talks (hold) or mutes (open mic), also in full screen, and types in any box (US-056).
+// Outside a room the key is the page's own.
+const stopTalkKey = watchTalkKey(document, press, (e) => e.isTrusted && room?.session != null);
 // Keys the page got while it held focus from the message box go on to the chat frame (BUG-073).
 onChatType((text) => post({ kind: "chatType", text }));
 onSidebarChange((open) => {
@@ -1073,6 +1079,7 @@ function retire() {
   retireSidebar();
   retireVoiceFrame();
   retireTalk();
+  stopTalkKey();
   retireReactions();
 }
 

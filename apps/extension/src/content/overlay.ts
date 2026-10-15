@@ -113,6 +113,12 @@ root.innerHTML = `<style>
     font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px #151d21; }
   .count[hidden] { display: none; }
   .count.pop { animation: pop 160ms ease-out; }
+  /* Voice (US-056): who has a mic open, and who is speaking, on each face. */
+  .face .mic { position: absolute; left: -4px; top: -4px; width: 14px; height: 14px;
+    border-radius: 50%; display: grid; place-items: center; background: #2a363c;
+    color: #a9b8b9; box-shadow: 0 0 0 2px #151d21; }
+  .face .mic[data-on="true"] { background: #5fd3b8; color: #0c1215; }
+  .face[data-speaking="true"] { box-shadow: 0 0 0 2px #151d21, 0 0 0 4px #5fd3b8; }
   /* Talk (US-055): translucent white until the mic is open, then mint with dark text. */
   .pill button.talk { padding: 0 12px 0 10px; }
   .pill button.talk[aria-pressed="true"] { background: #5fd3b8; color: #0c1215; }
@@ -444,6 +450,10 @@ export interface PillPerson {
   label: string;
   /** In sync, being waited for (loading or an ad), away, or none of these. */
   mark: "synced" | "wait" | "away" | "none";
+  /** In voice: whether their mic is open to the room (on) or muted (off). Null: not in voice. */
+  mic?: "on" | "off" | null;
+  /** Heard speaking right now: a mint ring. */
+  speaking?: boolean;
 }
 
 export interface PillModel {
@@ -600,6 +610,7 @@ talk.type = "button";
 talk.className = "talk";
 const talkText = document.createTextNode("Talk");
 talk.append(svgIcon("mic", 14), talkText);
+talk.setAttribute("aria-keyshortcuts", "Alt+T");
 /** What is holding the button down: a finger or mouse, or Space or Enter. */
 let held: "pointer" | "key" | null = null;
 
@@ -725,6 +736,15 @@ export function renderPill(model: PillModel | null) {
     f.title = p.label;
     f.setAttribute("role", "img");
     f.setAttribute("aria-label", p.label);
+    if (p.speaking) f.dataset.speaking = "true";
+    if (p.mic) {
+      // A small mic badge: filled mint when their mic is open, grey and crossed when muted.
+      const badge = document.createElement("span");
+      badge.className = "mic";
+      badge.dataset.on = String(p.mic === "on");
+      badge.append(svgIcon(p.mic === "on" ? "mic" : "micoff", 9));
+      f.append(badge);
+    }
     faces.append(f);
   }
   // The fold arrow points to the edge the pill tucks into, and back out when folded.

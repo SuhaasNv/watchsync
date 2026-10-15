@@ -521,6 +521,80 @@ p {
   background: rgba(255, 159, 74, 0.12);
   color: var(--warn);
 }
+/* Voice (US-056): a line under what someone is watching, and the Talk button. */
+.voice {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text3);
+}
+.voice.talking {
+  color: #5fd3b8;
+  font-weight: 600;
+}
+.voice.update {
+  color: var(--warn);
+}
+.talk-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.btn.talk[aria-pressed="true"] {
+  background: #5fd3b8;
+  color: #0c1215;
+}
+.btn.talk[aria-pressed="true"]:hover:not(:disabled) {
+  background: #7fe0c8;
+}
+.btn.talk[aria-pressed="true"] .key {
+  color: #0c1215;
+}
+.btn.talk[aria-busy="true"] {
+  opacity: 0.7;
+  cursor: progress;
+}
+.seg {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.seg-row {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r2);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.seg-option {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  border-radius: 10px;
+  font-weight: 650;
+  color: var(--text2);
+  cursor: pointer;
+}
+.seg-option.on {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.seg-option input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.seg-option:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 .me {
   display: flex;
   align-items: center;

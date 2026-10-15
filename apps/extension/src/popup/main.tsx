@@ -1,5 +1,5 @@
 import type { Participant } from "@watchsync/protocol";
-import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ICONS, type IconName } from "../shared/icons";
 import {
@@ -7,6 +7,7 @@ import {
   type ChatTabRequest,
   cleanName,
   codeFrom,
+  type Edge,
   ERRORS,
   nameProblem,
   type Push,
@@ -18,6 +19,11 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
+import { cannotTalk, joinNames, VOICE_MAX, voiceOffer } from "../voice/capability";
+import { MODE_AUTO_KEY, MODE_KEY, micMode } from "../voice/echo";
+import { watchTalkKey } from "../voice/keys";
+import { type MicMode, NO_VOICE, type VoiceView } from "../voice/messages";
+import { talkWords } from "../voice/words";
 
 export const inviteLink = (code: string) => `${__API_URL__}/j/${code}`;
 
@@ -31,14 +37,16 @@ function useFocusOnShow<T extends HTMLElement>(key?: unknown) {
 
 function useAppState() {
   const [state, setState] = useState<AppState | null>(null);
+  const [voice, setVoice] = useState<VoiceView>(NO_VOICE);
   useEffect(() => {
     const port = chrome.runtime.connect({ name: "popup" });
     port.onMessage.addListener((m: Push) => {
       if (m.kind === "state") setState({ ...m.state });
+      if (m.kind === "voice") setVoice(m.view);
     });
     return () => port.disconnect();
   }, []);
-  return state;
+  return { state, voice };
 }
 
 /** `unreachable` overrides the generic network message for this action. */
@@ -311,8 +319,18 @@ const STANDING = {
   loading: { icon: "wait", text: "Loading" },
 } as const;
 
+/** What a person's row says about voice (US-056), or nothing. */
+function voiceLine(p: Participant): { cls: "talking" | "muted" | "update"; text: string } | null {
+  if (!p.connected) return null;
+  if (p.canTalk !== true) return { cls: "update", text: "Needs an update to talk" };
+  if (p.voice === "live") return { cls: "talking", text: "Talking" };
+  if (p.voice === "muted") return { cls: "muted", text: "Muted" };
+  return null;
+}
+
 function Person({ p, me, roomTitle }: { p: Participant; me: boolean; roomTitle: string | null }) {
   const s = standing(p, roomTitle);
+  const v = voiceLine(p);
   return (
     <li className={p.connected ? "" : "away"}>
       <Avatar name={p.name} />
@@ -322,6 +340,7 @@ function Person({ p, me, roomTitle }: { p: Participant; me: boolean; roomTitle: 
           {me ? " (you)" : ""}
         </span>
         <Watching p={p} />
+        {v && <span className={`voice ${v.cls}`}>{v.text}</span>}
       </span>
       {s && (
         <span className={`chip ${s}`}>
@@ -447,6 +466,85 @@ function useChatShortcut() {
 const NO_TAB = "Open the title on a supported service first.";
 
 /**
+ * Talk in the popup (US-056): the same button as on the page, and Alt+T. Pressed, the tab
+ * playing the title acts on it (and asks first if the mic isn't allowed yet: the question is
+ * on the page, so the popup closes to let you see it).
+ */
+function TalkRow({ state, voice }: { state: AppState; voice: VoiceView }) {
+  const [noTab, setNoTab] = useState(false);
+  const offer = voiceOffer(state.participants);
+  const { text, label } = talkWords(voice);
+  const held = useRef(false);
+  // What the press reads when it comes back: the latest, without redoing the listeners.
+  const now = useRef({ mic: voice.mic, offer });
+  now.current = { mic: voice.mic, offer };
+  const press = useCallback(async (edge: Edge) => {
+    const r = await send({ kind: "talk", edge });
+    setNoTab(!r.ok && r.error === "no_tab");
+    if (r.ok && edge === "down" && now.current.offer === "ok" && now.current.mic !== "on")
+      window.close();
+  }, []);
+  const up = useCallback(() => {
+    if (!held.current) return;
+    held.current = false;
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    void press("up");
+  }, [press]);
+  useEffect(() => {
+    const stop = watchTalkKey(document, (edge) => void press(edge));
+    return () => {
+      stop();
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, [press, up]);
+  const who = joinNames(
+    cannotTalk(state.participants.filter((p) => p.connected)).map((p) => p.name),
+  );
+  return (
+    <div className="talk-row">
+      <button
+        className={`btn talk ${voice.live ? "live" : ""}`}
+        type="button"
+        aria-pressed={voice.live}
+        aria-label={label}
+        aria-keyshortcuts="Alt+T"
+        aria-busy={voice.mic === "asking" || undefined}
+        onPointerDown={(e) => {
+          if (e.button !== 0 || held.current) return;
+          held.current = true;
+          window.addEventListener("pointerup", up);
+          window.addEventListener("pointercancel", up);
+          void press("down");
+        }}
+        onClick={(e) => {
+          // A screen reader's "activate" has no pointer before it: a quick press.
+          if (e.detail === 0) void press("down").then(() => press("up"));
+        }}
+      >
+        <Icon name={voice.live ? "mic" : "micoff"} />
+        {text}
+        <span className="key" aria-hidden="true">
+          Alt+T
+        </span>
+      </button>
+      {offer === "update" && (
+        <p className="hint under">
+          Talk turns on for everyone once {who} updates. Sync and chat work now.
+        </p>
+      )}
+      {offer === "full" && (
+        <p className="hint under">
+          Voice is for up to {VOICE_MAX} people for now. Sync and chat still work.
+        </p>
+      )}
+      {noTab && <p className="hint under">{NO_TAB}</p>}
+    </div>
+  );
+}
+
+/**
  * Opens chat on the tab playing the room's title (US-115): a full-width row with the unread
  * count and the shortcut inside it. Off, it says why in one line under it.
  */
@@ -497,7 +595,7 @@ function OpenChat({ shortcut, unread }: { shortcut: string | null; unread: numbe
   );
 }
 
-function RoomScreen({ state }: { state: AppState }) {
+function RoomScreen({ state, voice }: { state: AppState; voice: VoiceView }) {
   const copy = useFocusOnShow<HTMLButtonElement>();
   const [copied, setCopied] = useState("");
   const shortcut = useChatShortcut();
@@ -587,6 +685,7 @@ function RoomScreen({ state }: { state: AppState }) {
           {people}
         </section>
         <OpenTitle state={state} me={s.participantId} />
+        <TalkRow state={state} voice={voice} />
         <OpenChat shortcut={shortcut} unread={state.unread} />
         <div className="bottom">
           {!alone && (
@@ -620,7 +719,79 @@ function RoomScreen({ state }: { state: AppState }) {
   );
 }
 
-function Footer({ update }: { update: AppState["update"] }) {
+const MODE_HELP: Record<MicMode, string> = {
+  open: "Unmute once and talk freely. Chrome keeps the film out of your mic.",
+  ptt: "Hold Talk, or Alt+T, while you talk. Best on laptop speakers.",
+};
+
+/** Voice settings (US-056): how the mic behaves. The default follows what this Chrome can do. */
+function VoiceSettings({ onBack }: { onBack: () => void }) {
+  const [mode, setMode] = useState<MicMode>("ptt");
+  const first = useFocusOnShow<HTMLInputElement>();
+  useEffect(() => {
+    const read = () =>
+      chrome.storage.local
+        .get([MODE_KEY, MODE_AUTO_KEY])
+        .then((got) => setMode(micMode(got[MODE_KEY], got[MODE_AUTO_KEY])))
+        .catch(() => {});
+    read();
+    const changed = (_: unknown, area: string) => {
+      if (area === "local") read();
+    };
+    chrome.storage.onChanged.addListener(changed);
+    return () => chrome.storage.onChanged.removeListener(changed);
+  }, []);
+  const choose = (next: MicMode) => {
+    setMode(next);
+    chrome.storage.local.set({ [MODE_KEY]: next }).catch(() => {});
+  };
+  const option = (value: MicMode, label: string) => (
+    <label className={`seg-option ${mode === value ? "on" : ""}`}>
+      <input
+        ref={mode === value ? first : undefined}
+        type="radio"
+        name="mic-mode"
+        value={value}
+        checked={mode === value}
+        aria-describedby="mic-help"
+        onChange={() => choose(value)}
+      />
+      {label}
+    </label>
+  );
+  return (
+    <>
+      <Header
+        right={
+          <button className="btn compact" type="button" onClick={onBack}>
+            <Icon name="left" size={14} />
+            Back
+          </button>
+        }
+      />
+      <div className="body">
+        <h1 className="title">Voice</h1>
+        <fieldset className="field seg">
+          <legend className="label">Microphone</legend>
+          <div className="seg-row">
+            {option("open", "Open mic")}
+            {option("ptt", "Push to talk")}
+          </div>
+          <p className="hint" id="mic-help">
+            {MODE_HELP[mode]}
+          </p>
+        </fieldset>
+        <span className="grow" />
+        <p className="hint">
+          Your voice goes straight to the people in the room. WatchSync never records it and our
+          server never hears it.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function Footer({ update, onVoice }: { update: AppState["update"]; onVoice: () => void }) {
   return (
     <footer className="foot">
       {update && (
@@ -644,6 +815,9 @@ function Footer({ update }: { update: AppState["update"] }) {
         <a href={`${__SITE_URL__}/terms/`} target="_blank" rel="noreferrer">
           Terms
         </a>
+        <button className="link" type="button" onClick={onVoice}>
+          Voice
+        </button>
         <span className="grow" />
         <span className="version">
           v{chrome.runtime.getManifest().version_name ?? chrome.runtime.getManifest().version}
@@ -676,20 +850,30 @@ function screenOf(state: AppState): string {
   return state.session ? "room" : "home";
 }
 
-function Screen({ state }: { state: AppState }) {
+function Screen({ state, voice }: { state: AppState; voice: VoiceView }) {
   if (!state.name) return <NameScreen />;
-  if (state.session) return <RoomScreen state={state} />;
+  if (state.session) return <RoomScreen state={state} voice={voice} />;
   return <HomeScreen state={state} />;
 }
 
 function Popup() {
-  const state = useAppState();
+  const { state, voice } = useAppState();
+  const [page, setPage] = useState<"main" | "voice">("main");
   return (
     <>
-      <main className="screen" key={state ? screenOf(state) : "loading"}>
-        {state ? <Screen state={state} /> : <Loading />}
+      <main
+        className="screen"
+        key={page === "voice" ? "voice" : state ? screenOf(state) : "loading"}
+      >
+        {page === "voice" ? (
+          <VoiceSettings onBack={() => setPage("main")} />
+        ) : state ? (
+          <Screen state={state} voice={voice} />
+        ) : (
+          <Loading />
+        )}
       </main>
-      <Footer update={state?.update ?? null} />
+      <Footer update={state?.update ?? null} onVoice={() => setPage("voice")} />
     </>
   );
 }

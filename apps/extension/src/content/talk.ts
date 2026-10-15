@@ -4,13 +4,20 @@
 // person's WatchSync can talk, and for up to four people.
 import type { Participant } from "@watchsync/protocol";
 import type { AppState, Edge, TabEvent } from "../shared/messages";
-import { updateToTalk, VOICE_MAX, voiceOffer } from "../voice/capability";
+import { joinNames, updateToTalk, VOICE_MAX, voiceOffer } from "../voice/capability";
+import { MODE_KEY } from "../voice/echo";
 import { NO_VOICE, type TalkCmd, type VoiceView } from "../voice/messages";
-import { closeSheet, type PillVoice, showSheet, toast } from "./overlay";
+import { talkWords } from "../voice/words";
+import { closeSheet, notice, type PillVoice, showSheet, toast } from "./overlay";
 import { isVoiceOff, showVoiceFrame } from "./voice-frame";
 
 /** Saved in chrome.storage.local: the first-press sheet has been answered, once ever. */
 const SHEET_KEY = "voiceSheetSeen";
+/** Likewise: the push-to-talk hint, and the first "You're live", have been shown once. */
+const HINT_KEY = "voiceHintSeen";
+const LIVE_KEY = "voiceLiveSeen";
+/** The room that was last told "Voice is ready", so a page load doesn't say it again. */
+const READY_KEY = "voiceReadyFor";
 /** A connection still being set up this long after the mic opened is worth saying. */
 const SLOW_MS = 1500;
 
@@ -25,12 +32,26 @@ let toldReady: string | null = null;
 const toldFailed = new Set<string>();
 const toldConnecting = new Set<string>();
 
+let hintSeen = false;
+let liveSeen = false;
+let chosenMode = false;
 chrome.storage.local
-  .get(SHEET_KEY)
+  .get([SHEET_KEY, HINT_KEY, LIVE_KEY, READY_KEY, MODE_KEY])
   .then((got) => {
     sheetSeen = got[SHEET_KEY] === true;
+    hintSeen = got[HINT_KEY] === true;
+    liveSeen = got[LIVE_KEY] === true;
+    chosenMode = got[MODE_KEY] === "open" || got[MODE_KEY] === "ptt";
+    if (typeof got[READY_KEY] === "string") toldReady = got[READY_KEY];
   })
   .catch(() => {});
+// The person's own choice of mic mode, in the popup: no default hint for a choice made.
+chrome.storage.onChanged.addListener((changes, area) => {
+  const change = changes[MODE_KEY];
+  if (area === "local" && change) {
+    chosenMode = change.newValue === "open" || change.newValue === "ptt";
+  }
+});
 
 /** The tab's connection to the background, and how to redraw the pill when voice changes. */
 export function initTalk(env: { post: (e: TabEvent) => void; redraw: () => void }) {
@@ -41,12 +62,8 @@ export function initTalk(env: { post: (e: TabEvent) => void; redraw: () => void 
 const others = (): Participant[] =>
   room?.participants.filter((p) => p.id !== room?.session?.participantId && p.connected) ?? [];
 
-const names = (people: readonly Participant[]) => {
-  const list = people.map((p) => p.name);
-  const last = list.pop();
-  if (last === undefined) return "the room";
-  return list.length === 0 ? last : `${list.join(", ")} and ${last}`;
-};
+const names = (people: readonly Participant[]) =>
+  joinNames(people.map((p) => p.name)) || "the room";
 
 // Chrome holds back sound until the person has used the page. The voice frame can't see the
 // page's clicks, so when they use it, it is told it may play what it has been holding.
@@ -91,16 +108,67 @@ export function talkView(next: VoiceView) {
     toast("Chrome blocked your microphone.", 8000, { icon: "alert", tone: "warn" });
   }
   if (next.frame && !before.frame) sayReady();
+  if (next.mic === "on" && before.mic !== "on") sayHint();
+  if (next.live && !before.live) sayLive();
+  // Open mic stays open until it is closed: say so for as long as it is. Holding to talk
+  // shows on the button itself.
+  notice("live", next.live && next.mode === "open" ? "You're live" : null, {
+    icon: "live",
+    tone: "ok",
+  });
   watchConnecting();
   checkFailures();
   redraw();
 }
+
+/** Push-to-talk by default, the first time the mic opens: how to talk, and the way out. */
+function sayHint() {
+  if (view.mode !== "ptt" || chosenMode || hintSeen) return;
+  hintSeen = true;
+  chrome.storage.local.set({ [HINT_KEY]: true }).catch(() => {});
+  toast(
+    "Hold Talk, or Alt+T, while you talk. With headphones you can leave the mic open.",
+    12_000,
+    { icon: "live", tone: "accent" },
+    [
+      {
+        label: "Use open mic",
+        run: () => void chrome.storage.local.set({ [MODE_KEY]: "open" }).catch(() => {}),
+      },
+      { label: "Got it", primary: true, run: () => {} },
+    ],
+  );
+}
+
+/** Open mic, the first time you are live: who hears you, and that the film does not. */
+function sayLive() {
+  if (view.mode !== "open" || liveSeen) return;
+  liveSeen = true;
+  chrome.storage.local.set({ [LIVE_KEY]: true }).catch(() => {});
+  const who = others().filter((p) => p.canTalk === true);
+  const hear = who.length > 1 ? "hear" : "hears";
+  toast(`You're live. ${names(who)} ${hear} you; the film stays out of your mic.`, 6000, {
+    icon: "live",
+    tone: "ok",
+  });
+}
+
+/** What the pill shows on someone's face: whether their mic is open, and whether they speak. */
+export function talkMark(p: Participant): { mic: "on" | "off" | null; speaking: boolean } {
+  const me = p.id === room?.session?.participantId;
+  const inVoice = p.connected && p.canTalk === true && p.voice !== undefined && p.voice !== "off";
+  // My own state is mine to know at once, before the room says it back.
+  const mic = me && view.mic === "on" ? (view.live ? "on" : "off") : inVoice ? voiceOn(p) : null;
+  return { mic, speaking: view.speaking.includes(p.id) };
+}
+const voiceOn = (p: Participant) => (p.voice === "live" ? "on" : "off");
 
 /** Joined muted: once per room, one line on how to start. */
 function sayReady() {
   const code = room?.session?.code;
   if (!code || toldReady === code) return;
   toldReady = code;
+  chrome.storage.local.set({ [READY_KEY]: code }).catch(() => {});
   toast("Voice is ready. Press Talk when you want to talk.", 7000, { icon: "live", tone: "ok" }, [
     { label: "Talk", run: () => press("down") },
   ]);
@@ -210,24 +278,17 @@ function copyUpdateLink() {
 /** The Talk button as the pill draws it. */
 export function talkPill(): PillVoice | null {
   if (!room?.session) return null;
-  const on = view.mic === "on";
-  const open = view.mode === "open";
   const connecting =
-    on &&
+    view.mic === "on" &&
     Object.entries(view.peers).some(([id, s]) => s === "connecting" && toldConnecting.has(id));
-  let text = "Talk";
-  let label = "Talk";
-  if (on) {
-    if (open) {
-      text = view.live ? "Mute" : "Unmute";
-      label = view.live ? "Mute your mic" : "Unmute your mic";
-    } else {
-      text = view.live ? "Talking" : "Hold to talk";
-      label = "Hold to talk";
-    }
-  }
-  if (connecting && !view.live) text = "Connecting";
-  return { text, label, live: view.live, busy: view.mic === "asking", press };
+  const { text, label } = talkWords(view);
+  return {
+    text: connecting && !view.live ? "Connecting" : text,
+    label,
+    live: view.live,
+    busy: view.mic === "asking",
+    press,
+  };
 }
 
 /** Leaving: nothing more to do, the frame goes with the room. */

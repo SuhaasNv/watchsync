@@ -25,10 +25,15 @@ export function voiceOffer(people: readonly Participant[]): VoiceOffer {
   return here.length > VOICE_MAX ? "full" : "ok";
 }
 
-/** "Asha needs to update WatchSync to talk." / "Asha and Ben need to ..." / "A, B and C need ...". */
-export function updateToTalk(names: readonly string[]): string {
+/** "Asha" / "Asha and Ben" / "A, B and C"; "" for nobody. */
+export function joinNames(names: readonly string[]): string {
   const [last, ...rest] = [...names].reverse();
   if (last === undefined) return "";
-  const who = rest.length === 0 ? last : `${rest.reverse().join(", ")} and ${last}`;
-  return `${who} ${rest.length === 0 ? "needs" : "need"} to update WatchSync to talk.`;
+  return rest.length === 0 ? last : `${rest.reverse().join(", ")} and ${last}`;
+}
+
+/** "Asha needs to update WatchSync to talk." / "Asha and Ben need to ..." / "A, B and C need ...". */
+export function updateToTalk(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  return `${joinNames(names)} ${names.length === 1 ? "needs" : "need"} to update WatchSync to talk.`;
 }

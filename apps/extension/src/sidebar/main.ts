@@ -7,6 +7,7 @@ import { CHAT_KEEP, isChatText, isTypedText } from "../shared/chat-text";
 import { svgIcon } from "../shared/icons";
 import type { AppState, Push, SidebarEvent } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
+import { watchTalkKey } from "../voice/keys";
 import { ActivityFeed } from "./activity";
 import {
   announcement,
@@ -520,3 +521,5 @@ if (document.hasFocus()) focusFirst();
 
 drawComposer();
 connect();
+// Alt+T talks from here too, but never while typing in the message box (US-056).
+watchTalkKey(document, (edge) => post({ kind: "talk", edge }));
