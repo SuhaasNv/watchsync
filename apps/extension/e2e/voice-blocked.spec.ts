@@ -1,6 +1,6 @@
 // A blocked microphone (US-057): Chrome says no, Talk shows the exact steps for this system,
 // sync and chat carry on, and once it is fixed Talk starts voice without a reload.
-import { expect, launchWithExtension, MOCK, test } from "./fixtures";
+import { expect, launchWithExtension, test } from "./fixtures";
 import { talk, twoTabs, voiceView } from "./voice-helpers";
 
 /** A fake microphone exists, but Chrome refuses every question about it (as if blocked). */
@@ -13,7 +13,20 @@ test("Chrome denies the mic: the steps appear, chat still works, and fixing it n
     await expect.poll(async () => (await voiceView(hostTab))?.mic).toBe("off"); // listening
 
     await talk(hostTab).click();
+    // Chrome's question is asked by WatchSync's own page, in a tab of its own (never by the
+    // streaming site); it is told no, so it shows the steps itself too.
+    const asked = ext.context.waitForEvent("page");
     await hostTab.getByRole("button", { name: "Allow and talk" }).click();
+    const permission = await asked;
+    expect(permission.url()).toContain(
+      `chrome-extension://${ext.extensionId}/voice-permission.html`,
+    );
+    await expect(
+      permission.getByRole("heading", { name: "Allow WatchSync to use your microphone" }),
+    ).toBeVisible();
+    await expect(permission.getByRole("heading", { name: "Turn your mic back on" })).toBeVisible();
+    await permission.close();
+    await hostTab.bringToFront();
     // One line, one way to the steps.
     await expect(hostTab.getByText("Chrome blocked your microphone.")).toBeVisible();
     await hostTab.getByRole("button", { name: "Show me how" }).click();
@@ -58,15 +71,14 @@ test("Chrome denies the mic: the steps appear, chat still works, and fixing it n
     await box.press("Enter");
     await expect(tab.getByRole("button", { name: /^Open chat.*1 unread$/ })).toBeVisible();
 
-    // Fixed in Chrome's settings: pressing Talk again works at once, with no reload. (Playwright
-    // can only grant a web origin, not an extension's: it grants the page's. That this unblocks
-    // the extension's frame says Chrome judges a framed page's microphone by the top-level site;
-    // see the report on which settings page the help should open.)
-    await ext.context.grantPermissions(["microphone"], { origin: MOCK });
+    // Pressing Talk again asks again, with no reload: Chrome remembers the no, so the steps
+    // come straight back. (That a fix in Chrome's settings, made for WatchSync's own address,
+    // lets this press through can't be tested here: Playwright cannot grant a permission to an
+    // extension's address. The owner checks it by hand.)
+    await expect(help).toBeHidden(); // closed by the settings button above
     await talk(hostTab).click();
-    await expect(talk(hostTab)).toHaveAttribute("aria-pressed", "true");
-    expect((await voiceView(hostTab))?.mic).toBe("on");
-    await expect(help).toBeHidden();
+    await expect(help).toBeVisible();
+    expect((await voiceView(hostTab)).mic).toBe("blocked");
     await friend.context.close();
   } finally {
     await ext.context.close();

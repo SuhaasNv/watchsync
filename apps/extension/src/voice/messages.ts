@@ -1,6 +1,6 @@
-// What the voice frame (voice.html) and the background worker say to each other over the
-// frame's "voice" port, and what the rest of the extension is told about voice. Every message
-// is checked on receipt, like the room protocol's.
+// What the voice document (voice.html, a Chrome offscreen document) and the background worker
+// say to each other over its "voice" port, and what the rest of the extension is told about
+// voice. Every message is checked on receipt, like the room protocol's.
 import {
   type AnyServerMessage,
   type IceServer,
@@ -18,9 +18,9 @@ export type BlockedBy = "chrome" | "system" | "none";
 export type MicMode = "open" | "ptt";
 export type PeerState = "connecting" | "connected" | "failed";
 
-/** What the frame reports about voice: the whole of it, sent whenever any part changes. */
+/** What the voice document reports about voice: the whole of it, sent whenever any part changes. */
 export interface VoiceView {
-  /** The voice frame is up and connected to the background worker. */
+  /** The voice document is up and connected to the background worker. */
   frame: boolean;
   mic: MicState;
   blocked: BlockedBy | null;
@@ -44,12 +44,9 @@ export const NO_VOICE: VoiceView = {
   peers: {},
 };
 
-/**
- * What a press of Talk means to the frame once the mic is on. "resume": the person used the
- * page, so sound that Chrome held back until then may play (Chrome's autoplay rule).
- */
-export type TalkCmd = "enable" | "down" | "up" | "retry" | "resume";
-const CMDS: readonly string[] = ["enable", "down", "up", "retry", "resume"];
+/** What a press of Talk means to the voice document once the mic is on. */
+export type TalkCmd = "enable" | "down" | "up" | "retry";
+const CMDS: readonly string[] = ["enable", "down", "up", "retry"];
 export const isTalkCmd = (v: unknown): v is TalkCmd => typeof v === "string" && CMDS.includes(v);
 
 /** A person to connect with: in voice, and their WatchSync can talk. */
@@ -58,24 +55,50 @@ export interface VoicePerson {
   name: string;
 }
 
-/** Background → frame. */
+/** What a test build may ask the voice document (the answers are not part of the product). */
+export type Probe = "heard" | "policy" | "playing";
+const PROBES: readonly string[] = ["heard", "policy", "playing"];
+
+/** Background → voice document. */
 export type VoiceIn =
   /** Who to be connected with now, and who I am. Sent again whenever it changes. */
   | { kind: "room"; you: string; people: VoicePerson[] }
   /** A VOICE.SIGNAL from the room, already checked. */
   | { kind: "signal"; message: AnyServerMessage }
   | { kind: "ice"; iceServers: IceServer[] }
-  | { kind: "cmd"; cmd: TalkCmd };
+  | { kind: "cmd"; cmd: TalkCmd }
+  /** The microphone page's answer: null, the mic is allowed (open it); else why it is blocked. */
+  | { kind: "micAnswer"; by: BlockedBy | null }
+  /**
+   * The person's voice settings, read from storage by the worker: an offscreen document has no
+   * chrome.storage of its own. Sent first, and again whenever one changes.
+   */
+  | {
+      kind: "settings";
+      /** The mode the person chose, else null. */
+      chosen: MicMode | null;
+      /** The mode this Chrome was found to manage, else null. */
+      found: MicMode | null;
+      /** relay: send every connection through TURN (dev and test builds only). */
+      relay: boolean;
+    }
+  /** Test builds only. */
+  | { kind: "probe"; id: number; what: Probe };
 
-/** Frame → background. The first message is `hello` with the pass the content script loaded it with. */
+/** Voice document → background. */
 export type VoiceOut =
-  | { kind: "hello"; nonce: string }
   | { kind: "view"; view: VoiceView }
   /** Whether my mic is open to the room: becomes my row's voice state for everyone. */
   | { kind: "state"; state: "muted" | "live" }
   | { kind: "signal"; to: string; signal: VoiceSignalBody }
   /** Ask for TURN credentials (the background owns the room token). */
-  | { kind: "needIce" };
+  | { kind: "needIce" }
+  /** What this Chrome was found to manage (DEC-037): the worker saves it. */
+  | { kind: "found"; mode: MicMode }
+  /** Chrome has not been asked yet, and an offscreen document can't ask: open the microphone page. */
+  | { kind: "needPermission" }
+  /** The answer to a probe (test builds only). */
+  | { kind: "probed"; id: number; value: unknown };
 
 const isObject = (v: unknown): v is object => typeof v === "object" && v !== null;
 const field = (v: object, k: string): unknown => Reflect.get(v, k);
@@ -83,6 +106,12 @@ const isStr = (v: unknown): v is string => typeof v === "string";
 const MIC: readonly string[] = ["off", "asking", "on", "blocked"];
 const BLOCKED: readonly string[] = ["chrome", "system", "none"];
 const PEER: readonly string[] = ["connecting", "connected", "failed"];
+
+export const isMode = (v: unknown): v is MicMode => v === "open" || v === "ptt";
+
+/** A reason from the microphone page, or null for "allowed". */
+export const isBlockedBy = (v: unknown): v is BlockedBy | null =>
+  v === null || (isStr(v) && BLOCKED.includes(v));
 
 export function isVoiceView(v: unknown): v is VoiceView {
   if (!isObject(v)) return false;
@@ -114,14 +143,15 @@ function isClientSignal(payload: unknown): boolean {
 export function isVoiceOut(v: unknown): v is VoiceOut {
   if (!isObject(v)) return false;
   const kind = field(v, "kind");
-  if (kind === "hello") return isStr(field(v, "nonce"));
   if (kind === "view") return isVoiceView(field(v, "view"));
   if (kind === "state") return field(v, "state") === "muted" || field(v, "state") === "live";
   if (kind === "signal") {
     const to = field(v, "to");
     return isStr(to) && to.length <= 64 && isSignalBody(field(v, "signal"));
   }
-  return kind === "needIce";
+  if (kind === "probed") return Number.isInteger(field(v, "id"));
+  if (kind === "found") return isMode(field(v, "mode"));
+  return kind === "needIce" || kind === "needPermission";
 }
 
 export function isVoiceIn(v: unknown): v is VoiceIn {
@@ -142,5 +172,14 @@ export function isVoiceIn(v: unknown): v is VoiceIn {
   }
   // The same check the room service's credentials pass.
   if (kind === "ice") return isTurnCredentials({ iceServers: field(v, "iceServers"), ttl: 60 });
+  if (kind === "micAnswer") return isBlockedBy(field(v, "by"));
+  if (kind === "settings") {
+    const mode = (k: string) => field(v, k) === null || isMode(field(v, k));
+    return mode("chosen") && mode("found") && typeof field(v, "relay") === "boolean";
+  }
+  if (kind === "probe") {
+    const what = field(v, "what");
+    return Number.isInteger(field(v, "id")) && isStr(what) && PROBES.includes(what);
+  }
   return kind === "cmd" && isTalkCmd(field(v, "cmd"));
 }

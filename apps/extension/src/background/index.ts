@@ -19,7 +19,7 @@ import {
   tabTitles,
 } from "./tabs";
 import { checkForUpdate } from "./update-check";
-import { voiceFrames } from "./voice";
+import { voiceSettingsChanged } from "./voice";
 
 checkForUpdate().catch(() => {});
 checkRules();
@@ -59,14 +59,16 @@ if (__MOCK__)
   Object.assign(globalThis, {
     watchsyncDropSocket: () => socket?.close(),
     watchsyncCommand: onCommand,
+    watchsyncPresenceTab: () => presenceTabId,
   });
 
 chrome.runtime.onMessage.addListener(onMessage);
+// The voice document has no storage of its own: the worker hands it the voice settings.
+chrome.storage.onChanged.addListener(voiceSettingsChanged);
 
 // Closing the tab: no need to wait out the 3 s page-load allowance below.
 chrome.tabs.onRemoved.addListener((tabId) => {
   chatFrames.forget(tabId);
-  voiceFrames.forget(tabId);
   tabTitles.delete(tabId);
   if (tabId === presenceTabId) presenceTabClosed();
 });

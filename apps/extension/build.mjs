@@ -56,7 +56,9 @@ const manifest = {
   // Incognito windows get their own worker and room: no incognito chat in normal tabs.
   incognito: "split",
   // scripting: add WatchSync to service tabs already open at install or update (BUG-052).
-  permissions: ["storage", "scripting"],
+  // offscreen: voice (UC-021) runs in an offscreen document, so the microphone belongs to
+  // WatchSync and not to the streaming site, and a call survives the page reloading.
+  permissions: ["storage", "scripting", "offscreen"],
   host_permissions: [`${api}/*`],
   content_scripts: [
     { matches: serviceMatches, js: ["content.js"], run_at: "document_idle" },
@@ -68,13 +70,13 @@ const manifest = {
     },
     { matches: [`${api}/j/*`], js: ["join-page.js"], run_at: "document_idle" },
   ],
-  // The chat panel's frame (DEC-042) and the voice frame (UC-021), loadable only on the sites
-  // our content script runs on, and only through this session's dynamic address so pages can't
-  // probe for them. Chrome takes only whole origins here ("/*"); the background also serves a
-  // frame only with its pass.
+  // The chat panel's frame (DEC-042), loadable only on the sites our content script runs on,
+  // and only through this session's dynamic address so pages can't probe for it. Chrome takes
+  // only whole origins here ("/*"); the background also serves a frame only with its pass.
+  // Voice has no frame on the page: it runs in an offscreen document.
   web_accessible_resources: [
     {
-      resources: ["sidebar.html", "voice.html"],
+      resources: ["sidebar.html"],
       matches: [...new Set(serviceMatches.map((m) => `${new URL(m).origin}/*`))],
       use_dynamic_url: true,
     },
@@ -132,6 +134,7 @@ const builds = [
       popup: "src/popup/main.tsx",
       sidebar: "src/sidebar/main.ts",
       voice: "src/voice/frame.ts",
+      "voice-permission": "src/voice/permission.ts",
       welcome: "src/welcome/main.ts",
     },
     format: "iife",

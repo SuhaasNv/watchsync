@@ -2,7 +2,7 @@
 // Open mic is the default only when Chrome cancels echo from everything the computer plays
 // (echoCancellation "all"), which keeps the film out of the mic. Otherwise push-to-talk is the
 // default, with a headphones hint that never blocks. The person can change it in settings.
-import type { BlockedBy, MicMode } from "./messages";
+import { type BlockedBy, isMode, type MicMode } from "./messages";
 
 /** "all" is asked for as an ideal, so a Chrome that doesn't know it still gives a microphone. */
 export const MIC_CONSTRAINTS: MediaStreamConstraints = {
@@ -64,8 +64,6 @@ export function blockedBy(e: unknown): BlockedBy | null {
 /** Saved in chrome.storage.local: the person's choice, and what this Chrome was found to do. */
 export const MODE_KEY = "voiceMode";
 export const MODE_AUTO_KEY = "voiceModeAuto";
-
-const isMode = (v: unknown): v is MicMode => v === "open" || v === "ptt";
 
 /** The person's choice, else what was found, else push-to-talk (nothing known yet). */
 export function micMode(chosen: unknown, found: unknown): MicMode {

@@ -1,0 +1,29 @@
+/* The microphone page (voice-permission.html): the popup's tokens and controls on a page of
+   its own. popup.css sizes the body for the popup; this undoes it. */
+html {
+  overflow: auto;
+}
+body {
+  width: auto;
+  min-height: 100vh;
+}
+.mic-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  width: min(100%, 460px);
+  margin: 0 auto;
+  padding: 12vh var(--s4) var(--s5);
+}
+.mic-page .title {
+  margin: 0;
+}
+.mic-page .status {
+  color: var(--text2);
+}
+.mic-page .status.done {
+  color: var(--pres);
+}
+.mic-page .row {
+  flex-wrap: wrap;
+}

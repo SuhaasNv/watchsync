@@ -4,10 +4,15 @@ import { isVoiceIn, isVoiceOut, isVoiceView, NO_VOICE } from "./messages";
 
 const OFFER = { kind: "description", type: "offer", sdp: "v=0" } as const;
 
-describe("what the voice frame may say", () => {
+describe("what the voice document may say", () => {
   it("accepts the messages it sends and nothing else", () => {
-    expect(isVoiceOut({ kind: "hello", nonce: "n" })).toBe(true);
+    expect(isVoiceOut({ kind: "hello", nonce: "n" })).toBe(false); // admitted by its address now
     expect(isVoiceOut({ kind: "view", view: NO_VOICE })).toBe(true);
+    expect(isVoiceOut({ kind: "needPermission" })).toBe(true);
+    expect(isVoiceOut({ kind: "found", mode: "open" })).toBe(true);
+    expect(isVoiceOut({ kind: "found", mode: "loud" })).toBe(false);
+    expect(isVoiceOut({ kind: "probed", id: 1, value: { a: 1 } })).toBe(true);
+    expect(isVoiceOut({ kind: "probed", value: 1 })).toBe(false);
     expect(isVoiceOut({ kind: "state", state: "live" })).toBe(true);
     expect(isVoiceOut({ kind: "state", state: "off" })).toBe(false); // leaving is the worker's
     expect(isVoiceOut({ kind: "signal", to: "b", signal: OFFER })).toBe(true);
@@ -35,7 +40,7 @@ describe("what the voice frame may say", () => {
   });
 });
 
-describe("what the worker may tell the voice frame", () => {
+describe("what the worker may tell the voice document", () => {
   const relay = envelope<ServerMessageOf<"VOICE.SIGNAL">>("VOICE.SIGNAL", {
     from: "a",
     signal: OFFER,
@@ -47,8 +52,23 @@ describe("what the worker may tell the voice frame", () => {
     expect(isVoiceIn({ kind: "ice", iceServers: [{ urls: ["stun:stun.example:3478"] }] })).toBe(
       true,
     );
-    for (const cmd of ["enable", "down", "up", "retry", "resume"])
+    for (const cmd of ["enable", "down", "up", "retry"])
       expect(isVoiceIn({ kind: "cmd", cmd })).toBe(true);
+  });
+
+  it("accepts the microphone page's answer, the settings and a test probe", () => {
+    expect(isVoiceIn({ kind: "micAnswer", by: null })).toBe(true);
+    for (const by of ["chrome", "system", "none"])
+      expect(isVoiceIn({ kind: "micAnswer", by })).toBe(true);
+    expect(isVoiceIn({ kind: "micAnswer", by: "mars" })).toBe(false);
+    expect(isVoiceIn({ kind: "micAnswer" })).toBe(false);
+    const settings = { kind: "settings", chosen: null, found: "ptt", relay: false };
+    expect(isVoiceIn(settings)).toBe(true);
+    expect(isVoiceIn({ ...settings, chosen: "open" })).toBe(true);
+    expect(isVoiceIn({ ...settings, chosen: "loud" })).toBe(false);
+    expect(isVoiceIn({ ...settings, relay: "yes" })).toBe(false);
+    expect(isVoiceIn({ kind: "probe", id: 1, what: "heard" })).toBe(true);
+    expect(isVoiceIn({ kind: "probe", id: 1, what: "mic" })).toBe(false);
   });
 
   it("refuses anything else", () => {

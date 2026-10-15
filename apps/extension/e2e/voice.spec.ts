@@ -1,23 +1,18 @@
 // Voice (US-055): two profiles on the mock player with fake microphones. Everyone joins listening
 // and muted; Talk asks first, then Chrome (auto-accepted here); the sound goes straight between
 // the two browsers.
-import type { Worker } from "@playwright/test";
-import { type Ext, expect, launchWithExtension, test } from "./fixtures";
+import { expect, launchWithExtension, test } from "./fixtures";
 import {
   allowAndTalk,
   FAKE_MEDIA,
   heard,
   talk,
   twoTabs,
+  voiceDocs,
   voiceOf,
   voiceView,
+  workerOf,
 } from "./voice-helpers";
-
-function worker(ext: Ext): Worker {
-  const [w] = ext.context.serviceWorkers();
-  if (!w) throw new Error("extension service worker not running");
-  return w;
-}
 
 test("two people press Talk and hear each other, straight between the browsers", async () => {
   const ext = await launchWithExtension("", { args: FAKE_MEDIA });
@@ -56,6 +51,72 @@ test("two people press Talk and hear each other, straight between the browsers",
   }
 });
 
+test("voice runs in an offscreen document, never in the streaming page: opened on join, closed on leave", async () => {
+  const ext = await launchWithExtension("", { args: FAKE_MEDIA });
+  try {
+    const { hostTab, host, friend } = await twoTabs(ext);
+    // Joined, watching a title, everyone able to talk: one voice document per profile.
+    await expect.poll(() => voiceDocs(ext), { timeout: 15_000 }).toBe(1);
+    await expect.poll(() => voiceDocs(friend), { timeout: 15_000 }).toBe(1);
+    // The page holds no voice frame (not even a hidden one), and the extension no longer
+    // offers voice.html to pages: the streaming site can't reach the microphone.
+    expect(hostTab.frames()).toHaveLength(1);
+    expect(await hostTab.locator("watchsync-voice").count()).toBe(0);
+    const page = await ext.context.newPage();
+    await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
+    const exposed = await page.evaluate(() =>
+      (chrome.runtime.getManifest().web_accessible_resources ?? []).flatMap((r) =>
+        typeof r === "string" ? [r] : r.resources,
+      ),
+    );
+    expect(exposed).toEqual(["sidebar.html"]);
+    expect(
+      await page.evaluate(() => chrome.runtime.getManifest().permissions?.includes("offscreen")),
+    ).toBe(true);
+    await page.close();
+
+    // Leaving the room closes it.
+    await host.getByRole("button", { name: "Leave room" }).click();
+    await expect.poll(() => voiceDocs(ext), { timeout: 5000 }).toBe(0);
+    expect((await voiceView(hostTab)).frame).toBe(false);
+    await friend.context.close();
+  } finally {
+    await ext.context.close();
+  }
+});
+
+test("the microphone page asks Chrome, says Done, takes the person back to their film and closes", async () => {
+  const ext = await launchWithExtension("", { args: FAKE_MEDIA });
+  try {
+    const { hostTab, friend } = await twoTabs(ext);
+    const back = await workerOf(ext).evaluate(() =>
+      Reflect.get(globalThis, "watchsyncPresenceTab")(),
+    );
+    expect(typeof back).toBe("number");
+    const page = await ext.context.newPage(); // now the front tab, as the page opened by Talk is
+    await page.goto(
+      `chrome-extension://${ext.extensionId}/voice-permission.html?mode=ask&tab=${back}`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Allow WatchSync to use your microphone" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Your voice goes straight to the people in your room. WatchSync never records it and our server never hears it.",
+      ),
+    ).toBeVisible();
+    await expect(page.getByText(/^Done\. You can go back to /)).toBeVisible();
+    // Then it returns to the film's tab and closes itself.
+    await expect.poll(() => page.isClosed(), { timeout: 5000 }).toBe(true);
+    await expect
+      .poll(() => hostTab.evaluate(() => document.visibilityState), { timeout: 3000 })
+      .toBe("visible");
+    await friend.context.close();
+  } finally {
+    await ext.context.close();
+  }
+});
+
 test("someone who closes their page stops being connected within 2 seconds", async () => {
   const ext = await launchWithExtension("", { args: FAKE_MEDIA });
   try {
@@ -83,7 +144,7 @@ test("a dropped room connection keeps voice: it comes back without pressing Talk
     await allowAndTalk(hostTab);
     await allowAndTalk(tab);
     await expect.poll(async () => voiceOf(friend, "Suhaas")).toBe("live");
-    await worker(ext).evaluate(() => {
+    await workerOf(ext).evaluate(() => {
       const drop = Reflect.get(globalThis, "watchsyncDropSocket");
       if (typeof drop === "function") drop();
     });

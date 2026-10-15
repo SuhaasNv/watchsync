@@ -6,16 +6,17 @@ import {
   type ChatNonceRequest,
   type ChatTabRequest,
   cleanName,
+  type MicAnswerRequest,
   nameProblem,
   type Reply,
   type Request,
-  type VoiceNonceRequest,
 } from "../shared/messages";
+import { isBlockedBy } from "../voice/messages";
 import { api, retryNow, sendServer } from "./connection";
 import { endSession, ready, rejoin, startSession } from "./session";
 import { changed, shared, state } from "./state";
 import { chatFrames, openChat, sendPresence, serviceTabs, talk } from "./tabs";
-import { voiceFrames } from "./voice";
+import { MIC_PAGE, voiceMicAnswer } from "./voice";
 
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).
@@ -87,15 +88,15 @@ async function handleNow(req: Request): Promise<Reply> {
 }
 
 export function onMessage(
-  req: Request | ChatNonceRequest | VoiceNonceRequest | ChatTabRequest,
+  req: Request | ChatNonceRequest | MicAnswerRequest | ChatTabRequest,
   sender: chrome.runtime.MessageSender,
   reply: (response?: unknown) => void,
 ) {
   if (sender.id !== chrome.runtime.id) return false;
-  if (req.kind === "voiceNonce") {
-    // Likewise for the voice frame: only a tab's own content script gets its pass.
-    const nonce = voiceFrames.issue(sender);
-    reply((nonce ? { nonce } : null) satisfies ChatNonceReply);
+  if (req.kind === "micAnswer") {
+    // Chrome's answer about the microphone: only from our own microphone page, in a tab.
+    const ours = sender.tab && sender.url?.startsWith(chrome.runtime.getURL(MIC_PAGE));
+    if (ours && isBlockedBy(req.by)) voiceMicAnswer(req.by);
     return false;
   }
   if (req.kind === "hasChatTab") {

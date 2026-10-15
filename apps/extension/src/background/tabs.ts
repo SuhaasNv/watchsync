@@ -11,7 +11,7 @@ import { chat, react, retryNow, sendServer } from "./connection";
 import { checkRules } from "./rules";
 import { ready } from "./session";
 import { changed, ports, push, shared, state } from "./state";
-import { admitVoiceFrame, talkEdge, voiceCommand, voiceTab, voiceView } from "./voice";
+import { admitVoiceDoc, talkEdge, voiceCommand, voiceView, voiceWatching } from "./voice";
 
 // ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
 export let presence: { service: Service; media: Media | null } = { service: "none", media: null };
@@ -21,6 +21,7 @@ export let presenceTabId: number | undefined;
 let tabGone: ReturnType<typeof setTimeout> | undefined;
 
 export function sendPresence() {
+  voiceWatching(presence.media !== null); // voice runs while a tab is on a title
   sendServer(envelope("PRESENCE.UPDATE", { ...presence, following: state.following }));
 }
 
@@ -153,7 +154,7 @@ export function admitChatFrame(port: chrome.runtime.Port) {
 export function onConnect(port: chrome.runtime.Port) {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   if (port.name === "sidebar") return admitChatFrame(port);
-  if (port.name === "voice") return admitVoiceFrame(port);
+  if (port.name === "voice") return admitVoiceDoc(port);
   if (port.name === "popup") checkRules(); // the daily rules check also runs when the popup opens
   ports.add(port);
   retryNow();
@@ -203,7 +204,8 @@ export function onConnect(port: chrome.runtime.Port) {
         return changed();
       }
       if (e.kind === "react") return react(e.emoji, e.count, port);
-      if (e.kind === "voice") return isTalkCmd(e.cmd) ? voiceCommand(e.cmd) : undefined;
+      if (e.kind === "voice")
+        return isTalkCmd(e.cmd) ? voiceCommand(e.cmd, port.sender?.tab?.id) : undefined;
       if (e.kind === "micSettings") {
         // The address is built here, from our own origin: a page can't point this elsewhere.
         const origin = new URL(chrome.runtime.getURL("")).origin;
@@ -239,11 +241,11 @@ export function onConnect(port: chrome.runtime.Port) {
 }
 
 /**
- * The Talk key or button in the popup: the tab hosting voice acts on it, else the best service
- * tab (to say why voice isn't running). Error "no_tab" when no service tab is open.
+ * The Talk key or button in the popup: the tab playing the title acts on it, else the best
+ * service tab (to say why voice isn't running). Error "no_tab" when no service tab is open.
  */
 export async function talk(edge: Edge) {
-  const tab = voiceTab() ?? (await serviceTabs())[0]?.id;
+  const tab = presenceTabId ?? (await serviceTabs())[0]?.id;
   if (tab === undefined) throw new Error("no_tab");
   talkEdge(edge, tab);
 }

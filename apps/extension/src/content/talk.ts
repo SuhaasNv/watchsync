@@ -1,7 +1,8 @@
 // What Talk does on the page (US-055): the button in the pill, the first-press sheet, and the
-// notices about voice. The voice frame holds the mic and the connections; this decides what a
-// press means from the room and from what the frame reports. Voice is offered only when every
-// person's WatchSync can talk, and for up to four people.
+// notices about voice. The voice document (an offscreen document the background worker runs)
+// holds the mic and the connections; this decides what a press means from the room and from
+// what the document reports. Voice is offered only when every person's WatchSync can talk,
+// and for up to four people.
 import type { Participant } from "@watchsync/protocol";
 import type { AppState, Edge, TabEvent } from "../shared/messages";
 import { joinNames, updateToTalk, VOICE_MAX, voiceOffer } from "../voice/capability";
@@ -10,7 +11,6 @@ import { detectOs, micHelp } from "../voice/help";
 import { NO_VOICE, type TalkCmd, type VoiceView } from "../voice/messages";
 import { talkWords } from "../voice/words";
 import { closeSheet, notice, type PillVoice, showSheet, toast } from "./overlay";
-import { isVoiceOff, showVoiceFrame } from "./voice-frame";
 
 /** Saved in chrome.storage.local: the first-press sheet has been answered, once ever. */
 const SHEET_KEY = "voiceSheetSeen";
@@ -66,32 +66,10 @@ const others = (): Participant[] =>
 const names = (people: readonly Participant[]) =>
   joinNames(people.map((p) => p.name)) || "the room";
 
-// Chrome holds back sound until the person has used the page. The voice frame can't see the
-// page's clicks, so when they use it, it is told it may play what it has been holding.
-let lastResume = 0;
-function gesture(e: Event) {
-  const now = Date.now();
-  if (!e.isTrusted || !view.frame || now - lastResume < 3000) return;
-  lastResume = now;
-  cmd("resume");
-}
-let watching = false;
-function watchGestures(on: boolean) {
-  if (on === watching) return;
-  watching = on;
-  for (const type of ["pointerdown", "keydown"]) {
-    if (on) document.addEventListener(type, gesture, { capture: true, passive: true });
-    else document.removeEventListener(type, gesture, { capture: true });
-  }
-}
-
-/** The room changed: the voice frame is on the page exactly while voice is on offer. */
+/** The room changed: out of a room, the sheets and notices about voice go. */
 export function talkRoom(next: AppState | null, hasTitle: boolean) {
   room = next;
   const live = next?.session != null && next.connection !== "idle" && hasTitle;
-  const on = live && voiceOffer(next.participants) === "ok" && !isVoiceOff();
-  showVoiceFrame(on);
-  watchGestures(on);
   if (!live) {
     closeSheet("talk");
     toldReady = null;
@@ -103,7 +81,7 @@ export function talkRoom(next: AppState | null, hasTitle: boolean) {
   checkFailures();
 }
 
-/** The voice frame reported. */
+/** The voice document reported. */
 export function talkView(next: VoiceView) {
   const before = view;
   view = next;
@@ -250,11 +228,15 @@ function checkFailures() {
 
 const cmd = (c: TalkCmd) => post({ kind: "voice", cmd: c });
 
-/** Asks first; the real prompt comes from Chrome only after "Allow and talk". */
+/**
+ * Asks first; Chrome's question comes only after "Allow and talk", from a WatchSync page that
+ * opens in a new tab (so the permission is WatchSync's, never the streaming site's) and sends
+ * the person back here.
+ */
 function askFirst() {
   showSheet("talk", {
     title: `Talk to ${names(others())}`,
-    text: "Chrome will ask to use your microphone. WatchSync only sends your voice to people in this room, never to our server.",
+    text: "Chrome will ask to let WatchSync use your microphone, in a new tab that brings you back here. WatchSync only sends your voice to people in this room, never to our server.",
     actions: [
       { label: "Not now", run: () => {} },
       {
@@ -325,6 +307,5 @@ export function talkPill(): PillVoice | null {
 /** Leaving: nothing more to do, the frame goes with the room. */
 export function retireTalk() {
   clearTimeout(slow);
-  watchGestures(false);
   closeSheet("talk");
 }

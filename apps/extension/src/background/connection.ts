@@ -203,7 +203,7 @@ const order = (id: string) => {
 };
 
 function onServer(msg: AnyServerMessage) {
-  // A voice set-up message holds network addresses: the voice frame gets it and nobody else.
+  // A voice set-up message holds network addresses: the voice document gets it and nobody else.
   if (msg.type === "VOICE.SIGNAL") return voiceSignal(msg);
   switch (msg.type) {
     case "ROOM.STATE": {
@@ -270,7 +270,7 @@ function onServer(msg: AnyServerMessage) {
       break;
     }
   }
-  // Who is in voice changed (or the room was just (re)joined): the frame and my row follow.
+  // Who is in voice changed (or the room was just (re)joined): the voice document and my row follow.
   if (msg.type === "ROOM.STATE" || msg.type === "ROOM.PARTICIPANT")
     voiceRoomChanged(msg.type === "ROOM.STATE");
   const to = chat.onServer(msg); // chat: unread count, and a refusal for its own tab only
@@ -291,7 +291,6 @@ export function reset() {
   seen.clear();
   sawRestart = false;
   chat.reset(); // a room's chat stays with it: leaving, ending or switching forgets it
-  voiceReset();
   chrome.storage.session.remove("chatSeen").catch(() => {});
   Object.assign(state, {
     participants: [],
@@ -302,4 +301,5 @@ export function reset() {
     unreachable: false,
     unread: 0,
   });
+  voiceReset(); // after the state is idle: the voice document closes with the room
 }

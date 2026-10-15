@@ -82,7 +82,6 @@ import {
   toggleSidebar,
 } from "./sidebar";
 import { initTalk, press, retireTalk, talkMark, talkPill, talkRoom, talkView } from "./talk";
-import { renewVoiceFrame, retireVoiceFrame, voiceFrameLost, voiceFrameReady } from "./voice-frame";
 
 const provider = providerFor(location.host);
 // The stored service rules (signed, checked by the background) replace the bundled ones as soon
@@ -369,8 +368,6 @@ function onPush(m: Push) {
   if (m.kind === "chatFrameLost") return chatFrameLost(m.frame);
   if (m.kind === "voice") return talkView(m.view);
   if (m.kind === "talk") return press(m.edge);
-  if (m.kind === "voiceFrameReady") return voiceFrameReady(m.frame);
-  if (m.kind === "voiceFrameLost") return voiceFrameLost(m.frame);
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
@@ -977,7 +974,6 @@ function connect() {
   });
   // A restarted worker dropped the chat frame's connection too: give it a new pass.
   renewFrame();
-  renewVoiceFrame();
   // Only a title is news. A page still reading its title (or a browse page in another
   // tab) would otherwise say "nothing open" over the tab that is watching: a reload
   // looked like closing the show. A tab that closes is reported by the background.
@@ -1077,7 +1073,6 @@ function retire() {
   chrome.storage.onChanged.removeListener(onSetting);
   retireOverlay();
   retireSidebar();
-  retireVoiceFrame();
   retireTalk();
   stopTalkKey();
   retireReactions();

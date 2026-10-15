@@ -1,31 +1,44 @@
 // Shared by the voice specs: two profiles on the mock player with fake microphones.
-import type { Frame, Page } from "@playwright/test";
+import type { Page, Worker } from "@playwright/test";
 import { type Ext, MOCK, room } from "./fixtures";
 
 /** Chrome answers the microphone question itself, and gives a fake microphone that beeps. */
 export const FAKE_MEDIA = ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"];
 
 export interface VoiceView {
+  /** The voice document is up and connected to the worker. */
+  frame: boolean;
   mic: string;
   live: boolean;
   mode: string;
   peers: Record<string, string>;
 }
 
-/** The voice frame of a tab (an invisible extension frame), once it exists. */
-export const voiceFrame = (tab: Page): Frame | undefined =>
-  tab.frames().find((f) => f.url().includes("/voice.html"));
+/** The extension's worker for the profile a tab belongs to. */
+export function workerOf(of: Ext | Page): Worker {
+  const context = "extensionId" in of ? of.context : of.context();
+  const [w] = context.serviceWorkers();
+  if (!w) throw new Error("extension service worker not running");
+  return w;
+}
 
-/** What the voice frame reports (test builds expose it on window.watchsyncVoice). */
-export async function voiceView(tab: Page): Promise<VoiceView | undefined> {
-  return voiceFrame(tab)?.evaluate(() => Reflect.get(window, "watchsyncVoice").view());
+/** The offscreen voice documents the profile has open (the page itself has no voice frame). */
+export const voiceDocs = (tab: Page | Ext): Promise<number> =>
+  workerOf(tab).evaluate(
+    async () => (await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] })).length,
+  );
+
+/** What the voice document reports (test builds expose the worker's copy of it). */
+export async function voiceView(tab: Page): Promise<VoiceView> {
+  return workerOf(tab).evaluate(() => Reflect.get(globalThis, "watchsyncVoiceView")());
 }
 
 /** Audio energy heard from each person so far: it only grows while someone is heard. */
 export async function heard(tab: Page): Promise<Record<string, number>> {
-  return (
-    (await voiceFrame(tab)?.evaluate(() => Reflect.get(window, "watchsyncVoice").heard())) ?? {}
+  const got = await workerOf(tab).evaluate(() =>
+    Reflect.get(globalThis, "watchsyncVoiceProbe")("heard"),
   );
+  return typeof got === "object" && got !== null ? { ...got } : {};
 }
 
 /** The Talk button in the pill (a notice can have a Talk button of its own). */

@@ -1,18 +1,19 @@
-// The voice frame (voice.html): an extension page the content script puts in a hidden iframe on
-// the service page. Because it is an extension page, the microphone permission belongs to
-// WatchSync and not to the service (US-055). It owns the microphone, the connections to the
-// other people and their playback; the background worker owns the room socket and passes the
-// set-up messages. Nothing here is recorded or sent anywhere but to the people in the room.
+// The voice document (voice.html): a Chrome offscreen document the background worker opens when
+// voice is on offer and closes when it is not. It is an extension page, so the microphone
+// permission belongs to WatchSync and the streaming site never sees the microphone (US-055).
+// It owns the microphone, the connections to the other people and their playback; the
+// background worker owns the room socket and passes the set-up messages. Nothing here is
+// recorded or sent anywhere but to the people in the room.
 import type { IceServer } from "@watchsync/protocol";
-import { blockedBy, MODE_AUTO_KEY, MODE_KEY, micMode, openMic } from "./echo";
+import { blockedBy, micMode, openMic } from "./echo";
 import { P2PMesh } from "./mesh";
 import {
   type BlockedBy,
   isVoiceIn,
   type MicMode,
   type MicState,
-  NO_VOICE,
   type PeerState,
+  type Probe,
   type TalkCmd,
   type VoiceOut,
   type VoiceView,
@@ -25,7 +26,6 @@ const ICE_WAIT_MS = 4000;
 /** Ask for credentials again this often; the background keeps them until shortly before they end. */
 const ICE_EVERY_MS = 30 * 60 * 1000;
 
-const nonce = location.hash.slice(1);
 let port: chrome.runtime.Port | null = null;
 let mesh: P2PMesh | null = null;
 let you = "";
@@ -37,8 +37,8 @@ let mic: MicState = "off";
 let blocked: BlockedBy | null = null;
 let live = false;
 let mode: MicMode = "ptt";
-let chosen: unknown;
-let found: unknown;
+let chosen: MicMode | null = null;
+let found: MicMode | null = null;
 let stream: MediaStream | null = null;
 let track: MediaStreamTrack | null = null;
 const peers = new Map<string, PeerState>();
@@ -95,13 +95,6 @@ function play(id: string, audio: MediaStream | null) {
   el.play().catch((e: unknown) => console.debug("watchsync: voice playback", e));
 }
 
-/** A press of Talk is the person's own action: playback that was held back may start. */
-function resumePlayback() {
-  for (const el of players.values()) {
-    if (el.paused) el.play().catch((e: unknown) => console.debug("watchsync: voice playback", e));
-  }
-}
-
 function startMesh() {
   if (mesh || !you) return;
   mesh = new P2PMesh({
@@ -147,13 +140,25 @@ function onIn(raw: unknown) {
     const { from, signal } = raw.message.payload;
     mesh?.receive(from, signal);
   } else if (raw.kind === "cmd") {
-    resumePlayback();
     onCmd(raw.cmd);
+  } else if (raw.kind === "settings") {
+    applySettings(raw);
+  } else if (raw.kind === "micAnswer") {
+    if (raw.by === null) void enableMic(true);
+    else blockMic(raw.by);
+  } else if (raw.kind === "probe" && __MOCK__) {
+    void probe(raw.what).then((value) => out({ kind: "probed", id: raw.id, value }));
   }
 }
 
+/** Test builds only: what the end-to-end tests read from this document. */
+async function probe(what: Probe): Promise<unknown> {
+  if (what === "heard") return (await mesh?.heard()) ?? {};
+  if (what === "policy") return injectedPolicy;
+  return [...players.values()].map((el) => !el.paused);
+}
+
 function onCmd(cmd: TalkCmd) {
-  if (cmd === "resume") return; // resumePlayback already ran
   if (cmd === "retry") return mesh?.retry();
   if (cmd === "enable") return void enableMic();
   if (mic !== "on") return;
@@ -162,7 +167,19 @@ function onCmd(cmd: TalkCmd) {
   } else setLive(cmd === "down");
 }
 
-async function enableMic() {
+/** The microphone can't be had: say why, so the page can show the steps. */
+function blockMic(by: BlockedBy) {
+  blocked = by;
+  mic = "blocked";
+  publish();
+}
+
+/**
+ * Opens the microphone. An offscreen document can't ask Chrome's question: if Chrome has not
+ * been asked yet, the microphone page asks it (needPermission) and answers with micAnswer,
+ * which opens the mic again with `answered` set, so the person is not sent there twice.
+ */
+async function enableMic(answered = false) {
   if (mic === "on" || mic === "asking") return;
   mic = "asking";
   blocked = null;
@@ -171,9 +188,12 @@ async function enableMic() {
   try {
     ({ stream, all } = await openMic());
   } catch (e) {
-    blocked = blockedBy(e);
-    mic = blocked ? "blocked" : "off";
+    const by = blockedBy(e);
+    if (by !== null) return blockMic(by);
+    if (answered) return blockMic("chrome");
+    mic = "off";
     publish();
+    out({ kind: "needPermission" });
     return;
   }
   const t = stream.getAudioTracks()[0];
@@ -182,7 +202,7 @@ async function enableMic() {
   track.enabled = false; // everyone starts muted
   track.addEventListener("ended", releaseMic);
   found = all ? "open" : "ptt";
-  chrome.storage.local.set({ [MODE_AUTO_KEY]: found }).catch(() => {});
+  out({ kind: "found", mode: found }); // the worker saves it
   mode = micMode(chosen, found);
   mic = "on";
   mesh?.setMic(track);
@@ -234,30 +254,30 @@ function watchOwnLevel(s: MediaStream) {
   };
 }
 
-function onStorage(changes: Record<string, chrome.storage.StorageChange>, area: string) {
-  if (area !== "local") return;
-  const choice = changes[MODE_KEY];
-  if (choice) chosen = choice.newValue;
-  if (choice || changes[MODE_AUTO_KEY]) {
-    const next = micMode(chosen, found);
-    // Open to push-to-talk: never leave the mic open under a mode that says it closes.
-    if (next !== mode) {
-      mode = next;
-      if (mode === "ptt") setLive(false);
-      publish();
-    }
-  }
+/** The person's settings, from the worker (first, and again whenever one changes). */
+function applySettings(s: { chosen: MicMode | null; found: MicMode | null; relay: boolean }) {
+  chosen = s.chosen;
+  found = s.found ?? found;
+  injectedPolicy = s.relay ? "relay" : "all";
+  const next = micMode(chosen, found);
+  // Open to push-to-talk: never leave the mic open under a mode that says it closes.
+  if (next === mode) return;
+  mode = next;
+  if (mode === "ptt") setLive(false);
+  publish();
 }
 
 function connect() {
-  if (!nonce || !chrome.runtime?.id) return;
+  if (!chrome.runtime?.id) return;
   port = chrome.runtime.connect({ name: "voice" });
   port.onMessage.addListener(onIn);
+  // The worker is gone (it restarted, or the extension was updated): this document ends, and
+  // the worker opens a new one when it needs one.
   port.onDisconnect.addListener(() => {
     port = null;
     leave();
+    window.close();
   });
-  out({ kind: "hello", nonce });
   out({ kind: "state", state: "muted" }); // in voice, listening: everyone starts muted
   out({ kind: "needIce" });
   timers.push(
@@ -281,29 +301,7 @@ function leave() {
   mesh = null;
   releaseMic();
   for (const id of [...players.keys()]) play(id, null);
-  chrome.storage.onChanged.removeListener(onStorage);
 }
 
-async function start() {
-  const got = await chrome.storage.local.get([MODE_KEY, MODE_AUTO_KEY, "voicePolicy"]);
-  chosen = got[MODE_KEY];
-  found = got[MODE_AUTO_KEY];
-  mode = micMode(chosen, found);
-  // Dev and test builds can force every connection through TURN: set voicePolicy to "relay".
-  if ((__CHANNEL__ === "dev" || __MOCK__) && got.voicePolicy === "relay") injectedPolicy = "relay";
-  chrome.storage.onChanged.addListener(onStorage);
-  window.addEventListener("pagehide", leave);
-  connect();
-  if (__MOCK__) {
-    Object.assign(window, {
-      watchsyncVoice: {
-        view: () => ({ ...NO_VOICE, mic, live, peers: Object.fromEntries(peers), mode }),
-        heard: () => mesh?.heard() ?? Promise.resolve({}),
-        policy: () => injectedPolicy,
-        playing: () => [...players.values()].map((el) => !el.paused),
-      },
-    });
-  }
-}
-
-start().catch((e: unknown) => console.debug("watchsync: voice frame", e));
+window.addEventListener("pagehide", leave);
+connect();

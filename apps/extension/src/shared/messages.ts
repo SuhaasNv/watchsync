@@ -7,7 +7,7 @@ import type {
   Playback,
   Service,
 } from "@watchsync/protocol";
-import type { TalkCmd, VoiceView } from "../voice/messages";
+import type { BlockedBy, TalkCmd, VoiceView } from "../voice/messages";
 import { isEmoji, MAX_COUNT } from "./reactions";
 import type { Update } from "./update";
 
@@ -117,13 +117,10 @@ export type Push =
    * the per-person limit. To the chat frames, so the button can say so (US-046).
    */
   | { kind: "reactionDropped"; emoji: Emoji; reason: "offline" | "limit" }
-  /** Voice as the voice frame last reported it (sent when it changes, and to a new port). */
+  /** Voice as the voice document last reported it (sent when it changes, and to a new port). */
   | { kind: "voice"; view: VoiceView }
   /** Talk was pressed in the popup or the chat frame: this tab's page acts on it (US-055). */
-  | { kind: "talk"; edge: Edge }
-  /** The voice frame with this pass connected / lost its connection (to its tab's port only). */
-  | { kind: "voiceFrameReady"; frame: string }
-  | { kind: "voiceFrameLost"; frame: string };
+  | { kind: "talk"; edge: Edge };
 
 /**
  * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first
@@ -164,8 +161,11 @@ export function isSidebarEvent(v: unknown): v is SidebarEvent {
 export type ChatNonceRequest = { kind: "chatNonce" };
 export type ChatNonceReply = { nonce: string } | null;
 
-/** Content script → background: a one-time pass for the voice frame it is about to load. */
-export type VoiceNonceRequest = { kind: "voiceNonce" };
+/**
+ * The microphone page (voice-permission.html) → background: what Chrome answered when it was
+ * asked for the microphone. null: allowed. Otherwise why the mic can't be used.
+ */
+export type MicAnswerRequest = { kind: "micAnswer"; by: BlockedBy | null };
 
 /** Popup → background: whether a supported service tab is open for Open chat (boolean). */
 export type ChatTabRequest = { kind: "hasChatTab" };
@@ -211,7 +211,7 @@ export type TabEvent =
    * background hands it to this tab's chat frame (BUG-073). Checked with isTypedText.
    */
   | { kind: "chatType"; text: string }
-  /** What a press of Talk means once the mic is on, for the voice frame (US-055). */
+  /** What a press of Talk means once the mic is on, for the voice document (US-055). */
   | { kind: "voice"; cmd: TalkCmd }
   /** Someone pressed Talk while a person's WatchSync can't talk: the room tells them to update. */
   | { kind: "voiceWant" }
