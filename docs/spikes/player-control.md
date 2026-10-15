@@ -60,7 +60,7 @@ Confirm:
 - [ ] `currentTime` matches the on-screen time (note any offset).
 - [ ] Setting `currentTime` seeks without an error on primevideo.com and amazon.in.
 - [ ] Title and episode text are found; episode changes update them.
-- [ ] Ad indicator selector during an ad.
+- [ ] Ad indicator selector during an ad. (UC-048: the rules data now lists three candidates, `.atvwebplayersdk-ad-timer`, `.dv-player-fullscreen .atvwebplayersdk-ad-timer-remaining-time` and `.atvwebplayersdk-adtimeindicator-text`; the last two are what the `Dreamlinerm/Netflix-Prime-Auto-Skip` extension reads on live players, undated. Confirm which one a live ad shows, then trim the list. If none matches, the room does not wait; a signed rules file can name the right one.)
 
 ## JioHotstar
 

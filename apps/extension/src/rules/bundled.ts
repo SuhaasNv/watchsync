@@ -19,7 +19,10 @@ export const BUNDLED_RULES: Rules = {
   prime: {
     titleSelectors: [".atvwebplayersdk-title-text", '[data-automation-id="title"]'],
     episodeSelector: ".atvwebplayersdk-subtitle-text",
-    adTimerSelector: ".atvwebplayersdk-ad-timer",
+    // Three markers: the first from the spike's desk research, the other two seen by a
+    // third-party extension on live players (undated; not yet confirmed here, US-127).
+    adTimerSelector:
+      ".atvwebplayersdk-ad-timer, .dv-player-fullscreen .atvwebplayersdk-ad-timer-remaining-time, .atvwebplayersdk-adtimeindicator-text",
     driftToleranceSec: 0.25,
   },
   jiohotstar: { driftToleranceSec: 0.5 },

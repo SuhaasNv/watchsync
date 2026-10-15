@@ -169,16 +169,20 @@ export function playingWithSound(doc: Document = document): boolean {
   return [...doc.querySelectorAll("video")].some((v) => !v.paused && !v.muted && v.volume > 0);
 }
 
-/** Prime shows an ad countdown in the player while an ad plays. */
+/**
+ * Prime shows an ad countdown in the player while an ad plays. The marker is a selector list
+ * in the rules (a stale one is fixed by a rules file, US-127); the page can hold several
+ * matches, some hidden or empty, so any shown one that says "Ad" or counts down counts.
+ */
 export function primeAd(doc: Document): { left: number | null } | null {
-  const el = doc.querySelector<HTMLElement>(rules().prime.adTimerSelector);
-  if (!el) return null;
-  // The player can keep an empty or see-through timer in the page between ads: only a
-  // shown timer that says "Ad" or counts down is one (BUG-055).
-  const shown = el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true });
-  const label = el.textContent?.trim() ?? "";
-  if (shown === false || !/\bad\b|\d:\d{2}/i.test(label)) return null;
-  return { left: adSeconds(label) };
+  for (const el of doc.querySelectorAll<HTMLElement>(rules().prime.adTimerSelector)) {
+    // The player can keep an empty or see-through timer in the page between ads: only a
+    // shown timer that says "Ad" or counts down is one (BUG-055).
+    const shown = el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true });
+    const label = el.textContent?.trim() ?? "";
+    if (shown !== false && /\bad\b|\d:\d{2}/i.test(label)) return { left: adSeconds(label) };
+  }
+  return null;
 }
 
 /**

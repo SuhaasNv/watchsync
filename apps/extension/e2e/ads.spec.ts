@@ -207,6 +207,40 @@ test("a Netflix badge the adapter isn't sure about is a buffering wait that neve
   }
 });
 
+// ---- Prime's ad countdown (US-127) ----
+
+/** Shows or removes the countdown Prime's fullscreen player draws during an ad. */
+const primeTimer = (p: Page, show: boolean) =>
+  p.evaluate((on) => {
+    document.querySelector(".dv-player-fullscreen")?.remove();
+    if (!on) return;
+    const box = document.createElement("div");
+    box.className = "dv-player-fullscreen";
+    box.innerHTML = `<span class="atvwebplayersdk-ad-timer-remaining-time">Ad 0:25</span>`;
+    document.body.append(box);
+  }, show);
+
+test("a Prime ad names who has it, holds the room and resumes everyone together", async ({
+  ext,
+}) => {
+  const { hostTab, friend, tab } = await bothWatching(ext);
+  try {
+    await primeTimer(tab, true);
+    const started = Date.now();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible({ timeout: 1500 });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(await playing(hostTab)).toBe(false);
+    await expect(hostTab.getByText("About 0:25 left.")).toBeVisible();
+
+    await primeTimer(tab, false);
+    expect(await within(1500, bothPlaying(hostTab, tab))).toBeLessThan(1000);
+    await expect(hostTab.getByText("Back together")).toBeVisible();
+    await expect.poll(() => gap(tab, hostTab), { timeout: 5000 }).toBeLessThan(1);
+  } finally {
+    await friend.context.close();
+  }
+});
+
 // ---- An ad in its own short <video> (separateAd) ----
 
 const mockDir = path.resolve(import.meta.dirname, "mock");
