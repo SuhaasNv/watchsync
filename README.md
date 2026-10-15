@@ -56,11 +56,14 @@ You install WatchSync from outside the Chrome Web Store, so Google hasn't review
 
 - **`storage`**: your name, and your room for up to 24 hours so you can rejoin after a restart.
 - **The room service at `join.watchsync.space`**: sends play, pause and the position to your room, and opens invite links.
-- **Netflix, Prime Video and JioHotstar pages** (`netflix.com`, `primevideo.com`, Amazon's `/gp/video/` pages, `jiohotstar.com`, `hotstar.com`): reads whether the video is playing, where it is and which title is open, applies play, pause and jumps from your room, and shows small notices on the player.
+- **Netflix, Prime Video and JioHotstar pages** (`netflix.com`, `primevideo.com`, Amazon's `/gp/video/` pages, `jiohotstar.com`, `hotstar.com`): reads whether the video is playing, where it is and which title is open, applies play, pause and jumps from your room, shows small notices on the player, and, while a friend is talking, lowers the player's volume the way your own volume slider would (on by default; turn it off on the popup's Voice page). It sets the volume number only: it never reads or processes the film's sound.
 - **`scripting`**: when WatchSync is installed or updated, adds its own packaged scripts to Netflix, Prime Video and JioHotstar tabs that are already open, so you don't have to reload them. Same sites as above, nothing else.
+- **`offscreen`**: voice runs in a hidden page that belongs to WatchSync, not to the streaming site, so the microphone is WatchSync's and Netflix, Prime Video and JioHotstar never see it. It is open only while you are in a room that offers voice, and it closes when you leave.
 - **GitHub's public API, at most once a day**, to see whether a newer version is out.
+- **`watchsync.space`, at most once a day**, to fetch a small signed file of settings for each streaming service. That site sees your IP address, like any website you visit; nothing about you or your room is sent. The file holds page selectors and numbers only, nothing that runs.
+- **Your microphone, only after you press Talk and agree.** WatchSync asks for it on a page of its own (a new tab that brings you back), so Chrome's question names WatchSync and the streaming site never gets the microphone. Your voice goes straight to the people in your room, browser to browser; when a direct connection can't be made it is relayed, still encrypted, through Cloudflare's relay servers, which can't hear it. It never passes through or is stored on the room service, and WatchSync never records it. The "Test your mic" page plays a 3-second recording back to you from the page's memory only: it is never sent and is deleted right after it plays.
 
-It never reads the picture, the sound or the rest of the page, never sees passwords, payments or browsing history, runs on no other site, loads no code from the internet, and has no analytics or ads.
+It never reads the picture, the film's sound or the rest of the page, never sees passwords, payments or browsing history, runs on no other site, loads no code from the internet, and has no analytics or ads.
 
 Each release zip is built by GitHub Actions from a tagged commit on `main` with the public [release workflow](.github/workflows/release.yml). The [release notes](https://github.com/SuhaasNv/watchsync/releases) name the commit, link to the build, and list the SHA-256 of every file (also in `SHA256SUMS.txt`). To check your download, compare it with the release's SHA-256:
 
@@ -75,7 +78,7 @@ The last command uses the [GitHub CLI](https://cli.github.com/) to check GitHub'
 
 ## Privacy
 
-WatchSync shares only what keeps you in sync: your name, the room, and whether you're playing or paused and where. It never reads the picture, records anything, or touches your account. Rooms live in memory and disappear soon after everyone leaves. Details: [privacy notice](https://watchsync.space/privacy/).
+WatchSync shares only what keeps you in sync: your name, the room, and whether you're playing or paused and where. If you press Talk, it also shares your voice, with the people in your room only: it goes straight between your browsers (relayed unreadably through Cloudflare when that fails), never through or onto our server, and it is never recorded. It never reads the picture, records anything, or touches your account. Rooms live in memory and disappear soon after everyone leaves. Once a day it checks GitHub for a newer version and watchsync.space for service settings; both see your IP address, like any website you visit. Details: [privacy notice](https://watchsync.space/privacy/).
 
 ## For developers
 

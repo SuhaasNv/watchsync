@@ -6,15 +6,19 @@ import {
   type ChatNonceRequest,
   type ChatTabRequest,
   cleanName,
+  type MicAnswerRequest,
   nameProblem,
   type Reply,
   type Request,
   type TabSupportedRequest,
 } from "../shared/messages";
+import { MIC_PAGE } from "../voice/help";
+import { isBlockedBy } from "../voice/messages";
 import { api, retryNow, sendServer } from "./connection";
 import { endSession, ready, rejoin, startSession } from "./session";
 import { changed, shared, state } from "./state";
-import { chatFrames, openChat, sendPresence, serviceTabs } from "./tabs";
+import { chatFrames, openChat, sendPresence, serviceTabs, talk } from "./tabs";
+import { voiceMicAnswer } from "./voice";
 
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).
@@ -74,6 +78,9 @@ async function handleNow(req: Request): Promise<Reply> {
       case "openChat":
         if (!(await openChat())) throw new Error("no_tab");
         break;
+      case "talk":
+        await talk(req.edge);
+        break;
     }
     changed();
     return { ok: true, state: shared() };
@@ -83,11 +90,17 @@ async function handleNow(req: Request): Promise<Reply> {
 }
 
 export function onMessage(
-  req: Request | ChatNonceRequest | ChatTabRequest | TabSupportedRequest,
+  req: Request | ChatNonceRequest | MicAnswerRequest | ChatTabRequest | TabSupportedRequest,
   sender: chrome.runtime.MessageSender,
   reply: (response?: unknown) => void,
 ) {
   if (sender.id !== chrome.runtime.id) return false;
+  if (req.kind === "micAnswer") {
+    // Chrome's answer about the microphone: only from our own microphone page, in a tab.
+    const ours = sender.tab && sender.url?.startsWith(chrome.runtime.getURL(MIC_PAGE));
+    if (ours && isBlockedBy(req.by)) voiceMicAnswer(req.by);
+    return false;
+  }
   if (req.kind === "hasChatTab") {
     serviceTabs()
       .then((tabs) => reply(tabs.length > 0))

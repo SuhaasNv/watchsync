@@ -31,6 +31,7 @@ import { RESTARTING, Retry } from "./retry";
 import { endSession } from "./session";
 import { API, changed, ENDED, ports, state } from "./state";
 import { sendPresence } from "./tabs";
+import { voiceReset, voiceRoomChanged, voiceSignal } from "./voice";
 
 export let socket: WebSocket | null = null;
 let pingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -202,6 +203,8 @@ const order = (id: string) => {
 };
 
 function onServer(msg: AnyServerMessage) {
+  // A voice set-up message holds network addresses: the voice document gets it and nobody else.
+  if (msg.type === "VOICE.SIGNAL") return voiceSignal(msg);
   switch (msg.type) {
     case "ROOM.STATE": {
       const known = { media: state.media, playback: state.playback };
@@ -267,6 +270,9 @@ function onServer(msg: AnyServerMessage) {
       break;
     }
   }
+  // Who is in voice changed (or the room was just (re)joined): the voice document and my row follow.
+  if (msg.type === "ROOM.STATE" || msg.type === "ROOM.PARTICIPANT")
+    voiceRoomChanged(msg.type === "ROOM.STATE");
   const to = chat.onServer(msg); // chat: unread count, and a refusal for its own tab only
   if (msg.type !== "REACTION.SHOW") changed(); // a reaction changes no state: no pill rebuild
   // Chat goes only to the chat frames, never to a service page's content script (DEC-042),
@@ -295,4 +301,5 @@ export function reset() {
     unreachable: false,
     unread: 0,
   });
+  voiceReset(); // after the state is idle: the voice document closes with the room
 }

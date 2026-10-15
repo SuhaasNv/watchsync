@@ -127,7 +127,10 @@ LEVEL_V02 = 2  # v0.2.x, and any client that says nothing
 LEVEL_V03 = 3  # v0.3 and later: sends its version as ?v= on the WebSocket URL
 _VERSION = re.compile(r"(\d{1,4})\.(\d{1,4})\.\d{1,6}(?:-[0-9A-Za-z.-]{1,32})?")
 # Participant fields added after v0.2, and the level that added each.
-_PARTICIPANT_FIELDS = {"canTalk": LEVEL_V03, "unavailable": LEVEL_V03}
+_PARTICIPANT_FIELDS = {"canTalk": LEVEL_V03, "unavailable": LEVEL_V03, "voice": LEVEL_V03}
+# Server message types added after v0.2, and the level that added each: older clients are
+# never sent one (their schema would throw it away, or worse).
+_MESSAGE_LEVEL = {"VOICE.SIGNAL": LEVEL_V03}
 
 
 def client_level(version: str | None, subprotocol: bool) -> int:
@@ -141,6 +144,11 @@ def client_level(version: str | None, subprotocol: bool) -> int:
 
 def _for_level(participant: dict[str, Any], level: int) -> dict[str, Any]:
     return {k: v for k, v in participant.items() if _PARTICIPANT_FIELDS.get(k, LEVEL_V01) <= level}
+
+
+def sendable(type_: str, level: int) -> bool:
+    """Whether a client at this level may be sent a message of this type at all."""
+    return _MESSAGE_LEVEL.get(type_, LEVEL_V01) <= level
 
 
 def for_level(type_: str, payload: dict[str, Any], level: int) -> dict[str, Any]:

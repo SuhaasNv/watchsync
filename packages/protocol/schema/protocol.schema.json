@@ -95,7 +95,8 @@
         "hold": { "description": "Why the room is waiting for this person, if it is.", "enum": ["buffering", "ad", null] },
         "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 },
         "canTalk": { "description": "v0.3+. Whether this person's WatchSync can do voice. Sent only to v0.3+ clients (older ones reject unknown fields, US-132); absent means it can't.", "type": "boolean" },
-        "unavailable": { "description": "v0.3+. True while this person's service says they can't play the title they have open (not available in their region). Sent only to v0.3+ clients, and only while true; absent means they can. The room never waits for them.", "type": "boolean" }
+        "unavailable": { "description": "v0.3+. True while this person's service says they can't play the title they have open (not available in their region). Sent only to v0.3+ clients, and only while true; absent means they can. The room never waits for them.", "type": "boolean" },
+        "voice": { "description": "v0.3+. Where this person is in voice (VoiceState); absent means off. Sent only to v0.3+ clients.", "$ref": "#/$defs/VoiceState" }
       }
     },
 
@@ -349,6 +350,99 @@
       }
     },
 
+    "VoiceState": {
+      "description": "v0.3+. Where a person is in voice: off (not in it), muted (listening) or live (their mic is open to the room). Voice never passes through the room service; this is only who is in it.",
+      "type": "string",
+      "enum": ["off", "muted", "live"]
+    },
+    "VoiceCandidate": {
+      "description": "One ICE candidate, as the browser's RTCIceCandidateInit.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "sdpMid", "sdpMLineIndex"],
+      "properties": {
+        "candidate": { "type": "string", "maxLength": 512 },
+        "sdpMid": { "type": ["string", "null"], "maxLength": 64 },
+        "sdpMLineIndex": { "type": ["integer", "null"], "minimum": 0, "maximum": 16 },
+        "usernameFragment": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "VoiceSignalBody": {
+      "description": "What two browsers say to each other to set up a direct voice connection. The room service only passes it on, never reads it, and never logs it (an SDP holds network addresses). description: an offer or answer. candidates: a few ICE candidates. restart: ask the one who offers to start the connection again.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "type", "sdp"],
+          "properties": {
+            "kind": { "const": "description" },
+            "type": { "type": "string", "enum": ["offer", "answer"] },
+            "sdp": { "type": "string", "maxLength": 16384 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "candidates"],
+          "properties": {
+            "kind": { "const": "candidates" },
+            "candidates": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": { "$ref": "#/$defs/VoiceCandidate" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "restart" } }
+        }
+      ]
+    },
+    "VoiceStateSend": {
+      "description": "v0.3+. I am in voice (muted or live) or have left it (off). Everyone in the room sees it on my row.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "VOICE.STATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": { "state": { "$ref": "#/$defs/VoiceState" } }
+        }
+      }
+    },
+    "VoiceSignalSend": {
+      "description": "v0.3+. A voice set-up message for one person in the room, who must be in voice too.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "VOICE.SIGNAL" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["to", "signal"],
+          "properties": {
+            "to": { "type": "string", "maxLength": 64 },
+            "signal": { "$ref": "#/$defs/VoiceSignalBody" }
+          }
+        }
+      }
+    },
+    "VoiceWant": {
+      "description": "v0.3+. Someone pressed Talk while a person in the room has a WatchSync that cannot talk: the room service tells those people, in words their version shows, to update.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "VOICE.WANT" },
+        "payload": { "type": "object", "additionalProperties": false }
+      }
+    },
+
     "ClientMessage": {
       "oneOf": [
         { "$ref": "#/$defs/PresenceUpdate" },
@@ -361,7 +455,10 @@
         { "$ref": "#/$defs/StartForce" },
         { "$ref": "#/$defs/RestoreRoom" },
         { "$ref": "#/$defs/ChatSend" },
-        { "$ref": "#/$defs/ReactionSend" }
+        { "$ref": "#/$defs/ReactionSend" },
+        { "$ref": "#/$defs/VoiceStateSend" },
+        { "$ref": "#/$defs/VoiceSignalSend" },
+        { "$ref": "#/$defs/VoiceWant" }
       ]
     },
 
@@ -566,6 +663,24 @@
       }
     },
 
+    "VoiceSignalRelay": {
+      "description": "v0.3+. A voice set-up message from another person in the room, passed on unread. Sent only to v0.3+ clients in voice.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "VOICE.SIGNAL" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "signal"],
+          "properties": {
+            "from": { "type": "string", "maxLength": 64 },
+            "signal": { "$ref": "#/$defs/VoiceSignalBody" }
+          }
+        }
+      }
+    },
+
     "ServerMessage": {
       "oneOf": [
         { "$ref": "#/$defs/RoomState" },
@@ -578,7 +693,8 @@
         { "$ref": "#/$defs/ChatMessage" },
         { "$ref": "#/$defs/ChatHistory" },
         { "$ref": "#/$defs/ChatRejected" },
-        { "$ref": "#/$defs/ReactionShow" }
+        { "$ref": "#/$defs/ReactionShow" },
+        { "$ref": "#/$defs/VoiceSignalRelay" }
       ]
     }
   }

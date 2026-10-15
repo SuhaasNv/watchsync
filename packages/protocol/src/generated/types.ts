@@ -138,6 +138,56 @@ export type ReactionSend = Envelope & {
     count: number;
   };
 };
+/**
+ * v0.3+. Where a person is in voice: off (not in it), muted (listening) or live (their mic is open to the room). Voice never passes through the room service; this is only who is in it.
+ */
+export type VoiceState = "off" | "muted" | "live";
+/**
+ * What two browsers say to each other to set up a direct voice connection. The room service only passes it on, never reads it, and never logs it (an SDP holds network addresses). description: an offer or answer. candidates: a few ICE candidates. restart: ask the one who offers to start the connection again.
+ */
+export type VoiceSignalBody =
+  | {
+      kind: "description";
+      type: "offer" | "answer";
+      sdp: string;
+    }
+  | {
+      kind: "candidates";
+      /**
+       * @minItems 1
+       * @maxItems 32
+       */
+      candidates: [VoiceCandidate, ...VoiceCandidate[]];
+    }
+  | {
+      kind: "restart";
+    };
+/**
+ * v0.3+. I am in voice (muted or live) or have left it (off). Everyone in the room sees it on my row.
+ */
+export type VoiceStateSend = Envelope & {
+  type?: "VOICE.STATE";
+  payload?: {
+    state: VoiceState;
+  };
+};
+/**
+ * v0.3+. A voice set-up message for one person in the room, who must be in voice too.
+ */
+export type VoiceSignalSend = Envelope & {
+  type?: "VOICE.SIGNAL";
+  payload?: {
+    to: string;
+    signal: VoiceSignalBody;
+  };
+};
+/**
+ * v0.3+. Someone pressed Talk while a person in the room has a WatchSync that cannot talk: the room service tells those people, in words their version shows, to update.
+ */
+export type VoiceWant = Envelope & {
+  type?: "VOICE.WANT";
+  payload?: {};
+};
 export type ClientMessage =
   | PresenceUpdate
   | PlaybackUpdate
@@ -149,7 +199,10 @@ export type ClientMessage =
   | StartForce
   | RestoreRoom
   | ChatSend
-  | ReactionSend;
+  | ReactionSend
+  | VoiceStateSend
+  | VoiceSignalSend
+  | VoiceWant;
 /**
  * Full snapshot sent on connect and reconnect.
  */
@@ -281,6 +334,16 @@ export type ReactionShow = Envelope & {
     count: number;
   };
 };
+/**
+ * v0.3+. A voice set-up message from another person in the room, passed on unread. Sent only to v0.3+ clients in voice.
+ */
+export type VoiceSignalRelay = Envelope & {
+  type?: "VOICE.SIGNAL";
+  payload?: {
+    from: string;
+    signal: VoiceSignalBody;
+  };
+};
 export type ServerMessage =
   | RoomState
   | ParticipantChanged
@@ -292,7 +355,8 @@ export type ServerMessage =
   | ChatMessage
   | ChatHistory
   | ChatRejected
-  | ReactionShow;
+  | ReactionShow
+  | VoiceSignalRelay;
 
 /**
  * Single source of truth for every message between the extension and the room service (DEC-006). Edit this file, then run `pnpm gen:protocol`.
@@ -328,6 +392,12 @@ export interface ProtocolRoot {
   RestoreRoom?: RestoreRoom;
   ChatSend?: ChatSend;
   ReactionSend?: ReactionSend;
+  VoiceState?: VoiceState;
+  VoiceCandidate?: VoiceCandidate;
+  VoiceSignalBody?: VoiceSignalBody;
+  VoiceStateSend?: VoiceStateSend;
+  VoiceSignalSend?: VoiceSignalSend;
+  VoiceWant?: VoiceWant;
   ClientMessage?: ClientMessage;
   RoomState?: RoomState;
   ParticipantChanged?: ParticipantChanged;
@@ -340,6 +410,7 @@ export interface ProtocolRoot {
   ChatHistory?: ChatHistory;
   ChatRejected?: ChatRejected;
   ReactionShow?: ReactionShow;
+  VoiceSignalRelay?: VoiceSignalRelay;
   ServerMessage?: ServerMessage;
 }
 /**
@@ -398,6 +469,10 @@ export interface Participant {
    * v0.3+. True while this person's service says they can't play the title they have open (not available in their region). Sent only to v0.3+ clients, and only while true; absent means they can. The room never waits for them.
    */
   unavailable?: boolean;
+  /**
+   * v0.3+. Where this person is in voice (VoiceState); absent means off. Sent only to v0.3+ clients.
+   */
+  voice?: "off" | "muted" | "live";
 }
 export interface CreateRoomRequest {
   name: Name;
@@ -465,4 +540,13 @@ export interface Envelope {
   type: string;
   timestamp: number;
   payload: {};
+}
+/**
+ * One ICE candidate, as the browser's RTCIceCandidateInit.
+ */
+export interface VoiceCandidate {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+  usernameFragment?: string | null;
 }

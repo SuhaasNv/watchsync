@@ -1,0 +1,54 @@
+/* The microphone page (voice-permission.html): the popup's tokens and controls on a page of
+   its own. popup.css sizes the body for the popup; this undoes it. */
+html {
+  overflow: auto;
+}
+body {
+  width: auto;
+  min-height: 100vh;
+}
+.mic-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  width: min(100%, 460px);
+  margin: 0 auto;
+  padding: 12vh var(--s4) var(--s5);
+}
+/* popup.css gives .field, .row and .btn a display of their own, which beats the browser's rule
+   for the hidden attribute. */
+.mic-page [hidden] {
+  display: none;
+}
+.mic-page .title {
+  margin: 0;
+}
+.mic-page .status {
+  color: var(--text2);
+}
+.mic-page .status.done {
+  color: var(--pres);
+}
+.mic-page .row {
+  flex-wrap: wrap;
+}
+/* The mic test's level meter. */
+.meter {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: var(--pres);
+  transition: transform 60ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .meter-fill {
+    transition: none;
+  }
+}

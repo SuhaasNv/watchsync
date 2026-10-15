@@ -12,10 +12,28 @@ export const cannotTalk = (people: readonly Participant[]): Participant[] =>
 export const voiceAvailable = (people: readonly Participant[]): boolean =>
   people.length > 0 && cannotTalk(people).length === 0;
 
-/** "Asha needs to update WatchSync to talk." / "Asha and Ben need to ..." / "A, B and C need ...". */
-export function updateToTalk(names: readonly string[]): string {
+/** People in voice at once: a full mesh stays small (the room service holds the same number). */
+export const VOICE_MAX = 4;
+
+/** ok: voice can run. update: someone's WatchSync can't talk. full: more people than voice holds. */
+export type VoiceOffer = "ok" | "update" | "full";
+
+/** What voice can be in this room right now. People who are away don't count either way. */
+export function voiceOffer(people: readonly Participant[]): VoiceOffer {
+  const here = people.filter((p) => p.connected);
+  if (!voiceAvailable(here)) return "update";
+  return here.length > VOICE_MAX ? "full" : "ok";
+}
+
+/** "Asha" / "Asha and Ben" / "A, B and C"; "" for nobody. */
+export function joinNames(names: readonly string[]): string {
   const [last, ...rest] = [...names].reverse();
   if (last === undefined) return "";
-  const who = rest.length === 0 ? last : `${rest.reverse().join(", ")} and ${last}`;
-  return `${who} ${rest.length === 0 ? "needs" : "need"} to update WatchSync to talk.`;
+  return rest.length === 0 ? last : `${rest.reverse().join(", ")} and ${last}`;
+}
+
+/** "Asha needs to update WatchSync to talk." / "Asha and Ben need to ..." / "A, B and C need ...". */
+export function updateToTalk(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  return `${joinNames(names)} ${names.length === 1 ? "needs" : "need"} to update WatchSync to talk.`;
 }

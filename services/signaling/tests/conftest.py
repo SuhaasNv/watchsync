@@ -37,6 +37,7 @@ def fresh_limiters(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "chat_limiter", main.Limiter(config.CHAT_PER_5S, 5))
     monkeypatch.setattr(main, "room_chat_limiter", main.Limiter(config.CHAT_ROOM_PER_10S, 10))
     monkeypatch.setattr(main, "reaction_limiter", main.Limiter(config.REACTIONS_PER_5S, 5))
+    monkeypatch.setattr(main, "voice_limiter", main.Limiter(config.VOICE_PER_10S, 10))
 
 
 @pytest.fixture(autouse=True)

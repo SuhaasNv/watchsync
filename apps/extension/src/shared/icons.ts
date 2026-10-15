@@ -22,7 +22,9 @@ export type IconName =
   | "chat"
   | "close"
   | "send"
-  | "down";
+  | "down"
+  | "mic"
+  | "micoff";
 
 interface IconDef {
   d: string;
@@ -63,6 +65,12 @@ export const ICONS: Record<IconName, IconDef> = {
   close: { d: "M6.5 6.5l11 11M17.5 6.5l-11 11" },
   send: { d: "M4.5 12h14M13 6.5l5.5 5.5-5.5 5.5" },
   down: { d: "M12 5v13M6.5 12.5 12 18l5.5-5.5" },
+  mic: {
+    d: "M12 3.5a3 3 0 0 1 3 3V12a3 3 0 0 1-6 0V6.5a3 3 0 0 1 3-3zM6 11.5a6 6 0 0 0 12 0M12 17.5V21",
+  },
+  micoff: {
+    d: "M9 6.5a3 3 0 0 1 6 0V12a3 3 0 0 1-.4 1.5M9.2 10.2V12a3 3 0 0 0 4.3 2.7M6 11.5a6 6 0 0 0 9 5.2M18 11.5a6 6 0 0 1-.4 2.2M12 17.5V21M4 4l16 16",
+  },
 };
 
 const SVG = "http://www.w3.org/2000/svg";

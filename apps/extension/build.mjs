@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as esbuild from "esbuild";
+import { KEYS } from "./keys.mjs";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const api = (process.env.WATCHSYNC_API ?? "http://localhost:8000").replace(/\/$/, "");
@@ -42,6 +43,8 @@ const serviceMatches = [
 const manifest = {
   manifest_version: 3,
   name: channel === "dev" ? "WatchSync Dev" : "WatchSync",
+  // A fixed ID for each channel, whatever folder the zip is loaded from (US-133, keys.mjs).
+  key: KEYS[channel],
   version: pkg.version,
   ...(channel === "dev"
     ? { version_name: `${label} dev ${build}` }
@@ -56,7 +59,9 @@ const manifest = {
   // Incognito windows get their own worker and room: no incognito chat in normal tabs.
   incognito: "split",
   // scripting: add WatchSync to service tabs already open at install or update (BUG-052).
-  permissions: ["storage", "scripting"],
+  // offscreen: voice (UC-021) runs in an offscreen document, so the microphone belongs to
+  // WatchSync and not to the streaming site, and a call survives the page reloading.
+  permissions: ["storage", "scripting", "offscreen"],
   host_permissions: [`${api}/*`],
   content_scripts: [
     { matches: serviceMatches, js: ["content.js"], run_at: "document_idle" },
@@ -71,6 +76,7 @@ const manifest = {
   // The chat panel's frame (DEC-042), loadable only on the sites our content script runs on,
   // and only through this session's dynamic address so pages can't probe for it. Chrome takes
   // only whole origins here ("/*"); the background also serves a frame only with its pass.
+  // Voice has no frame on the page: it runs in an offscreen document.
   web_accessible_resources: [
     {
       resources: ["sidebar.html"],
@@ -130,6 +136,8 @@ const builds = [
       "join-page": "src/content/join-page.ts",
       popup: "src/popup/main.tsx",
       sidebar: "src/sidebar/main.ts",
+      voice: "src/voice/frame.ts",
+      "voice-permission": "src/voice/permission.ts",
       welcome: "src/welcome/main.ts",
     },
     format: "iife",

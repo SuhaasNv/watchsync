@@ -190,6 +190,9 @@ class Participant:
     # it was told to update for voice on this connection (main.tell_to_update).
     level: int = LEVEL_V02
     told_to_update: bool = False
+    # Where they are in voice: "off", "muted" or "live" (US-055). Only who is in it: the room
+    # service never carries or sees the voice itself.
+    voice: str = "off"
 
     @property
     def title(self) -> tuple[str, str] | None:
@@ -210,6 +213,7 @@ class Participant:
             # Only while true, so a v0.3 build that predates it never meets the field except
             # when someone can't play; cut for older clients like canTalk.
             **({"unavailable": True} if self.unavailable else {}),
+            "voice": self.voice,  # likewise
         }
 
 

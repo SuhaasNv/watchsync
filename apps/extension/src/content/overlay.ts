@@ -9,6 +9,9 @@ const host = document.createElement("watchsync-overlay");
 const root = host.attachShadow({ mode: __MOCK__ ? "open" : "closed" });
 let retired = false;
 
+/** Whether this element is this copy's own on-page UI (another copy's is not). */
+export const isOwnOverlay = (el: Element): boolean => el === host;
+
 /** This copy of the extension was replaced by an update: take its UI off the page for good. */
 export function retireOverlay() {
   retired = true;
@@ -113,6 +116,33 @@ root.innerHTML = `<style>
     font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px #151d21; }
   .count[hidden] { display: none; }
   .count.pop { animation: pop 160ms ease-out; }
+  /* Voice (US-056): who has a mic open, and who is speaking, on each face. */
+  .face .mic { position: absolute; left: -4px; top: -4px; width: 14px; height: 14px;
+    border-radius: 50%; display: grid; place-items: center; background: #2a363c;
+    color: #a9b8b9; box-shadow: 0 0 0 2px #151d21; }
+  .face .mic[data-on="true"] { background: #5fd3b8; color: #0c1215; }
+  .face[data-speaking="true"] { box-shadow: 0 0 0 2px #151d21, 0 0 0 4px #5fd3b8; }
+  /* Talk (US-055): translucent white until the mic is open, then mint with dark text. */
+  .pill button.talk { padding: 0 12px 0 10px; }
+  .pill button.talk[aria-pressed="true"] { background: #5fd3b8; color: #0c1215; }
+  .pill button.talk[aria-pressed="true"]:hover { background: #7fe0c8; }
+  .pill button.talk[aria-busy="true"] { opacity: 0.7; cursor: progress; }
+  /* A question under the pill (the first press of Talk, the mic's help): one at a time. */
+  .sheet { position: fixed; top: 64px; right: 16px; box-sizing: border-box; width: 320px;
+    max-width: calc(100vw - 32px); padding: 16px; border-radius: 16px;
+    background: rgba(18, 26, 30, 0.97); backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    font: 14px/20px -apple-system, system-ui, "Segoe UI", sans-serif; color: #ecf2f1;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
+    z-index: 2147483647; animation: in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .sheet[hidden] { display: none; }
+  .sheet h2 { margin: 0 0 6px; font-size: 15px; line-height: 20px; font-weight: 650; }
+  .sheet p { margin: 0; color: #a9b8b9; font-size: 13px; line-height: 18px; }
+  .sheet ol { margin: 8px 0 0; padding-left: 20px; color: #ecf2f1; font-size: 13px;
+    line-height: 18px; }
+  .sheet li + li { margin-top: 6px; }
+  .sheet p.foot { margin-top: 10px; }
+  .sheet .actions { margin-top: 12px; }
   @keyframes pop { from { transform: scale(0.8); } }
   @keyframes in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
   @media (prefers-reduced-motion: reduce) {
@@ -198,16 +228,34 @@ function card(message: string, look: CardLook): Card {
 
 const MAX_NOTICES = 3;
 
-/** A short notice that disappears on its own. Newest on top; at most three at once. */
-export function toast(message: string, ms = 4000, look: CardLook = {}) {
+/**
+ * A short notice that disappears on its own. Newest on top; at most three at once. With
+ * `actions` it is a notice with buttons (one sentence, one action): a click runs the action
+ * and takes the notice away.
+ */
+export function toast(message: string, ms = 4000, look: CardLook = {}, actions: Action[] = []) {
   const { card: c } = card(message, look);
+  const fade = () => {
+    c.classList.add("out");
+    setTimeout(() => c.remove(), 160);
+  };
+  if (actions.length) {
+    setActions(
+      c,
+      actions.map((a) => ({
+        ...a,
+        run: () => {
+          fade();
+          a.run();
+        },
+      })),
+      false,
+    );
+  }
   notices.prepend(c);
   const passing = notices.querySelectorAll(".card:not(.sticky)");
   for (const old of Array.from(passing).slice(MAX_NOTICES)) old.remove();
-  setTimeout(() => {
-    c.classList.add("out");
-    setTimeout(() => c.remove(), 160);
-  }, ms);
+  setTimeout(fade, ms);
 }
 
 const sticky = new Map<string, Card>();
@@ -320,12 +368,104 @@ export function clearPrompt(key?: string) {
   current = null;
 }
 
+export interface Sheet {
+  /** Names the sheet to screen readers and leads it. */
+  title: string;
+  text: string;
+  /** Numbered steps under the text. */
+  steps?: string[];
+  /** A quiet line under the steps. */
+  footer?: string;
+  actions: Action[];
+}
+
+const sheetBox = document.createElement("div");
+sheetBox.className = "sheet";
+sheetBox.setAttribute("role", "dialog");
+sheetBox.hidden = true;
+let sheetKey: string | null = null;
+let sheetReturn: HTMLElement | null = null;
+
+/**
+ * One question under the pill, with the person's attention on it: the first press of Talk,
+ * the mic's help. Opened by their own press, so focus moves to its main button; Esc or any
+ * button closes it and gives focus back.
+ */
+export function showSheet(key: string, sheet: Sheet) {
+  mount();
+  if (!sheetBox.isConnected) root.append(sheetBox);
+  if (sheetKey === null) sheetReturn = focusedControl();
+  sheetKey = key;
+  const title = document.createElement("h2");
+  title.id = `ws-sheet-${++ids}`;
+  title.textContent = sheet.title;
+  const text = document.createElement("p");
+  text.textContent = sheet.text;
+  sheetBox.setAttribute("aria-labelledby", title.id);
+  const parts: HTMLElement[] = [title, text];
+  if (sheet.steps?.length) {
+    const list = document.createElement("ol");
+    for (const step of sheet.steps) {
+      const li = document.createElement("li");
+      li.textContent = step;
+      list.append(li);
+    }
+    parts.push(list);
+  }
+  if (sheet.footer) {
+    const foot = document.createElement("p");
+    foot.className = "foot";
+    foot.textContent = sheet.footer;
+    parts.push(foot);
+  }
+  const row = document.createElement("div");
+  row.className = "actions";
+  for (const a of sheet.actions) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = a.label;
+    if (a.primary) b.className = "primary";
+    b.addEventListener("click", () => {
+      closeSheet(key);
+      a.run();
+    });
+    row.append(b);
+  }
+  parts.push(row);
+  sheetBox.replaceChildren(...parts);
+  sheetBox.hidden = false;
+  row.querySelector<HTMLButtonElement>("button.primary, button")?.focus();
+}
+
+/** Closes the sheet; with `key`, only if that one is showing. Focus goes back where it was. */
+export function closeSheet(key?: string) {
+  if (sheetKey === null || (key !== undefined && key !== sheetKey)) return;
+  const inside = root.activeElement !== null && sheetBox.contains(root.activeElement);
+  sheetKey = null;
+  sheetBox.hidden = true;
+  sheetBox.replaceChildren();
+  const back = sheetReturn;
+  sheetReturn = null;
+  if (inside && back?.isConnected) back.focus();
+}
+
+sheetBox.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !e.isTrusted) return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeSheet();
+});
+
 export interface PillPerson {
   name: string;
   /** Spoken and shown on hover, e.g. "Asha, in sync". */
   label: string;
   /** In sync, being waited for (loading or an ad), away, or none of these. */
   mark: "synced" | "wait" | "away" | "none";
+  /** In voice: whether their mic is open to the room (on) or muted (off). Null: not in voice. */
+  mic?: "on" | "off" | null;
+  /** Heard speaking right now: a mint ring. */
+  speaking?: boolean;
 }
 
 export interface PillModel {
@@ -349,6 +489,21 @@ export interface PillModel {
   chatOpen: boolean;
   /** Chat was turned off on this page because the page interfered with it. */
   chatOff: boolean;
+  /** The Talk button (US-055); null or left out leaves it off. */
+  voice?: PillVoice | null;
+}
+
+export interface PillVoice {
+  /** The visible words: Talk, Mute, Unmute. */
+  text: string;
+  /** What a screen reader says: Talk, Mute your mic, Unmute your mic. */
+  label: string;
+  /** The mic is open to the room: aria-pressed, and the button turns mint. */
+  live: boolean;
+  /** Waiting for Chrome's answer about the mic. */
+  busy: boolean;
+  /** The button went down or up: a click, a hold, or Space or Enter on it. */
+  press: (edge: "down" | "up") => void;
 }
 
 export const CHAT_OFF = "Chat is turned off on this page because the page interfered with it.";
@@ -461,6 +616,75 @@ export function setChatBadge(n: number) {
   drawChat();
 }
 
+// Talk (US-055): one lasting button, like Chat, so a hold survives the pill being redrawn.
+const talk = document.createElement("button");
+talk.type = "button";
+talk.className = "talk";
+const talkText = document.createTextNode("Talk");
+talk.append(svgIcon("mic", 14), talkText);
+talk.setAttribute("aria-keyshortcuts", "Alt+T");
+/** What is holding the button down: a finger or mouse, or Space or Enter. */
+let held: "pointer" | "key" | null = null;
+
+function letGo() {
+  if (!held) return;
+  held = null;
+  window.removeEventListener("pointerup", letGo, true);
+  window.removeEventListener("pointercancel", letGo, true);
+  window.removeEventListener("blur", letGo);
+  lastModel?.voice?.press("up");
+}
+
+function holdDown(by: "pointer" | "key") {
+  if (held || !lastModel?.voice) return;
+  held = by;
+  if (by === "pointer") {
+    // The page may take the pointer or the pill may redraw mid-hold: listen on the window.
+    window.addEventListener("pointerup", letGo, true);
+    window.addEventListener("pointercancel", letGo, true);
+  }
+  window.addEventListener("blur", letGo);
+  lastModel.voice.press("down");
+}
+
+// Only the person's own input acts; a page can't script a press of Talk.
+talk.addEventListener("pointerdown", (e) => {
+  if (e.isTrusted && e.button === 0) holdDown("pointer");
+});
+const isPress = (e: KeyboardEvent) => e.key === " " || e.key === "Enter";
+talk.addEventListener("keydown", (e) => {
+  if (!isPress(e)) return;
+  e.stopPropagation(); // the player must not play or pause
+  e.preventDefault(); // no click of its own: the press is handled here
+  if (e.isTrusted && !e.repeat) holdDown("key");
+});
+talk.addEventListener("keyup", (e) => {
+  if (!isPress(e)) return;
+  e.stopPropagation();
+  e.preventDefault();
+  if (held === "key") letGo();
+});
+talk.addEventListener("keypress", (e) => {
+  if (isPress(e)) e.stopPropagation();
+});
+// A screen reader's "activate" is a click with no pointer or key before it: a quick press.
+talk.addEventListener("click", (e) => {
+  if (!e.isTrusted || e.detail !== 0 || held) return;
+  holdDown("key");
+  letGo();
+});
+
+function drawTalk() {
+  const v = lastModel?.voice;
+  if (!v) return;
+  talkText.data = v.text;
+  talk.setAttribute("aria-label", v.label);
+  talk.title = v.label;
+  talk.setAttribute("aria-pressed", String(v.live));
+  if (v.busy) talk.setAttribute("aria-busy", "true");
+  else talk.removeAttribute("aria-busy");
+}
+
 /** The chat button while it's on the page: where focus goes when chat closes. */
 export function chatButton(): HTMLElement | null {
   return chat.isConnected ? chat : null;
@@ -524,6 +748,15 @@ export function renderPill(model: PillModel | null) {
     f.title = p.label;
     f.setAttribute("role", "img");
     f.setAttribute("aria-label", p.label);
+    if (p.speaking) f.dataset.speaking = "true";
+    if (p.mic) {
+      // A small mic badge: filled mint when their mic is open, grey and crossed when muted.
+      const badge = document.createElement("span");
+      badge.className = "mic";
+      badge.dataset.on = String(p.mic === "on");
+      badge.append(svgIcon(p.mic === "on" ? "mic" : "micoff", 9));
+      f.append(badge);
+    }
     faces.append(f);
   }
   // The fold arrow points to the edge the pill tucks into, and back out when folded.
@@ -542,12 +775,19 @@ export function renderPill(model: PillModel | null) {
   fold.setAttribute("aria-expanded", String(!collapsed));
   pill.classList.toggle("folded", collapsed);
   drawChat();
-  // Redrawing takes the chat button out and back in, which drops its focus: keep it.
+  drawTalk();
+  const voice = model.voice ? [talk] : [];
+  // Redrawing takes the chat and Talk buttons out and back in, which drops their focus: keep it.
   const chatFocused = root.activeElement === chat;
-  // Chat stays reachable when the pill is folded: it is the only button for it.
-  if (collapsed) {
-    pill.replaceChildren(faces, chat, fold);
+  const talkFocused = root.activeElement === talk;
+  const refocus = () => {
     if (chatFocused) chat.focus();
+    if (talkFocused) talk.focus();
+  };
+  // Chat and Talk stay reachable when the pill is folded.
+  if (collapsed) {
+    pill.replaceChildren(faces, chat, ...voice, fold);
+    refocus();
     return wake();
   }
   const sep = document.createElement("span");
@@ -590,7 +830,7 @@ export function renderPill(model: PillModel | null) {
   // Chat first after the faces: the one control people reach for most.
   // Dev builds only: showDrift's tag survives the redraw (driftTag is never made in prod).
   const drift = driftTag && driftShown ? [driftTag] : [];
-  pill.replaceChildren(faces, sep, chat, toggle, ...syncAll, ...together, ...drift, fold);
-  if (chatFocused) chat.focus();
+  pill.replaceChildren(faces, sep, chat, ...voice, toggle, ...syncAll, ...together, ...drift, fold);
+  refocus();
   wake();
 }

@@ -22,7 +22,10 @@ Chrome may show a banner about developer-mode extensions when it starts. That is
 
 ## Updating
 
-Replace the folder with the new version's files, then click the reload arrow on WatchSync in `chrome://extensions`.
+1. Download the new zip and unzip it over your WatchSync folder, replacing the files (same place, same folder name).
+2. Open `chrome://extensions` and click the reload arrow on WatchSync.
+
+From v0.3 WatchSync has the same ID whichever folder you load it from, so your name, settings and microphone permission stay. The first time you move from an older zip to v0.3, WatchSync asks for your name once. If you load the new folder next to the old one instead of replacing it, Chrome runs both and WatchSync warns you: remove the old one in `chrome://extensions`.
 
 ## Privacy
 

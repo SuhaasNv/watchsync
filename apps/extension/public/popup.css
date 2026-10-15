@@ -521,6 +521,121 @@ p {
   background: rgba(255, 159, 74, 0.12);
   color: var(--warn);
 }
+/* Voice (US-056): a line under what someone is watching, and the Talk button. */
+.voice {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text3);
+}
+.voice.talking {
+  color: #5fd3b8;
+  font-weight: 600;
+}
+.voice.update {
+  color: var(--warn);
+}
+.talk-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.btn.talk[aria-pressed="true"] {
+  background: #5fd3b8;
+  color: #0c1215;
+}
+.btn.talk[aria-pressed="true"]:hover:not(:disabled) {
+  background: #7fe0c8;
+}
+.btn.talk[aria-pressed="true"] .key {
+  color: #0c1215;
+}
+.btn.talk[aria-busy="true"] {
+  opacity: 0.7;
+  cursor: progress;
+}
+/* The mic is blocked (US-057): numbered steps in a card. */
+.mic-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-radius: var(--r3);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px rgba(255, 159, 74, 0.3);
+}
+.mic-help-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 650;
+}
+.mic-help ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.mic-help li + li {
+  margin-top: var(--s2);
+}
+.seg {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.seg-row {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r2);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.seg-option {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  border-radius: 10px;
+  font-weight: 650;
+  color: var(--text2);
+  cursor: pointer;
+}
+.seg-option.on {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.seg-option input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+/* The film-volume switch (US-058). */
+.switch {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 32px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.switch input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--acc);
+}
+.seg-option:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 .me {
   display: flex;
   align-items: center;
@@ -676,7 +791,7 @@ p {
 .foot a:hover {
   color: var(--text);
 }
-.foot p.update {
+.foot .update {
   margin: 0 0 10px;
   padding: var(--s2) var(--s3);
   border-radius: var(--r2);
@@ -686,9 +801,24 @@ p {
   font-size: 13px;
   line-height: 18px;
 }
-.foot p.update a {
+.foot .update a {
   color: var(--acc);
   font-weight: 600;
+}
+/* How to update a zip install: replace the folder, then reload (US-133). */
+.foot .update p {
+  margin: 0;
+}
+.foot .update ol {
+  margin: var(--s1) 0 0;
+  padding-left: 18px;
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 16px;
+}
+.foot .update .link {
+  color: var(--text);
+  font-size: inherit;
 }
 .foot p.foot-row {
   display: flex;

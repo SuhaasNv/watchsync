@@ -33,13 +33,17 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { titleKey } from "../shared/title";
+import { watchTalkKey } from "../voice/keys";
 import { align } from "./align";
+import { announce, watchCopies } from "./copies";
+import { DUCK_LEVEL_KEY, DUCK_ON_KEY, DUCK_SAVED_KEY, Ducker, duckFactor, isSaved } from "./duck";
 import { baseRate, type NudgeView, nudgeAvailable, nudgeDriftMs, startNudging } from "./nudge";
 import {
   CHAT_OFF,
   chatButton,
   clearPrompt,
   focusedControl,
+  isOwnOverlay,
   notice,
   noticesBesideSidebar,
   prompt,
@@ -82,6 +86,7 @@ import {
   showSidebar,
   toggleSidebar,
 } from "./sidebar";
+import { initTalk, press, retireTalk, talkMark, talkPill, talkRoom, talkView } from "./talk";
 import { type Waiting, waitCopy } from "./wait-copy";
 
 const provider = providerFor(location.host);
@@ -134,9 +139,51 @@ chrome.storage.local
     roomNotices = noticesOn(got[NOTICES_KEY]);
   })
   .catch(() => {});
+/** The film dips while friends talk (US-058): the setting, and the dip itself. */
+let duckSetting: { on: unknown; level: unknown } = { on: true, level: "medium" };
+const ducker = provider
+  ? new Ducker({
+      service: provider.service,
+      video: () => provider.video(),
+      factor: () => duckFactor(duckSetting.on, duckSetting.level),
+      save: (saved) => chrome.storage.local.set({ [DUCK_SAVED_KEY]: saved }),
+      clear: () => chrome.storage.local.remove(DUCK_SAVED_KEY),
+      refused: () =>
+        toast(
+          `WatchSync can't change the volume on ${SERVICE_LABEL[provider.service]}, so the film stays at your volume while friends talk.`,
+          9000,
+          { icon: "alert", tone: "warn" },
+        ),
+    })
+  : null;
+chrome.storage.local
+  .get([DUCK_ON_KEY, DUCK_LEVEL_KEY, DUCK_SAVED_KEY])
+  .then((got) => {
+    duckSetting = { on: got[DUCK_ON_KEY], level: got[DUCK_LEVEL_KEY] };
+    // A dip that was never undone (Chrome or this tab closed in the middle of it): the level
+    // goes back before anything else.
+    const saved = got[DUCK_SAVED_KEY];
+    if (isSaved(saved) && saved.service === provider?.service) ducker?.repair(saved.baseline);
+  })
+  .catch(() => {});
+const onVolume = (e: Event) => ducker?.onVolumeChange(e.target);
+const onHide = () => ducker?.stop();
+document.addEventListener("volumechange", onVolume, true);
+window.addEventListener("pagehide", onHide);
+
 function onSetting(changes: Record<string, chrome.storage.StorageChange>, area: string) {
+  if (area !== "local") return;
   const change = changes[NOTICES_KEY];
-  if (area === "local" && change) roomNotices = noticesOn(change.newValue);
+  if (change) roomNotices = noticesOn(change.newValue);
+  const on = changes[DUCK_ON_KEY];
+  const level = changes[DUCK_LEVEL_KEY];
+  if (on || level) {
+    duckSetting = {
+      on: on ? on.newValue : duckSetting.on,
+      level: level ? level.newValue : duckSetting.level,
+    };
+    if (duckFactor(duckSetting.on, duckSetting.level) === null) ducker?.restore();
+  }
 }
 chrome.storage.onChanged.addListener(onSetting);
 
@@ -400,6 +447,9 @@ function onPush(m: Push) {
   if (m.kind === "chatTyping") return chatTyping(m.on);
   if (m.kind === "chatFrameReady") return chatFrameReady(m.frame);
   if (m.kind === "chatFrameLost") return chatFrameLost(m.frame);
+  if (m.kind === "voice") return talkView(m.view);
+  if (m.kind === "talk") return press(m.edge);
+  if (m.kind === "duck") return m.on ? ducker?.beat() : ducker?.release();
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
@@ -540,6 +590,7 @@ function publishMine() {
 
 /** Shows who's here and whether each person is with the room (US-028). */
 function drawPill() {
+  talkRoom(room, Boolean(room?.session) && mine !== null);
   if (!room?.session || !mine) return renderPill(null);
   const me = room.session.participantId;
   const roomTitle = roomMedia?.titleId;
@@ -580,7 +631,9 @@ function drawPill() {
         : p.hold || (p.id === me && !online)
           ? "wait"
           : "none";
-    return { name: p.name, label: `${name}, ${state}`, mark } as const;
+    const voice = talkMark(p);
+    const heard = voice.mic === "on" ? ", mic on" : voice.mic === "off" ? ", muted" : "";
+    return { name: p.name, label: `${name}, ${state}${heard}`, mark, ...voice } as const;
   });
   renderPill({
     people,
@@ -597,6 +650,7 @@ function drawPill() {
     onChat: (from) => toggleSidebar(from),
     chatOpen: isSidebarOpen(),
     chatOff: isChatOff(),
+    voice: talkPill(),
   });
 }
 /**
@@ -649,6 +703,10 @@ function drawCantPlay() {
   const text = first === undefined ? null : cantPlayText([first, ...rest]);
   notice("cantplay", text, { icon: "alert", tone: "warn" });
 }
+initTalk({ post, redraw: drawPill });
+// Alt+T talks (hold) or mutes (open mic), also in full screen, and types in any box (US-056).
+// Outside a room the key is the page's own.
+const stopTalkKey = watchTalkKey(document, press, (e) => e.isTrusted && room?.session != null);
 // Keys the page got while it held focus from the message box go on to the chat frame (BUG-073).
 onChatType((text) => post({ kind: "chatType", text }));
 onSidebarChange((open) => {
@@ -1171,8 +1229,14 @@ function retire() {
   document.removeEventListener("visibilitychange", wake);
   window.removeEventListener("focus", wake);
   chrome.storage.onChanged.removeListener(onSetting);
+  document.removeEventListener("volumechange", onVolume, true);
+  window.removeEventListener("pagehide", onHide);
+  stopCopies();
+  ducker?.stop(); // the film goes back to the person's volume before this copy is cut off
   retireOverlay();
   retireSidebar();
+  retireTalk();
+  stopTalkKey();
   retireReactions();
 }
 
@@ -1218,7 +1282,27 @@ function poll() {
 }
 let settle: ReturnType<typeof setTimeout> | undefined;
 
+/** Another WatchSync is running on this page: say so once, with the way to remove one. */
+function warnCopies() {
+  toast(
+    "Two copies of WatchSync are running in this Chrome, so they can fight over the film. Remove one at chrome://extensions.",
+    20_000,
+    { icon: "alert", tone: "warn" },
+    [
+      { label: "Open extensions", primary: true, run: () => post({ kind: "extensionsPage" }) },
+      { label: "Got it", run: () => {} },
+    ],
+  );
+}
+let stopCopies = () => {};
+
 if (provider) {
+  const unmark = announce(chrome.runtime.id);
+  const unwatch = watchCopies(chrome.runtime.id, isOwnOverlay, warnCopies);
+  stopCopies = () => {
+    unmark();
+    unwatch();
+  };
   poll(); // read the title first so the first report isn't "nothing open"
   connect();
   document.addEventListener("visibilitychange", wake);
