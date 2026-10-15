@@ -120,7 +120,12 @@ export type Push =
   /** Voice as the voice document last reported it (sent when it changes, and to a new port). */
   | { kind: "voice"; view: VoiceView }
   /** Talk was pressed in the popup or the chat frame: this tab's page acts on it (US-055). */
-  | { kind: "talk"; edge: Edge };
+  | { kind: "talk"; edge: Edge }
+  /**
+   * A friend is speaking (on: said every 250 ms), or voice ended (off): the tab playing the
+   * title lowers its film, or brings it back (US-058).
+   */
+  | { kind: "duck"; on: boolean };
 
 /**
  * The chat panel's frame (sidebar.html) → background, over its "sidebar" port. The first

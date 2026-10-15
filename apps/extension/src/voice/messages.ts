@@ -97,6 +97,8 @@ export type VoiceOut =
   | { kind: "signal"; to: string; signal: VoiceSignalBody }
   /** Ask for TURN credentials (the background owns the room token). */
   | { kind: "needIce" }
+  /** A friend is speaking, said every 250 ms while they do: the film lowers (US-058). */
+  | { kind: "duck" }
   /** What this Chrome was found to manage (DEC-037): the worker saves it. */
   | { kind: "found"; mode: MicMode }
   /** Chrome has not been asked yet, and an offscreen document can't ask: open the microphone page. */
@@ -155,7 +157,7 @@ export function isVoiceOut(v: unknown): v is VoiceOut {
   }
   if (kind === "probed") return Number.isInteger(field(v, "id"));
   if (kind === "found") return isMode(field(v, "mode"));
-  return kind === "needIce" || kind === "needPermission";
+  return kind === "needIce" || kind === "needPermission" || kind === "duck";
 }
 
 export function isVoiceIn(v: unknown): v is VoiceIn {

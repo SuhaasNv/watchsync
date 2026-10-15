@@ -9,6 +9,7 @@ describe("what the voice document may say", () => {
     expect(isVoiceOut({ kind: "hello", nonce: "n" })).toBe(false); // admitted by its address now
     expect(isVoiceOut({ kind: "view", view: NO_VOICE })).toBe(true);
     expect(isVoiceOut({ kind: "needPermission" })).toBe(true);
+    expect(isVoiceOut({ kind: "duck" })).toBe(true);
     expect(isVoiceOut({ kind: "found", mode: "open" })).toBe(true);
     expect(isVoiceOut({ kind: "found", mode: "loud" })).toBe(false);
     expect(isVoiceOut({ kind: "probed", id: 1, value: { a: 1 } })).toBe(true);

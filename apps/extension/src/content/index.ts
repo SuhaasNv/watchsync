@@ -32,6 +32,7 @@ import {
 } from "../shared/messages";
 import { watchTalkKey } from "../voice/keys";
 import { align } from "./align";
+import { DUCK_LEVEL_KEY, DUCK_ON_KEY, DUCK_SAVED_KEY, Ducker, duckFactor, isSaved } from "./duck";
 import { baseRate, type NudgeView, nudgeAvailable, nudgeDriftMs, startNudging } from "./nudge";
 import {
   CHAT_OFF,
@@ -126,9 +127,51 @@ chrome.storage.local
     roomNotices = noticesOn(got[NOTICES_KEY]);
   })
   .catch(() => {});
+/** The film dips while friends talk (US-058): the setting, and the dip itself. */
+let duckSetting: { on: unknown; level: unknown } = { on: true, level: "medium" };
+const ducker = provider
+  ? new Ducker({
+      service: provider.service,
+      video: () => provider.video(),
+      factor: () => duckFactor(duckSetting.on, duckSetting.level),
+      save: (saved) => chrome.storage.local.set({ [DUCK_SAVED_KEY]: saved }),
+      clear: () => chrome.storage.local.remove(DUCK_SAVED_KEY),
+      refused: () =>
+        toast(
+          `WatchSync can't change the volume on ${SERVICE_LABEL[provider.service]}, so the film stays at your volume while friends talk.`,
+          9000,
+          { icon: "alert", tone: "warn" },
+        ),
+    })
+  : null;
+chrome.storage.local
+  .get([DUCK_ON_KEY, DUCK_LEVEL_KEY, DUCK_SAVED_KEY])
+  .then((got) => {
+    duckSetting = { on: got[DUCK_ON_KEY], level: got[DUCK_LEVEL_KEY] };
+    // A dip that was never undone (Chrome or this tab closed in the middle of it): the level
+    // goes back before anything else.
+    const saved = got[DUCK_SAVED_KEY];
+    if (isSaved(saved) && saved.service === provider?.service) ducker?.repair(saved.baseline);
+  })
+  .catch(() => {});
+const onVolume = (e: Event) => ducker?.onVolumeChange(e.target);
+const onHide = () => ducker?.stop();
+document.addEventListener("volumechange", onVolume, true);
+window.addEventListener("pagehide", onHide);
+
 function onSetting(changes: Record<string, chrome.storage.StorageChange>, area: string) {
+  if (area !== "local") return;
   const change = changes[NOTICES_KEY];
-  if (area === "local" && change) roomNotices = noticesOn(change.newValue);
+  if (change) roomNotices = noticesOn(change.newValue);
+  const on = changes[DUCK_ON_KEY];
+  const level = changes[DUCK_LEVEL_KEY];
+  if (on || level) {
+    duckSetting = {
+      on: on ? on.newValue : duckSetting.on,
+      level: level ? level.newValue : duckSetting.level,
+    };
+    if (duckFactor(duckSetting.on, duckSetting.level) === null) ducker?.restore();
+  }
 }
 chrome.storage.onChanged.addListener(onSetting);
 
@@ -368,6 +411,7 @@ function onPush(m: Push) {
   if (m.kind === "chatFrameLost") return chatFrameLost(m.frame);
   if (m.kind === "voice") return talkView(m.view);
   if (m.kind === "talk") return press(m.edge);
+  if (m.kind === "duck") return m.on ? ducker?.beat() : ducker?.release();
   if (m.kind !== "state") return;
   noticeClosedShows(room, m.state);
   const wasConnected = room?.connection === "connected";
@@ -1071,6 +1115,9 @@ function retire() {
   document.removeEventListener("visibilitychange", wake);
   window.removeEventListener("focus", wake);
   chrome.storage.onChanged.removeListener(onSetting);
+  document.removeEventListener("volumechange", onVolume, true);
+  window.removeEventListener("pagehide", onHide);
+  ducker?.stop(); // the film goes back to the person's volume before this copy is cut off
   retireOverlay();
   retireSidebar();
   retireTalk();

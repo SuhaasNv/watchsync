@@ -1,6 +1,14 @@
 import type { Participant } from "@watchsync/protocol";
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  DUCK_FACTORS,
+  DUCK_LEVEL_KEY,
+  DUCK_ON_KEY,
+  type DuckLevel,
+  duckOn,
+  isDuckLevel,
+} from "../content/duck";
 import { ICONS, type IconName } from "../shared/icons";
 import {
   type AppState,
@@ -754,6 +762,74 @@ const MODE_HELP: Record<MicMode, string> = {
   ptt: "Hold Talk, or Alt+T, while you talk. Best on laptop speakers.",
 };
 
+const LEVELS: [DuckLevel, string][] = [
+  ["light", "Light"],
+  ["medium", "Medium"],
+  ["strong", "Strong"],
+];
+
+/** The film dips while friends talk (US-058): on or off, and how far. On unless turned off. */
+function FilmVolume() {
+  const [on, setOn] = useState(true);
+  const [level, setLevel] = useState<DuckLevel>("medium");
+  useEffect(() => {
+    chrome.storage.local
+      .get([DUCK_ON_KEY, DUCK_LEVEL_KEY])
+      .then((got) => {
+        setOn(duckOn(got[DUCK_ON_KEY]));
+        setLevel(isDuckLevel(got[DUCK_LEVEL_KEY]) ? got[DUCK_LEVEL_KEY] : "medium");
+      })
+      .catch(() => {});
+  }, []);
+  const save = (key: string, value: boolean | DuckLevel) =>
+    chrome.storage.local.set({ [key]: value }).catch(() => {});
+  const help = on
+    ? `The film drops to ${Math.round(DUCK_FACTORS[level] * 100)}% of your volume while someone talks, then comes back. Move the volume yourself and that becomes your level.`
+    : "The film stays at your volume while friends talk.";
+  return (
+    <fieldset className="field seg">
+      <legend className="label">Film volume</legend>
+      <label className="switch">
+        <input
+          type="checkbox"
+          role="switch"
+          aria-checked={on}
+          checked={on}
+          aria-describedby="duck-help"
+          onChange={(e) => {
+            setOn(e.target.checked);
+            save(DUCK_ON_KEY, e.target.checked);
+          }}
+        />
+        Lower the film while friends talk
+      </label>
+      {on && (
+        <div className="seg-row" role="radiogroup" aria-label="How far the film drops">
+          {LEVELS.map(([value, label]) => (
+            <label key={value} className={`seg-option ${level === value ? "on" : ""}`}>
+              <input
+                type="radio"
+                name="duck-level"
+                value={value}
+                checked={level === value}
+                aria-describedby="duck-help"
+                onChange={() => {
+                  setLevel(value);
+                  save(DUCK_LEVEL_KEY, value);
+                }}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="hint" id="duck-help">
+        {help}
+      </p>
+    </fieldset>
+  );
+}
+
 /** Voice settings (US-056): how the mic behaves. The default follows what this Chrome can do. */
 function VoiceSettings({ onBack }: { onBack: () => void }) {
   const [mode, setMode] = useState<MicMode>("ptt");
@@ -826,6 +902,7 @@ function VoiceSettings({ onBack }: { onBack: () => void }) {
             See your level move and hear a 3-second recording back. Nothing is sent.
           </p>
         </div>
+        <FilmVolume />
         <span className="grow" />
         <p className="hint">
           Your voice goes straight to the people in the room. WatchSync never records it and our

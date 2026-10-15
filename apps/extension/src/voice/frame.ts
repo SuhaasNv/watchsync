@@ -25,6 +25,8 @@ import { SpeakingDetector } from "./speaking";
 const ICE_WAIT_MS = 4000;
 /** Ask for credentials again this often; the background keeps them until shortly before they end. */
 const ICE_EVERY_MS = 30 * 60 * 1000;
+/** How often the film is told a friend is speaking; it lets go on its own if this stops. */
+const DUCK_EVERY_MS = 250;
 
 let port: chrome.runtime.Port | null = null;
 let mesh: P2PMesh | null = null;
@@ -84,6 +86,24 @@ function setSpeaking(id: string, on: boolean) {
   if (on) speaking.add(id);
   else speaking.delete(id);
   publish();
+  keepDucking();
+}
+
+/** While a friend speaks (never me), the film is told so every 250 ms (US-058). */
+let duckTimer: ReturnType<typeof setInterval> | undefined;
+const friendSpeaks = () => [...speaking].some((id) => id !== you);
+function keepDucking() {
+  if (!friendSpeaks()) {
+    clearInterval(duckTimer);
+    duckTimer = undefined;
+    return;
+  }
+  if (duckTimer !== undefined) return;
+  out({ kind: "duck" });
+  duckTimer = setInterval(
+    () => (friendSpeaks() ? out({ kind: "duck" }) : keepDucking()),
+    DUCK_EVERY_MS,
+  );
 }
 
 /** Plays (or stops playing) one person's voice. It never goes anywhere else. */
@@ -315,6 +335,8 @@ function leave() {
   mesh = null;
   releaseMic();
   for (const id of [...players.keys()]) play(id, null);
+  speaking.clear();
+  keepDucking();
 }
 
 window.addEventListener("pagehide", leave);

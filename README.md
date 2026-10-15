@@ -56,7 +56,7 @@ You install WatchSync from outside the Chrome Web Store, so Google hasn't review
 
 - **`storage`**: your name, and your room for up to 24 hours so you can rejoin after a restart.
 - **The room service at `join.watchsync.space`**: sends play, pause and the position to your room, and opens invite links.
-- **Netflix, Prime Video and JioHotstar pages** (`netflix.com`, `primevideo.com`, Amazon's `/gp/video/` pages, `jiohotstar.com`, `hotstar.com`): reads whether the video is playing, where it is and which title is open, applies play, pause and jumps from your room, and shows small notices on the player.
+- **Netflix, Prime Video and JioHotstar pages** (`netflix.com`, `primevideo.com`, Amazon's `/gp/video/` pages, `jiohotstar.com`, `hotstar.com`): reads whether the video is playing, where it is and which title is open, applies play, pause and jumps from your room, shows small notices on the player, and, while a friend is talking, lowers the player's volume the way your own volume slider would (on by default; turn it off on the popup's Voice page). It sets the volume number only: it never reads or processes the film's sound.
 - **`scripting`**: when WatchSync is installed or updated, adds its own packaged scripts to Netflix, Prime Video and JioHotstar tabs that are already open, so you don't have to reload them. Same sites as above, nothing else.
 - **`offscreen`**: voice runs in a hidden page that belongs to WatchSync, not to the streaming site, so the microphone is WatchSync's and Netflix, Prime Video and JioHotstar never see it. It is open only while you are in a room that offers voice, and it closes when you leave.
 - **GitHub's public API, at most once a day**, to see whether a newer version is out.

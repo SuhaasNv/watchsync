@@ -29,7 +29,7 @@ export let presenceTabId: number | undefined;
 let tabGone: ReturnType<typeof setTimeout> | undefined;
 
 export function sendPresence() {
-  voiceWatching(presence.media !== null); // voice runs while a tab is on a title
+  voiceWatching(presence.media !== null, presenceTabId); // voice runs while a tab is on a title
   sendServer(envelope("PRESENCE.UPDATE", { ...presence, following: state.following }));
 }
 

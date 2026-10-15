@@ -53,6 +53,8 @@ let wanted = false;
 let work: Promise<void> = Promise.resolve();
 /** One of this person's tabs is on a title: voice runs only while watching. */
 let watching = false;
+/** That tab: the film it plays is lowered while friends talk (US-058). */
+let filmTab: number | undefined;
 /** The tab that last pressed Talk: where the microphone page sends the person back to. */
 let askTab: number | undefined;
 /** Whether the document says this person's mic is open: what the room's row should read. */
@@ -179,8 +181,10 @@ function sync() {
 }
 
 /** One of this person's tabs is on a title, or none is (the presence changed). */
-export function voiceWatching(on: boolean) {
+export function voiceWatching(on: boolean, tab: number | undefined) {
   watching = on;
+  if (filmTab !== tab) toTab(filmTab, { kind: "duck", on: false }); // the old tab's film comes back
+  filmTab = tab;
   sync();
 }
 
@@ -210,6 +214,7 @@ export function voiceReset() {
   lastPeople = "";
   held = null;
   setView(NO_VOICE);
+  toTab(filmTab, { kind: "duck", on: false }); // the film comes back at once
   sync();
 }
 
@@ -233,6 +238,7 @@ export function admitVoiceDoc(port: chrome.runtime.Port) {
     if (doc !== port) return; // replaced by a newer document
     doc = null;
     lastPeople = "";
+    toTab(filmTab, { kind: "duck", on: false }); // no more words are coming
     setView(NO_VOICE);
     sendRow("off"); // the others close their connections to me
   });
@@ -256,6 +262,7 @@ function onDoc(m: unknown) {
     rowState = m.state;
     return sendRow(m.state);
   }
+  if (m.kind === "duck") return toTab(filmTab, { kind: "duck", on: true });
   if (m.kind === "needIce") return void sendIce().catch((e: unknown) => console.debug("ice", e));
   if (m.kind === "found")
     return void chrome.storage.local
