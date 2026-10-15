@@ -30,7 +30,7 @@ How it works
 4. Press play. Play, pause and skips reach everyone.
 
 Nobody gets left behind
-When someone's video stops for an ad or a slow connection, the room waits for them and says why ("Maya is on an ad, about 0:20 left"), then everyone starts again together.
+When someone's video stops for an ad or a slow connection, the room waits for them and says why ("Waiting for Maya's ad", with the time left underneath), then everyone starts again together.
 
 Also
 - Start with 3-2-1: a ready check, then a countdown. Pause everyone with one press.

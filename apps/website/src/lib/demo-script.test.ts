@@ -28,7 +28,7 @@ describe("stateAt", () => {
     expect(s.playing).toBe(false);
     expect(s.screens.maya.ad).toBe(6);
     expect(s.screens.sam.notice).toEqual({
-      text: "Maya is on an ad · about 0:06 left",
+      text: "Waiting for Maya's ad · about 0:06 left",
       kind: "wait",
     });
     expect(s.synced.maya).toBe(false);
