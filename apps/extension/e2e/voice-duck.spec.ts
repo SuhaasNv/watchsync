@@ -45,7 +45,7 @@ test("the film dips while a friend talks, then comes back, and the note is clear
   const { ext, hostTab, tab, friend } = await friendTalking();
   try {
     await allowAndTalk(tab);
-    await expect.poll(() => volume(hostTab), { timeout: 10_000 }).toBeLessThan(0.8 * 0.35 + 0.05);
+    await expect.poll(() => volume(hostTab), { timeout: 10_000 }).toBeLessThan(0.8 * 0.18 + 0.05);
     expect((await kept(ext)) ?? {}).toMatchObject({ baseline: 0.8, ducking: true });
     // The friend mutes: the film comes back to exactly the person's volume, and the note goes.
     await talk(tab).click();
@@ -143,11 +143,11 @@ test("the Voice page has the switch and the three strengths, with the words for 
       page.getByText(
         `The film drops to ${pct}% of your volume while someone talks, then comes back. Move the volume yourself and that becomes your level.`,
       );
-    await expect(help(35)).toBeVisible();
+    await expect(help(18)).toBeVisible();
     await page.getByRole("radio", { name: "Light" }).check();
-    await expect(help(60)).toBeVisible();
+    await expect(help(35)).toBeVisible();
     await page.getByRole("radio", { name: "Strong" }).check();
-    await expect(help(15)).toBeVisible();
+    await expect(help(8)).toBeVisible();
     expect(
       await page.evaluate(async () => (await chrome.storage.local.get("duckLevel")).duckLevel),
     ).toBe("strong");
