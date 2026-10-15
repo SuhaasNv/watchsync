@@ -8,7 +8,7 @@
 
 export type DuckLevel = "light" | "medium" | "strong";
 /** How much of the person's volume is left while someone talks. */
-export const DUCK_FACTORS: Record<DuckLevel, number> = { light: 0.6, medium: 0.35, strong: 0.15 };
+export const DUCK_FACTORS: Record<DuckLevel, number> = { light: 0.35, medium: 0.18, strong: 0.08 };
 export const isDuckLevel = (v: unknown): v is DuckLevel =>
   v === "light" || v === "medium" || v === "strong";
 

@@ -67,13 +67,13 @@ describe("the dip", () => {
   it("holds 0.6 s after the last word, then comes back over a second, and clears the note", async () => {
     const { film, env, duck } = setup(0.8);
     await talk(duck, 1000);
-    expect(film.volume).toBeCloseTo(0.28, 3); // still lowered while they talk
+    expect(film.volume).toBeCloseTo(0.144, 3); // still lowered while they talk
     // The last beat was 250 ms ago. Wait out the hold: the film is still down at 0.6 s.
     await vi.advanceTimersByTimeAsync(HOLD_MS - 250 - 50);
-    expect(film.volume).toBeCloseTo(0.28, 3);
+    expect(film.volume).toBeCloseTo(0.144, 3);
     // Part way up one second later, then fully back by 1.5 s after the last word.
     await vi.advanceTimersByTimeAsync(500);
-    expect(film.volume).toBeGreaterThan(0.28);
+    expect(film.volume).toBeGreaterThan(0.144);
     expect(film.volume).toBeLessThan(0.8);
     await vi.advanceTimersByTimeAsync(LEASE_MS);
     expect(film.volume).toBe(0.8);
@@ -94,10 +94,10 @@ describe("the dip", () => {
   it("uses the strength chosen", async () => {
     const strong = setup(1, duckFactor(true, "strong"));
     await talk(strong.duck, 500);
-    expect(strong.film.volume).toBeCloseTo(0.15, 2);
+    expect(strong.film.volume).toBeCloseTo(0.08, 2);
     const light = setup(1, duckFactor(true, "light"));
     await talk(light.duck, 500);
-    expect(light.film.volume).toBeCloseTo(0.6, 2);
+    expect(light.film.volume).toBeCloseTo(0.35, 2);
   });
 
   it("restores by the watchdog if the words stop and nothing else says so", async () => {
@@ -239,7 +239,7 @@ describe("the person's own volume", () => {
   it("a player replaced mid-dip gets the level, old and new", async () => {
     const { film, duck, swap } = setup(0.8);
     await talk(duck, 500);
-    const next: Player = { volume: 0.28, muted: false }; // the service kept the lowered level
+    const next: Player = { volume: 0.144, muted: false }; // the service kept the lowered level
     swap(next);
     await vi.advanceTimersByTimeAsync(100);
     expect(next.volume).toBe(0.8);
@@ -272,11 +272,11 @@ describe("a service that will not take a volume", () => {
 
 describe("repairs after a crash", () => {
   it("puts the saved level on the film once it exists, then clears the note", async () => {
-    const { film, env, duck, swap } = setup(0.28);
+    const { film, env, duck, swap } = setup(0.144);
     swap(null);
     duck.repair(0.8);
     await vi.advanceTimersByTimeAsync(1200);
-    expect(film.volume).toBe(0.28);
+    expect(film.volume).toBe(0.144);
     swap(film);
     await vi.advanceTimersByTimeAsync(600);
     expect(film.volume).toBe(0.8);
@@ -284,7 +284,7 @@ describe("repairs after a crash", () => {
   });
 
   it("repairs at once when the film is already there", async () => {
-    const { film, duck } = setup(0.28);
+    const { film, duck } = setup(0.144);
     duck.repair(0.8);
     expect(film.volume).toBe(0.8);
   });
@@ -309,10 +309,10 @@ describe("the saved note and the settings", () => {
   });
 
   it("is on and medium unless the person chose otherwise", () => {
-    expect(duckFactor(undefined, undefined)).toBe(0.35);
-    expect(duckFactor(true, "light")).toBe(0.6);
-    expect(duckFactor(true, "strong")).toBe(0.15);
-    expect(duckFactor(true, "loud")).toBe(0.35);
+    expect(duckFactor(undefined, undefined)).toBe(0.18);
+    expect(duckFactor(true, "light")).toBe(0.35);
+    expect(duckFactor(true, "strong")).toBe(0.08);
+    expect(duckFactor(true, "loud")).toBe(0.18);
     expect(duckFactor(false, "strong")).toBeNull();
   });
 });
