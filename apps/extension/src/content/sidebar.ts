@@ -178,6 +178,9 @@ function helloWithin(nonce: string, ms: number) {
 
 /** Focus into the frame's page; it then puts focus on its first control. */
 function focusFrame(f: HTMLIFrameElement) {
+  // With another WatchSync frame on the page (voice), Chrome leaves the frame unfocused when
+  // it is focused only once: letting go first makes the focus reach it.
+  f.blur();
   f.focus();
   f.contentWindow?.focus();
 }

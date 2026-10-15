@@ -19,6 +19,7 @@ import {
   tabTitles,
 } from "./tabs";
 import { checkForUpdate } from "./update-check";
+import { voiceFrames } from "./voice";
 
 checkForUpdate().catch(() => {});
 checkRules();
@@ -65,6 +66,7 @@ chrome.runtime.onMessage.addListener(onMessage);
 // Closing the tab: no need to wait out the 3 s page-load allowance below.
 chrome.tabs.onRemoved.addListener((tabId) => {
   chatFrames.forget(tabId);
+  voiceFrames.forget(tabId);
   tabTitles.delete(tabId);
   if (tabId === presenceTabId) presenceTabClosed();
 });

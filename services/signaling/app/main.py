@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import config, join_page, turn
 from .protocol import (
     LEVEL_V02,
+    LEVEL_V03,
     client_level,
     for_level,
     is_chat_text,
@@ -33,6 +34,7 @@ from .protocol import (
     is_server_message,
     message,
     now_ms,
+    sendable,
 )
 from .ratelimit import Limiter
 from .rooms import Participant, Room, RoomError, rooms, safe_media
@@ -87,6 +89,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 reaction_limiter,
                 turn_limiter,
                 turn_ip_limiter,
+                voice_limiter,
             )
             for limiter in (*limiters, failed_join_limiter, *chats):
                 limiter.prune()
@@ -165,6 +168,8 @@ reaction_limiter = Limiter(config.REACTIONS_PER_5S, 5)
 # TURN credentials (US-123): per participant, and per client address for everyone who asks.
 turn_limiter = Limiter(config.TURN_PER_MINUTE, 60)
 turn_ip_limiter = Limiter(config.TURN_IP_PER_MINUTE, 60)
+# Voice set-up and mute messages (US-055), per participant like chat.
+voice_limiter = Limiter(config.VOICE_PER_10S, 10)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
@@ -382,7 +387,7 @@ async def end_away_namesake(room: Room, new_id: str) -> None:
 
 async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:
     ws = sockets.get(p.id)
-    if ws is not None:
+    if ws is not None and sendable(type_, p.level):
         # A peer that just dropped must never break the sender's handler (BUG-010); the
         # peer's own handler cleans up after it. ASCII-only JSON: a lone surrogate from a
         # name or title can't be sent as UTF-8 and would silently drop the message.
@@ -535,6 +540,40 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         if room.participants.get(p.id) is p and reaction_limiter.allow(p.id):
             shown = {"fromId": p.id, "name": p.name, "emoji": payload["emoji"]}
             await broadcast(room, "REACTION.SHOW", shown | {"count": payload["count"]})
+    elif msg["type"] == "VOICE.STATE":
+        await voice_state(room, p, payload["state"])
+    elif msg["type"] == "VOICE.SIGNAL":
+        await voice_signal(room, p, payload)
+    elif msg["type"] == "VOICE.WANT" and p.level >= LEVEL_V03 and voice_limiter.allow(p.id):
+        await tell_to_update(room)
+
+
+async def voice_state(room: Room, p: Participant, state: str) -> None:
+    """Who is in voice, and whether their mic is open, for the room's rows (US-055, US-056).
+    Only v0.3+ clients; the room holds at most VOICE_MAX people in voice. The voice itself goes
+    between the browsers and never through here."""
+    if p.level < LEVEL_V03 or not voice_limiter.allow(p.id) or state == p.voice:
+        return
+    if p.voice == "off":
+        others = sum(1 for x in room.participants.values() if x is not p and x.voice != "off")
+        if others >= config.VOICE_MAX:
+            return
+    p.voice = state
+    await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
+
+
+async def voice_signal(room: Room, p: Participant, payload: dict[str, Any]) -> None:
+    """Pass a voice set-up message (an SDP or ICE candidates, which hold network addresses) to
+    one person, if both are in voice and the browsers can read it. Never read, kept or logged
+    (the protocol caps its size)."""
+    if p.level < LEVEL_V03 or p.voice == "off" or not voice_limiter.allow(p.id):
+        return
+    target = room.participants.get(payload["to"])
+    if target is None or target is p or not target.connected:
+        return
+    if target.level < LEVEL_V03 or target.voice == "off":
+        return
+    await send(target, "VOICE.SIGNAL", {"from": p.id, "signal": payload["signal"]})
 
 
 async def restore_room(
@@ -870,6 +909,9 @@ async def serve(
     room.empty_since = None
     await send(p, "ROOM.STATE", room.snapshot(p.id))
     await send(p, "CHAT.HISTORY", {"messages": list(room.chat)})
+    # Joined an older WatchSync into a room that already has voice: tell it how to get it.
+    if p.level == LEVEL_V02 and any(x.voice != "off" for x in room.participants.values()):
+        await tell_to_update(room)
     arrived = "rejoined" if p.rejoined else "joined"
     p.rejoined = False
     await broadcast(
@@ -923,6 +965,7 @@ async def serve(
             del sockets[p.id]
             message_limiter.forget(p.id)
             reaction_limiter.forget(p.id)
+            voice_limiter.forget(p.id)
             p.connected = False
             p.hold = None  # don't keep the room waiting for someone who's gone
             if not left:

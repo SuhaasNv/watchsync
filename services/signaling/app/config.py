@@ -88,3 +88,8 @@ WS_PER_IP = int(os.environ.get("WS_PER_IP", "20"))
 # A socket that sends nothing for this long is closed (the extension pings every 20 s), so a
 # socket held open and silent can't keep a room alive forever.
 WS_IDLE_SECONDS = float(os.environ.get("WS_IDLE_SECONDS", "120"))
+# Voice (US-055): people who can be in voice at once (a full mesh, so it stays small; the
+# extension offers it only up to the same number), and voice messages per person per 10
+# seconds (set-up messages and mute changes; the room service never sees voice itself).
+VOICE_MAX = int(os.environ.get("VOICE_MAX", "4"))
+VOICE_PER_10S = int(os.environ.get("VOICE_PER_10S", "50"))

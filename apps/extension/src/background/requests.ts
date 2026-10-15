@@ -9,11 +9,13 @@ import {
   nameProblem,
   type Reply,
   type Request,
+  type VoiceNonceRequest,
 } from "../shared/messages";
 import { api, retryNow, sendServer } from "./connection";
 import { endSession, ready, rejoin, startSession } from "./session";
 import { changed, shared, state } from "./state";
-import { chatFrames, openChat, sendPresence, serviceTabs } from "./tabs";
+import { chatFrames, openChat, sendPresence, serviceTabs, talk } from "./tabs";
+import { voiceFrames } from "./voice";
 
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).
@@ -73,6 +75,9 @@ async function handleNow(req: Request): Promise<Reply> {
       case "openChat":
         if (!(await openChat())) throw new Error("no_tab");
         break;
+      case "talk":
+        await talk(req.edge);
+        break;
     }
     changed();
     return { ok: true, state: shared() };
@@ -82,11 +87,17 @@ async function handleNow(req: Request): Promise<Reply> {
 }
 
 export function onMessage(
-  req: Request | ChatNonceRequest | ChatTabRequest,
+  req: Request | ChatNonceRequest | VoiceNonceRequest | ChatTabRequest,
   sender: chrome.runtime.MessageSender,
   reply: (response?: unknown) => void,
 ) {
   if (sender.id !== chrome.runtime.id) return false;
+  if (req.kind === "voiceNonce") {
+    // Likewise for the voice frame: only a tab's own content script gets its pass.
+    const nonce = voiceFrames.issue(sender);
+    reply((nonce ? { nonce } : null) satisfies ChatNonceReply);
+    return false;
+  }
   if (req.kind === "hasChatTab") {
     serviceTabs()
       .then((tabs) => reply(tabs.length > 0))

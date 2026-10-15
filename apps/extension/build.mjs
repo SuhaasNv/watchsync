@@ -68,12 +68,13 @@ const manifest = {
     },
     { matches: [`${api}/j/*`], js: ["join-page.js"], run_at: "document_idle" },
   ],
-  // The chat panel's frame (DEC-042), loadable only on the sites our content script runs on,
-  // and only through this session's dynamic address so pages can't probe for it. Chrome takes
-  // only whole origins here ("/*"); the background also serves a frame only with its pass.
+  // The chat panel's frame (DEC-042) and the voice frame (UC-021), loadable only on the sites
+  // our content script runs on, and only through this session's dynamic address so pages can't
+  // probe for them. Chrome takes only whole origins here ("/*"); the background also serves a
+  // frame only with its pass.
   web_accessible_resources: [
     {
-      resources: ["sidebar.html"],
+      resources: ["sidebar.html", "voice.html"],
       matches: [...new Set(serviceMatches.map((m) => `${new URL(m).origin}/*`))],
       use_dynamic_url: true,
     },
@@ -130,6 +131,7 @@ const builds = [
       "join-page": "src/content/join-page.ts",
       popup: "src/popup/main.tsx",
       sidebar: "src/sidebar/main.ts",
+      voice: "src/voice/frame.ts",
       welcome: "src/welcome/main.ts",
     },
     format: "iife",

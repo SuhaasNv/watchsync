@@ -33,6 +33,21 @@ test("a pass is only good in the tab it was issued to", () => {
   expect(frames.admit({ ...ourFrame, tab: { id: 8 } }, hello("n1"))).toBeNull();
 });
 
+test("the voice frame is served the same way, from voice.html only", () => {
+  const voice = new ChatFrames(
+    () => "v1",
+    () => 0,
+    "/voice.html",
+  );
+  voice.issue(contentScript);
+  const frame = { tab: { id: 7 }, frameId: 3, url: "chrome-extension://abcdef/voice.html#v1" };
+  // The chat page can't take the voice pass, nor the voice page the chat pass.
+  expect(voice.admit({ ...frame, url: FRAME }, hello("v1"))).toBeNull();
+  expect(voice.admit(frame, hello("v1"))).toBe("v1");
+  const chat = issued();
+  expect(chat.admit(frame, hello("n1"))).toBeNull();
+});
+
 test("the top frame, another page or another extension page can't use it", () => {
   const frames = issued();
   expect(frames.admit({ ...ourFrame, frameId: 0 }, hello("n1"))).toBeNull();

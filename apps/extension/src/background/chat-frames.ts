@@ -13,13 +13,17 @@ export interface FrameSender {
 /** An unused pass stops working after this long: a frame that never said hello leaves none. */
 export const PASS_MS = 10_000;
 
-/** One outstanding pass per tab; asking again replaces it. */
+/**
+ * One outstanding pass per tab; asking again replaces it. The voice frame (voice.html) is
+ * admitted the same way, with its own passes.
+ */
 export class ChatFrames {
   private readonly passes = new Map<number, { nonce: string; at: number }>();
 
   constructor(
     private readonly make: () => string = () => crypto.randomUUID(),
     private readonly now: () => number = Date.now,
+    private readonly page: string = "/sidebar.html",
   ) {}
 
   /** A pass for the frame the tab's content script (its top frame) is about to load. */
@@ -32,7 +36,7 @@ export class ChatFrames {
   }
 
   /**
-   * Our sidebar.html, in a frame (not the top) of the tab the pass was issued to, saying
+   * Our page (sidebar.html, or voice.html), in a frame (not the top) of the tab the pass was issued to, saying
    * hello with that pass within PASS_MS. A pass works once. Returns the pass it used.
    */
   admit(sender: FrameSender | undefined, hello: unknown): string | null {
@@ -40,7 +44,7 @@ export class ChatFrames {
     if (tabId === undefined || !sender?.frameId || !sender.url) return null;
     if (!isSidebarEvent(hello) || hello.kind !== "hello") return null;
     const url = new URL(sender.url);
-    if (url.protocol !== "chrome-extension:" || url.pathname !== "/sidebar.html") return null;
+    if (url.protocol !== "chrome-extension:" || url.pathname !== this.page) return null;
     const pass = this.passes.get(tabId);
     if (!pass || pass.nonce !== hello.nonce) return null;
     this.passes.delete(tabId);

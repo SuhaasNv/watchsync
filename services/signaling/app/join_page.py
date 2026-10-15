@@ -207,7 +207,7 @@ def not_found() -> str:
 
 
 PRIVACY = """  <h1>Privacy notice</h1>
-  <p>Last updated: 3 October 2026</p>
+  <p>Last updated: 15 October 2026</p>
   <p>WatchSync is a browser extension that keeps friends' video players in step. It is run by
     Suhaas Nv. Questions, requests and complaints about your data:
     <a href="mailto:suhaasnvs@gmail.com">suhaasnvs@gmail.com</a>.</p>
@@ -221,11 +221,14 @@ PRIVACY = """  <h1>Privacy notice</h1>
       showing an ad, to keep everyone in step and let the room wait for you.</li>
     <li>The chat messages you send in a room, so the people in your room can read them.</li>
     <li>The reactions you send, shown to your room for a moment and never stored.</li>
+    <li>Your voice, only if you press Talk and agree. WatchSync asks for your microphone then,
+      not before, and only people in your room hear it.</li>
     <li>Your IP address, held in memory only to stop abuse (rate limits).</li>
   </ul>
   <h2>What WatchSync does not collect</h2>
-  <p>No passwords or service account details, no viewing history, no video or audio, no
-    cookies, no analytics, no advertising.</p>
+  <p>No passwords or service account details, no viewing history, no video, no recordings of
+    your voice, no cookies, no analytics, no advertising. WatchSync never records, and never
+    listens to, the sound of what you are watching.</p>
   <h2>Who can see it</h2>
   <p>The people in your room see your name, which service and title you have open, and whether
     you are in sync, loading or on an ad. The room service runs on Railway in the United
@@ -233,9 +236,19 @@ PRIVACY = """  <h1>Privacy notice</h1>
   <p>Chat messages pass through the room service on their way to your room. People who join the
     room later can read the earlier messages. Chat is encrypted on its way to and from the room
     service, but it is not end-to-end encrypted.</p>
+  <p>Your voice goes straight from your browser to the browsers of the other people in your
+    room, encrypted. It does not pass through the room service, which is only used to pass on
+    the messages two browsers need to find each other (they contain network addresses); those
+    are not kept or logged. When a direct connection can't be made, your voice is relayed, still
+    encrypted, through Cloudflare's relay servers, which cannot hear it; Cloudflare sees your IP
+    address and that a relay was used. Your voice is never recorded or stored by WatchSync.</p>
   <p>Once a day the extension asks GitHub whether a newer version of WatchSync is out. GitHub
     sees that request like any visit to a web page, including your IP address; nothing about
     you or your room is sent with it.</p>
+  <p>Once a day the extension also asks watchsync.space for a small signed file of settings for
+    each streaming service, so a change to a service's page can be handled without a new
+    download. watchsync.space sees that request like any visit to a web page, including your IP
+    address; nothing about you or your room is sent with it.</p>
   <h2>How long it is kept</h2>
   <ul>
     <li>Rooms live in the service's memory only. When you leave a room, your entry is deleted
@@ -250,6 +263,9 @@ PRIVACY = """  <h1>Privacy notice</h1>
       the room ended.</li>
     <li>On your computer, Chrome keeps your name, and your last room for up to 24 hours so you
       can rejoin. Leaving the room or removing the extension deletes them.</li>
+    <li>Your voice is not kept anywhere. Whether you have allowed your microphone is remembered
+      by Chrome, for WatchSync and not for the streaming service; you can turn it off in
+      Chrome's settings at any time.</li>
   </ul>
   <h2>Your choices and rights</h2>
   <p>You can leave a room or remove the extension at any time. You can ask to see, correct or

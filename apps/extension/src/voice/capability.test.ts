@@ -1,6 +1,6 @@
 import { envelope, isServerMessage, type Participant } from "@watchsync/protocol";
 import { describe, expect, it } from "vitest";
-import { cannotTalk, updateToTalk, voiceAvailable } from "./capability";
+import { cannotTalk, updateToTalk, voiceAvailable, voiceOffer } from "./capability";
 
 const person = (name: string, extra: Partial<Participant> = {}): Participant => ({
   id: name,
@@ -67,6 +67,20 @@ describe("who can talk", () => {
   it("reads a missing canTalk as can't, so an older room service never offers a call", () => {
     expect(voiceAvailable(oldShape)).toBe(false);
     expect(cannotTalk(oldShape).map((p) => p.name)).toEqual(["Asha", "Ben"]);
+  });
+
+  it("offers voice for up to four people who are here, and says why not otherwise", () => {
+    const can = (name: string, extra: Partial<Participant> = {}) =>
+      person(name, { canTalk: true, ...extra });
+    const four = ["A", "B", "C", "D"].map((n) => can(n));
+    expect(voiceOffer(four)).toBe("ok");
+    expect(voiceOffer([...four, can("E")])).toBe("full");
+    // Someone away doesn't take a place, and doesn't block voice either.
+    expect(voiceOffer([...four, can("E", { connected: false })])).toBe("ok");
+    expect(voiceOffer([...four.slice(0, 2), person("Old")])).toBe("update");
+    expect(voiceOffer([...four.slice(0, 2), person("Old", { connected: false })])).toBe("ok");
+    // An old person wins over a crowd: they must update first.
+    expect(voiceOffer([...four, person("Old")])).toBe("update");
   });
 
   it("names who needs to update", () => {

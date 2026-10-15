@@ -59,8 +59,10 @@ You install WatchSync from outside the Chrome Web Store, so Google hasn't review
 - **Netflix, Prime Video and JioHotstar pages** (`netflix.com`, `primevideo.com`, Amazon's `/gp/video/` pages, `jiohotstar.com`, `hotstar.com`): reads whether the video is playing, where it is and which title is open, applies play, pause and jumps from your room, and shows small notices on the player.
 - **`scripting`**: when WatchSync is installed or updated, adds its own packaged scripts to Netflix, Prime Video and JioHotstar tabs that are already open, so you don't have to reload them. Same sites as above, nothing else.
 - **GitHub's public API, at most once a day**, to see whether a newer version is out.
+- **`watchsync.space`, at most once a day**, to fetch a small signed file of settings for each streaming service. That site sees your IP address, like any website you visit; nothing about you or your room is sent. The file holds page selectors and numbers only, nothing that runs.
+- **Your microphone, only after you press Talk and agree.** WatchSync asks for it from its own page, not from the streaming site. Your voice goes straight to the people in your room, browser to browser; when a direct connection can't be made it is relayed, still encrypted, through Cloudflare's relay servers, which can't hear it. It never passes through or is stored on the room service, and WatchSync never records it. No extra permission is needed for this.
 
-It never reads the picture, the sound or the rest of the page, never sees passwords, payments or browsing history, runs on no other site, loads no code from the internet, and has no analytics or ads.
+It never reads the picture, the film's sound or the rest of the page, never sees passwords, payments or browsing history, runs on no other site, loads no code from the internet, and has no analytics or ads.
 
 Each release zip is built by GitHub Actions from a tagged commit on `main` with the public [release workflow](.github/workflows/release.yml). The [release notes](https://github.com/SuhaasNv/watchsync/releases) name the commit, link to the build, and list the SHA-256 of every file (also in `SHA256SUMS.txt`). To check your download, compare it with the release's SHA-256:
 
@@ -75,7 +77,7 @@ The last command uses the [GitHub CLI](https://cli.github.com/) to check GitHub'
 
 ## Privacy
 
-WatchSync shares only what keeps you in sync: your name, the room, and whether you're playing or paused and where. It never reads the picture, records anything, or touches your account. Rooms live in memory and disappear soon after everyone leaves. Details: [privacy notice](https://watchsync.space/privacy/).
+WatchSync shares only what keeps you in sync: your name, the room, and whether you're playing or paused and where. If you press Talk, it also shares your voice, with the people in your room only: it goes straight between your browsers (relayed unreadably through Cloudflare when that fails), never through or onto our server, and it is never recorded. It never reads the picture, records anything, or touches your account. Rooms live in memory and disappear soon after everyone leaves. Once a day it checks GitHub for a newer version and watchsync.space for service settings; both see your IP address, like any website you visit. Details: [privacy notice](https://watchsync.space/privacy/).
 
 ## For developers
 

@@ -182,6 +182,9 @@ class Participant:
     # it was told to update for voice on this connection (main.tell_to_update).
     level: int = LEVEL_V02
     told_to_update: bool = False
+    # Where they are in voice: "off", "muted" or "live" (US-055). Only who is in it: the room
+    # service never carries or sees the voice itself.
+    voice: str = "off"
 
     def public(self) -> dict[str, Any]:
         return {
@@ -195,6 +198,7 @@ class Participant:
             "hold": self.hold,
             "adLeft": self.ad_left,
             "canTalk": self.level >= LEVEL_V03,  # cut for older clients (protocol.for_level)
+            "voice": self.voice,  # likewise
         }
 
 

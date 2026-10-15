@@ -3,12 +3,14 @@
 import type { Media, Service } from "@watchsync/protocol";
 import { type ClientMessageOf, envelope, isClientMessage } from "@watchsync/protocol";
 import { isTypedText } from "../shared/chat";
-import { isSidebarEvent, type Push, type TabEvent } from "../shared/messages";
+import { type Edge, isSidebarEvent, type Push, type TabEvent } from "../shared/messages";
+import { isTalkCmd } from "../voice/messages";
 import { ChatFrames } from "./chat-frames";
 import { chat, react, retryNow, sendServer } from "./connection";
 import { checkRules } from "./rules";
 import { ready } from "./session";
 import { changed, ports, push, shared, state } from "./state";
+import { admitVoiceFrame, talkEdge, voiceCommand, voiceTab, voiceView } from "./voice";
 
 // ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
 export let presence: { service: Service; media: Media | null } = { service: "none", media: null };
@@ -137,6 +139,7 @@ export function admitChatFrame(port: chrome.runtime.Port) {
         chat.onTabEvent(port, { kind: "chat", text: m.text, clientId: m.clientId, ...myTime() });
       if (m.kind === "react") react(m.emoji, m.count, port);
       if (m.kind === "typing") toTab(port.sender?.tab?.id, { kind: "chatTyping", on: m.on });
+      if (m.kind === "talk") talkEdge(m.edge, port.sender?.tab?.id);
     });
     ready.then(() => {
       port.postMessage({ kind: "state", state: shared() } satisfies Push);
@@ -149,6 +152,7 @@ export function admitChatFrame(port: chrome.runtime.Port) {
 export function onConnect(port: chrome.runtime.Port) {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   if (port.name === "sidebar") return admitChatFrame(port);
+  if (port.name === "voice") return admitVoiceFrame(port);
   if (port.name === "popup") checkRules(); // the daily rules check also runs when the popup opens
   ports.add(port);
   retryNow();
@@ -198,6 +202,11 @@ export function onConnect(port: chrome.runtime.Port) {
         return changed();
       }
       if (e.kind === "react") return react(e.emoji, e.count, port);
+      if (e.kind === "voice") return isTalkCmd(e.cmd) ? voiceCommand(e.cmd) : undefined;
+      if (e.kind === "voiceWant") {
+        const msg = envelope<ClientMessageOf<"VOICE.WANT">>("VOICE.WANT", {});
+        return isClientMessage(msg) ? sendServer(msg) : undefined;
+      }
       if (e.kind === "chatType") {
         // From this tab's content script to this tab's chat frames, and only if it is text.
         if (isTypedText(e.text))
@@ -216,5 +225,18 @@ export function onConnect(port: chrome.runtime.Port) {
       presence = { service: e.service, media: e.media };
       sendPresence();
     });
-  ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));
+  ready.then(() => {
+    port.postMessage({ kind: "state", state: shared() } satisfies Push);
+    port.postMessage({ kind: "voice", view: voiceView() } satisfies Push);
+  });
+}
+
+/**
+ * The Talk key or button in the popup: the tab hosting voice acts on it, else the best service
+ * tab (to say why voice isn't running). Error "no_tab" when no service tab is open.
+ */
+export async function talk(edge: Edge) {
+  const tab = voiceTab() ?? (await serviceTabs())[0]?.id;
+  if (tab === undefined) throw new Error("no_tab");
+  talkEdge(edge, tab);
 }
