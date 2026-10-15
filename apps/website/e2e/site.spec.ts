@@ -57,7 +57,7 @@ test.describe("reduced motion", () => {
     await page.getByRole("button", { name: /^Step 5:/ }).click();
     await expect(page.locator("[data-caption]")).toHaveText(/Maya gets an ad/);
     await expect(page.locator('[data-screen="sam"] [data-notice]')).toHaveText(
-      "Maya is on an ad · about 0:06 left",
+      "Waiting for Maya's ad · about 0:06 left",
     );
     expect(await audit(page)).toEqual([]);
     await page.screenshot({ path: "screenshots/home-1280-reduced.png" });

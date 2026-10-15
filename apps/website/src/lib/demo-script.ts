@@ -137,7 +137,7 @@ export function stateAt(t: number): DemoState {
         else screens[e.by].loading = true;
         const text =
           e.reason === "ad"
-            ? `${NAMES[e.by]} is on an ad · about ${clock(left)} left`
+            ? `Waiting for ${NAMES[e.by]}'s ad · about ${clock(left)} left`
             : `Waiting for ${NAMES[e.by]} to load`;
         for (const w of others(e.by)) screens[w].notice = { text, kind: "wait" };
       } else {

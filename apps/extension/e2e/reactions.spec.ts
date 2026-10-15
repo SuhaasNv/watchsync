@@ -17,6 +17,27 @@ const lastFrames = (tab: Page) =>
     return effect instanceof KeyframeEffect ? JSON.stringify(effect.getKeyframes()) : "";
   });
 
+/**
+ * Counts emojis as they are put on screen, so a test never depends on several being up at the
+ * same instant (a loaded machine can let the first float away first). The five nodes are reused,
+ * so each float shows up as one childList change on its node: the glyph, plus the name chip on
+ * the first of a burst.
+ */
+const watchFloats = (tab: Page) =>
+  tab.evaluate(() => {
+    const root = document.querySelector("watchsync-reactions")?.shadowRoot;
+    const seen = { emojis: [] as string[], names: [] as string[] };
+    new MutationObserver((records) => {
+      for (const rec of records)
+        for (const n of rec.addedNodes)
+          if (n instanceof HTMLElement)
+            (n.className === "n" ? seen.names : seen.emojis).push(n.textContent ?? "");
+    }).observe(root?.querySelector(".layer") ?? document, { childList: true, subtree: true });
+    Object.assign(window, { seen });
+  });
+const floated = (tab: Page) =>
+  tab.evaluate(() => (window as unknown as { seen: { emojis: string[]; names: string[] } }).seen);
+
 test("a burst floats as separate emojis with the name on the first; reduced motion stays still", async ({
   ext,
 }) => {
@@ -26,12 +47,16 @@ test("a burst floats as separate emojis with the name on the first; reduced moti
   await hostTab.getByRole("button", { name: /^Open chat/ }).click();
   await expect(reaction(hostTab, "Laugh")).toHaveAttribute("title", "Laugh");
 
+  for (const tab of [friendTab, hostTab]) await watchFloats(tab);
   await reaction(hostTab, "Laugh").click({ clickCount: 3 }); // three taps within 250 ms
   for (const tab of [friendTab, hostTab]) {
-    await expect(layer(tab).getByText("Suhaas")).toBeVisible({ timeout: 1000 });
-    // Three emojis, not one.
-    await expect(layer(tab).locator(".r:not([hidden])")).toHaveCount(3, { timeout: 1000 });
-    await expect(layer(tab).locator(".r:not([hidden]) .n")).toHaveCount(1); // the name once
+    // Three separate emojis, not one, and the name once.
+    await expect
+      .poll(() => floated(tab), { timeout: 5000 })
+      .toEqual({
+        emojis: ["😂", "😂", "😂"],
+        names: ["Suhaas"],
+      });
     await expect(layer(tab).getByText("×3")).toHaveCount(0); // no badge
   }
   const frames = await lastFrames(friendTab);
@@ -45,6 +70,7 @@ test("a burst floats as separate emojis with the name on the first; reduced moti
   );
   // Each goes at its own time, all within about 4.5 s.
   await expect(layer(friendTab).locator(".r:not([hidden])")).toHaveCount(0, { timeout: 5000 });
+  for (const tab of [friendTab, hostTab]) expect((await floated(tab)).emojis).toHaveLength(3); // no fourth
 
   // Many taps never put more than five on screen.
   const most = friendTab.evaluate(
