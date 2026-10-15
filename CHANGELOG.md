@@ -8,7 +8,10 @@ Talk Together: free voice while you watch, and the room stays together through a
 - A fix for a streaming service's changed player can now reach you the same day, without a new download. WatchSync checks a small signed file on watchsync.space once a day (the file holds page selectors and numbers only, nothing that runs); if it is missing, old or fails its check, WatchSync keeps using the rules it shipped with. Needs Chrome 137 or newer; older versions keep the built-in rules.
 - Rooms work across versions: a friend still on v0.1 or v0.2 keeps syncing (and chatting, on v0.2) in a room with v0.3 friends, with no update needed to watch together. The room service sends each version only what it understands.
 
+- On Netflix with ads, the room waits while a friend watches an ad and says whose: "Waiting for Asha's ad". When the ad ends, everyone continues together. If WatchSync isn't sure it is an ad, the room waits as it does for a slow connection and never says "ad".
+
 ### Changed
+- The ad notice reads "Waiting for Asha's ad" (two or more: "Waiting for ads to finish"), with the time left on the line below.
 - The "new version" notice in the popup no longer points to the Chrome Web Store: WatchSync installs from the zip.
 
 ## [0.2.1] - 2026-10-06

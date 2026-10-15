@@ -19,7 +19,9 @@ export interface RulesState {
 
 /** The rules the adapters use now: the stored file while it is in date, else the bundled ones. */
 export function activeRules(file: RulesFile | null, now: number): Rules {
-  return file && now < expiresAt(file) ? file.rules : BUNDLED_RULES;
+  if (!file || now >= expiresAt(file)) return BUNDLED_RULES;
+  const { netflix } = file.rules;
+  return { ...file.rules, netflix: { ...netflix, ad: netflix.ad ?? BUNDLED_RULES.netflix.ad } };
 }
 
 /** A stored value from chrome.storage, checked again like anything that crosses a boundary. */

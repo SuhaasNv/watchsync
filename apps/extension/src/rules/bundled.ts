@@ -7,7 +7,15 @@ export const BUNDLED_SEQ = 0;
 
 export const BUNDLED_RULES: Rules = {
   filmMinSec: 300,
-  netflix: { titleSelector: '[data-uia="video-title"]', driftToleranceSec: 0.15 },
+  netflix: {
+    titleSelector: '[data-uia="video-title"]',
+    driftToleranceSec: 0.15,
+    // The ad badge ("Ad" and a countdown) that exists only while an ad plays (UC-048).
+    ad: {
+      containerSelector: '[data-uia="ads-info-container"]',
+      timeSelector: '[data-uia="ads-info-time"]',
+    },
+  },
   prime: {
     titleSelectors: [".atvwebplayersdk-title-text", '[data-automation-id="title"]'],
     episodeSelector: ".atvwebplayersdk-subtitle-text",

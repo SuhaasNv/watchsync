@@ -49,7 +49,6 @@ import {
 import {
   apply,
   cancelSettle,
-  clock,
   coalesce,
   correctQuietly,
   hold,
@@ -80,6 +79,7 @@ import {
   showSidebar,
   toggleSidebar,
 } from "./sidebar";
+import { type Waiting, waitCopy } from "./wait-copy";
 
 const provider = providerFor(location.host);
 // The stored service rules (signed, checked by the background) replace the bundled ones as soon
@@ -798,16 +798,14 @@ function drawWait() {
     return;
   }
   waitShownAt ||= Date.now();
-  const left = who.adLeft ? ` · about ${clock(who.adLeft)} left` : "";
-  const text =
-    who.hold === "ad" ? `${who.name} is on an ad${left}` : `Waiting for ${who.name} to load`;
   const late = Date.now() - waitShownAt > WAIT_CHOICE_MS;
   const key = late ? "wait-late" : "wait";
-  const detail = late
-    ? `This is taking a while. Play on now and ${who.name} can catch up later.`
-    : who.hold === "ad"
-      ? "Paused for everyone until the ad ends."
-      : `Paused for everyone until ${who.name} catches up.`;
+  const asWaiting = (p: typeof who): Waiting => ({
+    name: p.name,
+    hold: p.hold === "ad" ? "ad" : "buffering",
+    adLeft: p.adLeft,
+  });
+  const { text, detail } = waitCopy([asWaiting(who), ...waiting.slice(1).map(asWaiting)], late);
   if (key !== waitKey) clearPrompt(waitKey);
   waitKey = key;
   prompt(

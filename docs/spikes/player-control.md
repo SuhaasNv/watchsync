@@ -40,6 +40,11 @@ Confirm:
 - [ ] Next episode (autoplay and the Next button) changes the URL ID.
 - [ ] Ad-supported plan: note what the `<video>` element reports during an ad break.
 
+Ads (UC-048, US-126). Not yet seen first-hand: the evidence is from others' live recordings. Netflix stitches ads into the film's own `<video>`: the film is not paused and no second video plays, so the "short video next to a paused film" guess does not apply. Two signals, in order:
+1. Player API, read by the bridge (`src/page/netflix-ad.ts`): `player.getAdManager().adPresenting._value` (boolean). Recorded live on web UI `shakti-v877494c4`, 7 Sep 2026, by `benjismith/multicap` (`docs/phase0-findings.md`).
+2. Page badge: `[data-uia="ads-info-container"]` exists exactly while an ad plays, holding `ads-info-text` ("Ad") and `ads-info-time` (the countdown). Same source; the container alone also in `aritropaul/adblocky` ("live DOM inspection", 28 Mar 2026). `pause-ad-*` markers are the pause-screen ad, not an ad break, and are ignored.
+The two selectors are in the rules data (`netflix.ad`). Confident = the flag says so, or (no flag) a shown badge with a parseable countdown. Anything weaker (badge with no countdown, flag and badge disagree) is "unsure": the room waits as for buffering and never says "ad". Netflix's logged-out pages carry no player or ad code (inspected with REA, no login). A real capture is still to be taken: during an ad, copy the outer HTML of `.watch-video` (DevTools, Elements) and, in the console, `netflix.appContext.state.playerApp.getAPI().videoPlayer` then `getVideoPlayerBySessionId(<the watch- id>).getAdManager().adPresenting._value`.
+
 ## Prime Video
 
 | | Method |

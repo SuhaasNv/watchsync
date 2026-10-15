@@ -1,6 +1,8 @@
 // Runs in Netflix's page context (MAIN world) because the player API lives on window.netflix.
 // Takes commands from the content script over CustomEvents; reports success or failure, and
-// for "title" the name of what's playing (the page shows it only with the controls, BUG-025).
+// for "title" the name of what's playing (the page shows it only with the controls, BUG-025),
+// for "ad" whether the player says an ad is showing (UC-048).
+import { adPresenting } from "./netflix-ad";
 import { type NetflixMetadata, netflixTitle } from "./netflix-title";
 
 interface NetflixPlayer {
@@ -40,7 +42,9 @@ function player(): NetflixPlayer | null {
   try {
     const vp = (window as NetflixWindow).netflix?.appContext?.state?.playerApp?.getAPI?.()
       .videoPlayer;
-    const id = vp?.getAllPlayerSessionIds()[0];
+    const ids = vp?.getAllPlayerSessionIds() ?? [];
+    // The film's session is named "watch-…"; previews and billboards have other names.
+    const id = ids.find((i) => /^watch/i.test(i)) ?? ids[0];
     return (id && vp?.getVideoPlayerBySessionId(id)) || null;
   } catch {
     return null;
@@ -71,6 +75,15 @@ document.addEventListener("watchsync:netflix-command", (e) => {
     return;
   }
   const p = player();
+  if (cmd.action === "ad") {
+    const ad = adPresenting(p);
+    document.dispatchEvent(
+      new CustomEvent("watchsync:netflix-result", {
+        detail: JSON.stringify({ id: cmd.id, ok: ad !== null, ad }),
+      }),
+    );
+    return;
+  }
   let ok = true;
   if (p && cmd.action === "play") p.play();
   else if (p && cmd.action === "pause") p.pause();

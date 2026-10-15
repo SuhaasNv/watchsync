@@ -58,11 +58,15 @@ Selectors, numbers, nothing else. This is the full list:
 | `filmMinSec` | number, 30 to 3600 | Videos longer than this are the film, shorter ones trailers or ads |
 | `netflix.titleSelector` | selector | Where the title overlay is |
 | `netflix.driftToleranceSec` | number, 0.05 to 5 | Drift the sync check ignores |
+| `netflix.ad.containerSelector` | selector, optional group | The ad badge Netflix draws only while an ad plays |
+| `netflix.ad.timeSelector` | selector, optional group | The countdown inside that badge |
 | `prime.titleSelectors` | 1 to 8 selectors | Where the show's name is |
 | `prime.episodeSelector` | selector | Where the episode name is |
 | `prime.adTimerSelector` | selector | The ad countdown |
 | `prime.driftToleranceSec` | number, 0.05 to 5 | As above |
 | `jiohotstar.driftToleranceSec` | number, 0.05 to 5 | As above |
+
+`netflix.ad` (UC-048) may be left out of a file, so files signed before it existed stay valid; the bundled selectors then apply. Present, it must hold both selectors and nothing else.
 
 A selector is 1 to 200 characters of letters, digits, spaces and `. # [ ] = " ' - : > , * ( ) ~ + ^ $ | _`. It
 cannot contain `/`, `{`, `}`, `;` or `\`, so it cannot be a URL, a CSS block or an escape
