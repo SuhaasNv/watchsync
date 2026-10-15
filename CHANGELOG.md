@@ -4,6 +4,9 @@
 
 Talk Together: free voice while you watch, and the room stays together through ads.
 
+### Added
+- A fix for a streaming service's changed player can now reach you the same day, without a new download. WatchSync checks a small signed file on watchsync.space once a day (the file holds page selectors and numbers only, nothing that runs); if it is missing, old or fails its check, WatchSync keeps using the rules it shipped with. Needs Chrome 137 or newer; older versions keep the built-in rules.
+
 ### Changed
 - The "new version" notice in the popup no longer points to the Chrome Web Store: WatchSync installs from the zip.
 

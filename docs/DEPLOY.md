@@ -121,7 +121,7 @@ If the workflow fails after it created the release, re-run it: it uploads the fi
 The marketing site and downloads page (`apps/website`, a static Astro build) run as a second Railway service in the same project.
 
 - Image: `Dockerfile.website`, built from the repo root. It installs the workspace with pnpm, runs `pnpm --filter @watchsync/website build`, and serves `apps/website/dist` with Caddy as a non-root user.
-- Caddy's config is `apps/website/Caddyfile`: zstd/gzip, long immutable caching for `/_astro/*` and five minutes for everything else, security headers on every response (CSP allowing self, Google Fonts and `api.github.com`; HSTS; nosniff; `frame-ancestors 'none'`), and `/404.html` for missing pages.
+- Caddy's config is `apps/website/Caddyfile`: zstd/gzip, long immutable caching for `/_astro/*` and five minutes for everything else, security headers on every response (CSP allowing self, Google Fonts and `api.github.com`; HSTS; nosniff; `frame-ancestors 'none'`), and `/404.html` for missing pages. `/rules/*` (the signed service rules the extension reads, see `docs/RULES-SECURITY.md`) also carries `Access-Control-Allow-Origin: *`, so the extension needs no host permission for it; a change to `apps/website/public/rules/` is a website deploy.
 - The CSP allows scripts only from the site's own files. Keep Astro from inlining scripts (for example `vite: { build: { assetsInlineLimit: 0 } }`), or an inlined script is blocked.
 - `.dockerignore` is shared by both images, so it is an allowlist of what either Dockerfile copies. Add a path there when a Dockerfile starts copying it.
 
