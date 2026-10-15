@@ -638,11 +638,29 @@ function TalkRow({ state, voice }: { state: AppState; voice: VoiceView }) {
 function OpenChat({ shortcut, unread }: { shortcut: string | null; unread: number }) {
   const [hasTab, setHasTab] = useState<boolean | null>(null);
   useEffect(() => {
-    const ask: ChatTabRequest = { kind: "hasChatTab" };
-    chrome.runtime
-      .sendMessage(ask)
-      .then((r: unknown) => setHasTab(r === true))
-      .catch(() => setHasTab(false));
+    let live = true;
+    // Asked again whenever tabs change, so a service tab opened or closed while the popup
+    // is up is noticed.
+    const check = () => {
+      const ask: ChatTabRequest = { kind: "hasChatTab" };
+      chrome.runtime
+        .sendMessage(ask)
+        .then((r: unknown) => live && setHasTab(r === true))
+        .catch(() => live && setHasTab(false));
+    };
+    const loaded = (_id: number, info: chrome.tabs.OnUpdatedInfo) => {
+      if (info.status === "complete") check();
+    };
+    check();
+    chrome.tabs.onUpdated.addListener(loaded);
+    chrome.tabs.onRemoved.addListener(check);
+    chrome.tabs.onActivated.addListener(check);
+    return () => {
+      live = false;
+      chrome.tabs.onUpdated.removeListener(loaded);
+      chrome.tabs.onRemoved.removeListener(check);
+      chrome.tabs.onActivated.removeListener(check);
+    };
   }, []);
   const open = async () => {
     const r = await send({ kind: "openChat" });

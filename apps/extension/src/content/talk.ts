@@ -228,6 +228,11 @@ function checkFailures() {
 
 const cmd = (c: TalkCmd) => post({ kind: "voice", cmd: c });
 
+function markSheetSeen() {
+  sheetSeen = true;
+  chrome.storage.local.set({ [SHEET_KEY]: true }).catch(() => {});
+}
+
 /**
  * Asks first; Chrome's question comes only after "Allow and talk", from a WatchSync page that
  * opens in a new tab (so the permission is WatchSync's, never the streaming site's) and sends
@@ -239,13 +244,18 @@ function askFirst() {
     text: "Chrome will ask to let WatchSync use your microphone, in a new tab that brings you back here. WatchSync only sends your voice to people in this room, never to our server.",
     actions: [
       { label: "Not now", run: () => {} },
-      { label: "Test mic first", run: () => post({ kind: "micTest" }) },
+      {
+        label: "Test mic first",
+        run: () => {
+          markSheetSeen();
+          post({ kind: "micTest" });
+        },
+      },
       {
         label: "Allow and talk",
         primary: true,
         run: () => {
-          sheetSeen = true;
-          chrome.storage.local.set({ [SHEET_KEY]: true }).catch(() => {});
+          markSheetSeen();
           cmd("enable");
         },
       },
