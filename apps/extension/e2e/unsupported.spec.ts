@@ -55,6 +55,7 @@ test("saying so asks for no new permission (US-052)", () => {
   const manifest = JSON.parse(
     readFileSync(path.resolve(import.meta.dirname, "../dist/manifest.json"), "utf8"),
   );
-  expect(manifest.permissions).toEqual(["storage", "scripting"]);
+  // "offscreen" is voice's (US-055); saying "unsupported" adds none of its own.
+  expect(manifest.permissions).toEqual(["storage", "scripting", "offscreen"]);
   expect(manifest.host_permissions).toEqual(["http://localhost:8000/*"]);
 });
