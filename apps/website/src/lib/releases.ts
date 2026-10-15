@@ -92,7 +92,7 @@ export function checksumFor(body: string, file: string): string | null {
   return null;
 }
 
-export function isCandidate(tag: string): boolean {
+function isCandidate(tag: string): boolean {
   return /-rc/i.test(tag);
 }
 

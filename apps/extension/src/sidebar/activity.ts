@@ -13,9 +13,9 @@ export interface ActivityItem {
 }
 
 /** A leave and a return within this long show as one line. */
-export const MERGE_MS = 120_000;
+const MERGE_MS = 120_000;
 /** Lines kept; the oldest go first. */
-export const KEEP = 200;
+const KEEP = 200;
 
 export interface RoomView {
   you: string | null;

@@ -6,7 +6,7 @@ import { svgIcon } from "../shared/icons";
 import { initialOf, toneOf } from "../shared/people";
 
 /** Messages from one person this close together share one header. */
-export const GROUP_MS = 120_000;
+const GROUP_MS = 120_000;
 
 /** A movie time as the player shows it: 42:10, or 1:42:10 past the first hour. */
 export function movieClock(seconds: number): string {
@@ -109,7 +109,7 @@ const clock = new Intl.DateTimeFormat(undefined, {
 });
 
 /** The wall-clock time a message was sent ("21:04"). */
-export function clockOf(serverTime: number): string {
+function clockOf(serverTime: number): string {
   return clock.format(serverTime);
 }
 

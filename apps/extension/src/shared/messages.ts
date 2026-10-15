@@ -275,7 +275,7 @@ export function nameProblem(raw: string): string | null {
  * The product's own name, in any case, width or spacing (compared after NFKC), so nobody can
  * pose as WatchSync. The room service refuses the same names (app/protocol.py).
  */
-export const isReservedName = (name: string): boolean =>
+const isReservedName = (name: string): boolean =>
   name.normalize("NFKC").toLowerCase().replace(/\s/g, "") === "watchsync";
 
 /** The room code in what someone typed or pasted: a code, a spaced code or an invite link. */

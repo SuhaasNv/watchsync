@@ -26,7 +26,7 @@ type Event =
   | { at: number; kind: "seek"; by: Who; to: number }
   | { at: number; kind: "hold"; by: Who; reason: "ad" | "loading"; until: number };
 
-export const EVENTS: Event[] = [
+const EVENTS: Event[] = [
   { at: 3.4, kind: "pause", by: "maya" },
   { at: 6.8, kind: "play", by: "sam" },
   { at: 10.6, kind: "seek", by: "leo", to: 2530 },

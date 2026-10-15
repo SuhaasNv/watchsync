@@ -11,15 +11,14 @@ export const REACTIONS: readonly { emoji: Emoji; name: string }[] = [
   { emoji: "👏", name: "Clap" },
 ];
 
-export const reactionName = (emoji: Emoji): string =>
-  REACTIONS.find((r) => r.emoji === emoji)?.name ?? "";
+const reactionName = (emoji: Emoji): string => REACTIONS.find((r) => r.emoji === emoji)?.name ?? "";
 
 export function isEmoji(v: unknown): v is Emoji {
   return REACTIONS.some((r) => r.emoji === v);
 }
 
 /** Taps on the same reaction within this long go out as one send with a count (US-045). */
-export const BURST_MS = 250;
+const BURST_MS = 250;
 export const MAX_COUNT = 5;
 /** Matches the room service's REACTIONS_PER_5S (US-046). */
 export const REACTIONS_PER_5S = 8;

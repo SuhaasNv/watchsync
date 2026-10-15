@@ -4,7 +4,7 @@
 /** The room service is restarting (a deploy, US-121): it closes with 4002, uvicorn with 1012. */
 export const RESTARTING = new Set([4002, 1012]);
 /** How long a restart may look like a short blip before the normal messages return. */
-export const UPDATE_GRACE_MS = 60_000;
+const UPDATE_GRACE_MS = 60_000;
 
 /** 1, 2, 4, 8, then every 10 s, x1.0 to 1.3 so a room's clients don't all retry at once. */
 export const backoff = (n: number, random = Math.random) =>
