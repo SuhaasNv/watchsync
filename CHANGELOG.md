@@ -10,6 +10,7 @@ Talk Together: free voice while you watch, and the room stays together through a
 - On Netflix with ads, the room waits while a friend watches an ad and says whose: "Waiting for Asha's ad". When the ad ends, everyone continues together. If WatchSync isn't sure it is an ad, the room waits as it does for a slow connection and never says "ad".
 - On Prime Video, an ad holds the room the same way and names whose it is. If Prime changes the ad countdown's markup, a rules file can fix it without a new download.
 - In a room on a site WatchSync doesn't work on, the popup says "This site isn't supported yet" and lists Netflix, Prime Video and JioHotstar. Your room carries on in its own tab, chat included. WatchSync asks for no new permission to tell.
+- If you and a friend are on different services, you both see "Alex is on Prime Video, you're on Netflix. Sync works only on the same title." Nothing is synced across services, so one person's play, pause or jump never moves the other's player. The line goes when you are on the same service again.
 
 ### Changed
 - The ad notice reads "Waiting for Asha's ad" (two or more: "Waiting for ads to finish"), with the time left on the line below.

@@ -21,6 +21,7 @@ import {
   noticesOn,
   playedText,
   rejoinedText,
+  serviceText,
 } from "../shared/activity";
 import {
   type AppState,
@@ -93,6 +94,12 @@ let port: chrome.runtime.Port | null = null;
 let room: AppState | null = null;
 let mine: Media | null = null;
 let roomMedia: Media | null = null;
+
+/**
+ * False when the room's title is on another service than this tab (US-053). A title ID alone
+ * can repeat across services, so then nothing is synced, in either direction.
+ */
+const sameService = () => !room?.media || !mine || room.media.service === mine.service;
 let dismissed: string | null = null;
 /** Who last moved the room's clock, so drift can say whose position it is. */
 let lastActor: { id: string; name: string } | null = null;
@@ -136,6 +143,8 @@ function roomNotice(...args: Parameters<typeof toast>) {
 }
 
 function post(event: TabEvent) {
+  // This tab's moves are the room's only when it is on the room's service (US-053).
+  if ((event.kind === "playback" || event.kind === "start") && !sameService()) return;
   port?.postMessage(event);
 }
 
@@ -269,7 +278,7 @@ function onPush(m: Push) {
     const { playback, action, byId, byName } = m.message.payload;
     lastActor = { id: byId, name: byName };
     cancelSettle(); // the room moved: whatever the last seek was settling toward is stale
-    if (!provider || !mine || playback.titleId !== mine.titleId) return;
+    if (!provider || !mine || playback.titleId !== mine.titleId || !sameService()) return;
     if (!room?.following) return; // watching on my own (US-027)
     if (isLive()) return; // live streams aren't synced in v0.1 (US-032)
     if (holdReason) return; // my own buffering or ad; I catch up when it ends
@@ -393,6 +402,7 @@ function onPush(m: Push) {
     reconcile(roomMedia); // back from watching on my own: offer the room's title again
   }
   drawPill();
+  drawService();
   drawWait();
   offerRejoin();
   const next = room.session ? room.media : null;
@@ -441,7 +451,7 @@ const roomView: RoomView = {
   clock: () => {
     const playback = room?.playback;
     if (!room?.session || !room.following || !mine || !playback) return null;
-    if (playback.titleId !== mine.titleId) return null;
+    if (playback.titleId !== mine.titleId || !sameService()) return null;
     return { playback, offset: room.clockOffset };
   },
   busy: () => holdReason !== null || startPhase !== null || isLive(),
@@ -507,10 +517,16 @@ function drawPill() {
   const roomTitle = roomMedia?.titleId;
   const people = room.participants.map((p) => {
     const online = room?.connection === "connected";
+    // On the room's title means the same ID on the same service (US-053).
+    const onTitle = p.titleId === roomTitle && p.service === roomMedia?.service;
     const synced =
       p.id === me
-        ? online && room?.following === true && behind === null && mine?.titleId === roomTitle
-        : p.connected && p.following && p.titleId === roomTitle;
+        ? online &&
+          room?.following === true &&
+          behind === null &&
+          mine?.titleId === roomTitle &&
+          sameService()
+        : p.connected && p.following && onTitle;
     const state = !p.connected
       ? "away"
       : p.id === me && !online
@@ -521,7 +537,7 @@ function drawPill() {
             ? "loading"
             : !p.following
               ? "watching on their own"
-              : p.titleId !== roomTitle
+              : !onTitle
                 ? "on another title"
                 : synced
                   ? "in sync"
@@ -542,7 +558,7 @@ function drawPill() {
     onOwn: () => follow(false),
     onSync: () => follow(true),
     onStart:
-      room.following && mine.titleId === roomTitle && room.participants.length > 1
+      room.following && mine.titleId === roomTitle && sameService() && room.participants.length > 1
         ? startTogether
         : null,
     playing: provider?.getState()?.playing === true,
@@ -551,6 +567,32 @@ function drawPill() {
     onChat: (from) => toggleSidebar(from),
     chatOpen: isSidebarOpen(),
     chatOff: isChatOff(),
+  });
+}
+/**
+ * A lasting line while someone who follows the room has a title open on another service
+ * than this tab (US-053): nothing is synced between the two, and they should know why.
+ * Gone as soon as everyone is on the same service again.
+ */
+function drawService() {
+  const me = room?.session?.participantId;
+  const ours = provider?.service;
+  const other =
+    ours && mine && room?.session && room.following
+      ? room.participants.find(
+          (p) =>
+            p.id !== me &&
+            p.connected &&
+            p.following &&
+            p.titleId !== null &&
+            p.service !== "none" &&
+            p.service !== ours,
+        )
+      : undefined;
+  if (!other || !ours) return notice("service", null);
+  notice("service", serviceText(other.name, SERVICE_LABEL[other.service], SERVICE_LABEL[ours]), {
+    icon: "alert",
+    tone: "warn",
   });
 }
 // Keys the page got while it held focus from the message box go on to the chat frame (BUG-073).
@@ -656,7 +698,7 @@ function resync() {
 function checkDrift() {
   const playback = room?.playback;
   if (!provider || !room?.session || !room.following || !mine || !playback) return showBehind(null);
-  if (playback.titleId !== mine.titleId) return showBehind(null);
+  if (playback.titleId !== mine.titleId || !sameService()) return showBehind(null);
   const local = provider.getState();
   const v = provider.video();
   if (!local || !v || v.seeking || isEcho() || Date.now() < nextCorrection) return;
@@ -745,7 +787,8 @@ let waitKey = "";
  * showing an ad, so the room can wait for it. Buffering ends after 1 s of clean playback.
  */
 function checkHold() {
-  if (!provider || !room?.session || !room.following || !mine || isLive()) return setHold(null);
+  if (!provider || !room?.session || !room.following || !mine || !sameService() || isLive())
+    return setHold(null);
   const now = Date.now();
   const ad = provider.ad();
   const stalled = provider.stalled();
@@ -866,7 +909,8 @@ function onStart(s: {
     startPhase = null;
     return clearPrompt("start");
   }
-  if (!provider || !mine || s.titleId !== mine.titleId || !room?.following) return;
+  if (!provider || !mine || s.titleId !== mine.titleId || !room?.following || !sameService())
+    return;
   clearInterval(countdown);
   if (s.phase === "preparing") {
     if (startPhase !== "preparing") {
@@ -940,7 +984,8 @@ function offerRejoin() {
  */
 function catchUp(tries = 5) {
   const playback = room?.playback;
-  if (!provider || !playback || !mine || playback.titleId !== mine.titleId) return;
+  if (!provider || !playback || !mine || playback.titleId !== mine.titleId || !sameService())
+    return;
   if (!provider.getState()) {
     if (tries > 0) setTimeout(() => catchUp(tries - 1), 1000);
     return;
@@ -1082,6 +1127,7 @@ function poll() {
   const titleChanged = now?.titleId !== mine?.titleId;
   mine = now;
   reportPresence();
+  drawService();
   if (!titleChanged) return;
   userMoves.cancel(); // a move from the old title must not carry the new one's id
   if (mine) sayArrival();

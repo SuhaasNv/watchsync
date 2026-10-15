@@ -228,6 +228,8 @@ export function hotstarMedia(url: URL, doc: Document): Media | null {
   };
 }
 
+const SERVICES: readonly Service[] = ["netflix", "prime", "jiohotstar"];
+
 /** The local test player used by the end-to-end tests: /watch/<id> with <h1 data-title>. */
 function mockMedia(url: URL, doc: Document): Media | null {
   const id = url.pathname.match(/^\/watch\/([\w-]+)/)?.[1];
@@ -477,7 +479,13 @@ function serviceProvider(host: string): StreamingProvider | null {
     // The mock player stands in for a service in tests: [data-ad] is its ad marker (or an
     // ad in its own short video, as JioHotstar's may be), and data-buffering on <body>
     // stands in for a starved player.
-    const base = videoProvider("mock", () => mockMedia(new URL(location.href), document));
+    // ?service=netflix|prime|jiohotstar makes the page claim to be that service instead
+    // (two people on different services, US-053); test builds only.
+    const claimed = SERVICES.find((s) => s === new URL(location.href).searchParams.get("service"));
+    const base = videoProvider(claimed ?? "mock", () => {
+      const m = mockMedia(new URL(location.href), document);
+      return m && claimed ? { ...m, service: claimed } : m;
+    });
     return {
       ...base,
       // data-loading on <body> stands in for a player whose title can't be read yet

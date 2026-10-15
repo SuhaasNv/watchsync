@@ -22,6 +22,10 @@ export const closedText = (name: string) => `${name} closed the show`;
 export const movedText = (name: string, how: "next" | "new", title: string) =>
   how === "next" ? `${name} moved on to ${title}` : `${name} opened ${title}`;
 
+/** Someone follows the room on another service: the lasting line on both screens (US-053). */
+export const serviceText = (name: string, theirs: string, mine: string) =>
+  `${name} is on ${theirs}, you're on ${mine}. Sync works only on the same title.`;
+
 /**
  * Room notices on the page on or off (US-114): a setting in chrome.storage.local, on unless
  * turned off in chat. Only the notices above; waiting, reconnecting, Sync and follow prompts
