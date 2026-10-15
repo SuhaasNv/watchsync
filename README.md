@@ -41,7 +41,7 @@ Not affiliated with Netflix, Amazon or JioStar.
 
 ## Install
 
-WatchSync isn't in the Chrome Web Store yet, so you load it yourself. It takes a minute:
+WatchSync installs from a zip, so you load it yourself. It takes a minute:
 
 1. [Download the zip](https://github.com/SuhaasNv/watchsync/releases/latest/download/watchsync-extension.zip) and unzip it. Keep the folder.
 2. Open `chrome://extensions` (or `brave://extensions`) and turn on **Developer mode**.
