@@ -31,6 +31,12 @@
 	try_files {path} {path}/index.html {path}.html
 	file_server
 
+	# The signed service rules (DEC-038, docs/RULES-SECURITY.md): the extension's background worker
+	# reads them from another origin, so they carry CORS and the extension needs no host
+	# permission. Public data without credentials; the signature, not the header, is the trust.
+	@rules path /rules/*
+	header @rules Access-Control-Allow-Origin "*"
+
 	# Astro's hashed bundles never change under the same name; everything else is short-lived.
 	@hashed path /_astro/*
 	header @hashed Cache-Control "public, max-age=31536000, immutable"

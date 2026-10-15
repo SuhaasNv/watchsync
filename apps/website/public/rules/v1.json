@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "seq": 1,
+  "expires": "2026-11-14T00:00:00Z",
+  "rules": {
+    "filmMinSec": 300,
+    "netflix": {
+      "titleSelector": "[data-uia=\"video-title\"]",
+      "driftToleranceSec": 0.15
+    },
+    "prime": {
+      "titleSelectors": [
+        ".atvwebplayersdk-title-text",
+        "[data-automation-id=\"title\"]"
+      ],
+      "episodeSelector": ".atvwebplayersdk-subtitle-text",
+      "adTimerSelector": ".atvwebplayersdk-ad-timer",
+      "driftToleranceSec": 0.25
+    },
+    "jiohotstar": {
+      "driftToleranceSec": 0.5
+    }
+  }
+}

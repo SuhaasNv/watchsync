@@ -6,6 +6,7 @@ import { isTypedText } from "../shared/chat";
 import { isSidebarEvent, type Push, type TabEvent } from "../shared/messages";
 import { ChatFrames } from "./chat-frames";
 import { chat, react, retryNow, sendServer } from "./connection";
+import { checkRules } from "./rules";
 import { ready } from "./session";
 import { changed, ports, push, shared, state } from "./state";
 
@@ -148,6 +149,7 @@ export function admitChatFrame(port: chrome.runtime.Port) {
 export function onConnect(port: chrome.runtime.Port) {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   if (port.name === "sidebar") return admitChatFrame(port);
+  if (port.name === "popup") checkRules(); // the daily rules check also runs when the popup opens
   ports.add(port);
   retryNow();
   port.onDisconnect.addListener(() => {

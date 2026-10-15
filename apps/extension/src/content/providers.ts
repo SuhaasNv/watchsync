@@ -2,6 +2,7 @@
 // docs/spikes/player-control.md). They read the <video> element's state only, never
 // frames, keys or stream data.
 import type { Media, Service } from "@watchsync/protocol";
+import { rules } from "../rules/active";
 
 export interface PlayerState {
   playing: boolean;
@@ -70,7 +71,7 @@ const text = (doc: Document, selector: string) =>
 export function netflixMedia(url: URL, doc: Document, lastName: string | null): Media | null {
   const id = url.pathname.match(/^\/watch\/(\d+)/)?.[1];
   if (!id) return null;
-  const title = doc.querySelector('[data-uia="video-title"]');
+  const title = doc.querySelector(rules().netflix.titleSelector);
   const parts = title
     ? [...title.children].map((c) => c.textContent?.trim()).filter((t): t is string => Boolean(t))
     : [];
@@ -96,7 +97,7 @@ export function primeMedia(url: URL, doc: Document, playerOpen: boolean): Media 
   const id = url.pathname.match(/\/detail\/([\w.-]+)/)?.[1] ?? url.searchParams.get("gti");
   if (!id || !playerOpen) return null; // browsing, not watching
   const title = primeName(doc);
-  const episode = text(doc, ".atvwebplayersdk-subtitle-text");
+  const episode = text(doc, rules().prime.episodeSelector);
   const base = url.pathname.includes("/gp/video") ? "/gp/video/detail" : "/detail";
   return {
     service: "prime",
@@ -116,8 +117,7 @@ const PRIME_STOREFRONT = /movies,? (and )?tv shows|^(amazon(\.[\w.]+)?|prime vid
  */
 function primeName(doc: Document): string | null {
   const candidates = [
-    text(doc, ".atvwebplayersdk-title-text"),
-    text(doc, '[data-automation-id="title"]'),
+    ...rules().prime.titleSelectors.map((s) => text(doc, s)),
     doc.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content,
     doc.title,
   ];
@@ -139,7 +139,11 @@ function primeName(doc: Document): string | null {
 export function longestVideo(doc: Document = document): HTMLVideoElement | null {
   let best: HTMLVideoElement | null = null;
   for (const v of doc.querySelectorAll("video"))
-    if (v.readyState > 0 && Number.isFinite(v.duration) && v.duration > (best?.duration ?? 300))
+    if (
+      v.readyState > 0 &&
+      Number.isFinite(v.duration) &&
+      v.duration > (best?.duration ?? rules().filmMinSec)
+    )
       best = v;
   return best;
 }
@@ -153,7 +157,7 @@ export function separateAd(doc: Document = document): { left: number | null } | 
   const film = longestVideo(doc);
   if (!film?.paused) return null;
   for (const v of doc.querySelectorAll("video")) {
-    const short = Number.isFinite(v.duration) && v.duration < 300;
+    const short = Number.isFinite(v.duration) && v.duration < rules().filmMinSec;
     if (v !== film && short && !v.paused && v.clientWidth > 0)
       return { left: Math.max(0, Math.round(v.duration - v.currentTime)) };
   }
@@ -167,7 +171,7 @@ export function playingWithSound(doc: Document = document): boolean {
 
 /** Prime shows an ad countdown in the player while an ad plays. */
 export function primeAd(doc: Document): { left: number | null } | null {
-  const el = doc.querySelector<HTMLElement>(".atvwebplayersdk-ad-timer");
+  const el = doc.querySelector<HTMLElement>(rules().prime.adTimerSelector);
   if (!el) return null;
   // The player can keep an empty or see-through timer in the page between ads: only a
   // shown timer that says "Ad" or counts down is one (BUG-055).
@@ -309,8 +313,11 @@ function netflixProvider(): StreamingProvider {
   });
   return {
     ...base,
-    // Netflix's player seeks to the millisecond.
-    driftToleranceSec: 0.15,
+    // Netflix's player seeks to the millisecond. (A getter, so rules that arrive after the
+    // provider was made still count.)
+    get driftToleranceSec() {
+      return rules().netflix.driftToleranceSec;
+    },
     play: async () => {
       if (!(await netflixCommand("play"))) await base.play();
     },
@@ -340,7 +347,12 @@ export function capName(m: Media | null): Media | null {
 
 export function providerFor(host: string): StreamingProvider | null {
   const p = serviceProvider(host);
-  return p && { ...p, media: () => capName(p.media()) };
+  if (p) {
+    // Changed in place: a spread would copy the rules getters' values once and freeze them.
+    const media = p.media;
+    p.media = () => capName(media());
+  }
+  return p;
 }
 
 function serviceProvider(host: string): StreamingProvider | null {
@@ -353,7 +365,9 @@ function serviceProvider(host: string): StreamingProvider | null {
     const media = () => primeMedia(new URL(location.href), document, open());
     return {
       ...videoProvider("prime", media),
-      driftToleranceSec: 0.25,
+      get driftToleranceSec() {
+        return rules().prime.driftToleranceSec;
+      },
       video: () => longestVideo(),
       getState: () => stateOf(longestVideo()),
       // Prime's player cancels video.play() (AbortError); its own space shortcut, sent to
@@ -384,7 +398,9 @@ function serviceProvider(host: string): StreamingProvider | null {
     return {
       ...base,
       // Hotstar's HLS player may only land on segment boundaries: don't re-seek below this.
-      driftToleranceSec: 0.5,
+      get driftToleranceSec() {
+        return rules().jiohotstar.driftToleranceSec;
+      },
       video: () => longestVideo(),
       getState: () => stateOf(longestVideo()),
       play: async () => {
@@ -417,7 +433,8 @@ function serviceProvider(host: string): StreamingProvider | null {
       },
       ad: () => {
         const el = document.querySelector("[data-ad]");
-        return el ? { left: adSeconds(el.textContent) } : separateAd();
+        // primeAd reads its marker from the rules, which lets a test show a rules change.
+        return el ? { left: adSeconds(el.textContent) } : (primeAd(document) ?? separateAd());
       },
     };
   }

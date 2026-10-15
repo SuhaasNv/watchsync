@@ -11,6 +11,7 @@ import {
   toleranceAt,
   WIDE_FOR_MS,
 } from "@watchsync/sync-engine";
+import { adoptStoredRules } from "../rules/active";
 import {
   closedText,
   jumpedText,
@@ -81,6 +82,9 @@ import {
 } from "./sidebar";
 
 const provider = providerFor(location.host);
+// The stored service rules (signed, checked by the background) replace the bundled ones as soon
+// as storage answers; the adapters read them on every poll.
+if (provider) void adoptStoredRules();
 
 const sameTitle = (a: Media | null, b: Media | null) =>
   a?.titleId === b?.titleId && a?.titleName === b?.titleName;

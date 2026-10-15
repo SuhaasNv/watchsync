@@ -6,6 +6,7 @@
 import { retryNow, socket } from "./connection";
 import { injectOpenTabs } from "./inject";
 import { onMessage, serial } from "./requests";
+import { checkRules } from "./rules";
 import { leaveForNow, updates } from "./session";
 import { showBadge, state } from "./state";
 import {
@@ -20,6 +21,7 @@ import {
 import { checkForUpdate } from "./update-check";
 
 checkForUpdate().catch(() => {});
+checkRules();
 
 // Testers run "WatchSync Dev" next to the real one; its badge says DEV while nothing is unread.
 chrome.action.setBadgeBackgroundColor({ color: "#ffd25a" }).catch(() => {});
