@@ -27,7 +27,7 @@ function uaData(): UaData | null {
   };
 }
 
-export function isPhoneOrTablet(): boolean {
+function isPhoneOrTablet(): boolean {
   const data = uaData();
   if (data?.mobile === true) return true;
   const ua = navigator.userAgent;
@@ -36,7 +36,7 @@ export function isPhoneOrTablet(): boolean {
   return iPad || /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
 }
 
-export function isChromium(): boolean {
+function isChromium(): boolean {
   const brands = uaData()?.brands ?? [];
   if (brands.length) return brands.some((b) => /Chromium|Google Chrome|Brave/.test(b));
   return /Chrome\//.test(navigator.userAgent) && !/Firefox|FxiOS/.test(navigator.userAgent);

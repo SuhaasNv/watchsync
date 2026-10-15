@@ -197,7 +197,7 @@ export function hotstarMedia(url: URL, doc: Document): Media | null {
 }
 
 /** The local test player used by the end-to-end tests: /watch/<id> with <h1 data-title>. */
-export function mockMedia(url: URL, doc: Document): Media | null {
+function mockMedia(url: URL, doc: Document): Media | null {
   const id = url.pathname.match(/^\/watch\/([\w-]+)/)?.[1];
   if (!id) return null;
   // [data-episode] mimics Prime: the episode changes inside the player, not in the URL.

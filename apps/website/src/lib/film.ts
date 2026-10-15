@@ -8,7 +8,7 @@ export const W = 320;
 export const H = 180;
 
 /** A ridge that repeats every W units, drawn twice so it can scroll forever. */
-export function ridge(base: number, waves: [freq: number, amp: number, phase: number][]): string {
+function ridge(base: number, waves: [freq: number, amp: number, phase: number][]): string {
   const pts: string[] = [];
   for (let x = 0; x <= W * 2; x += 4) {
     let y = base;

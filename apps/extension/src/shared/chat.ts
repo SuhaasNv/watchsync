@@ -7,9 +7,9 @@ import {
   isServerMessage,
   type ServerMessageOf,
 } from "@watchsync/protocol";
-import { CHAT_KEEP, CHAT_MAX_CHARS, isChatText, isTypedText } from "./chat-text";
+import { CHAT_KEEP, isChatText, isTypedText } from "./chat-text";
 
-export { CHAT_KEEP, CHAT_MAX_CHARS, isChatText, isTypedText };
+export { CHAT_KEEP, isChatText, isTypedText };
 
 /**
  * Chat sends (the v0.2 retry policy): no echo after CHAT_SENDING_MS, the tab says "Sending…";
