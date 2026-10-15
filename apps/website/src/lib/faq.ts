@@ -78,7 +78,7 @@ export const FAQ: Faq[] = [
   {
     id: "developer-mode",
     q: "Why do I need Developer mode?",
-    a: '<p>WatchSync isn\'t on the Chrome Web Store yet, so you load it into your browser yourself, and Chrome calls that Developer mode. It\'s a standard switch on the extensions page. Chrome then shows a banner about developer-mode extensions, which is expected.</p><p>Downloads come from our <a href="https://github.com/SuhaasNv/watchsync" rel="noopener">public GitHub</a>, where you can read the code. The <a href="/install/">install guide</a> shows every step.</p>',
+    a: '<p>WatchSync installs from a zip file, so you load it into your browser yourself, and Chrome calls that Developer mode. It\'s a standard switch on the extensions page. Chrome then shows a banner about developer-mode extensions, which is expected.</p><p>Downloads come from our <a href="https://github.com/SuhaasNv/watchsync" rel="noopener">public GitHub</a>, where you can read the code. The <a href="/install/">install guide</a> shows every step.</p>',
   },
   {
     id: "update",
