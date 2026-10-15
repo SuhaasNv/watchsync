@@ -17,6 +17,7 @@ import {
   PROMISE,
   returnTo,
 } from "./mic-page";
+import { micTest } from "./mic-test";
 
 /** How long "Done" shows before the person is taken back. */
 const DONE_MS = 1500;
@@ -72,6 +73,6 @@ async function ask() {
   await run();
 }
 
-if (new URLSearchParams(location.search).get("mode") === "ask") {
-  ask().catch((e: unknown) => console.debug("watchsync: mic page", e));
-}
+const mode = new URLSearchParams(location.search).get("mode");
+if (mode === "ask") ask().catch((e: unknown) => console.debug("watchsync: mic page", e));
+if (mode === "test") micTest().catch((e: unknown) => console.debug("watchsync: mic test", e));

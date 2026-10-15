@@ -17,6 +17,16 @@ export function detectOs(platform: string): Os {
 export const micSettingsUrl = (origin: string) =>
   `chrome://settings/content/siteDetails?site=${encodeURIComponent(origin)}`;
 
+/** The page that asks Chrome for the microphone ("ask") and lets people test it ("test"). */
+export const MIC_PAGE = "voice-permission.html";
+
+/** Its address, with the tab to send the person back to when they are done (if any). */
+export function micPageUrl(base: string, mode: "ask" | "test", back?: number): string {
+  const query = new URLSearchParams({ mode });
+  if (back !== undefined) query.set("tab", String(back));
+  return `${base}${MIC_PAGE}?${query}`;
+}
+
 export interface MicHelp {
   title: string;
   /** One line above the steps. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectOs, micHelp, micSettingsUrl } from "./help";
+import { detectOs, micHelp, micPageUrl, micSettingsUrl } from "./help";
 
 describe("detectOs", () => {
   it("reads the platform string", () => {
@@ -16,6 +16,17 @@ describe("micSettingsUrl", () => {
   it("opens Chrome's page for WatchSync's own address", () => {
     expect(micSettingsUrl("chrome-extension://abcdef")).toBe(
       "chrome://settings/content/siteDetails?site=chrome-extension%3A%2F%2Fabcdef",
+    );
+  });
+});
+
+describe("micPageUrl", () => {
+  it("names the mode and the tab to go back to", () => {
+    expect(micPageUrl("chrome-extension://abc/", "ask", 12)).toBe(
+      "chrome-extension://abc/voice-permission.html?mode=ask&tab=12",
+    );
+    expect(micPageUrl("chrome-extension://abc/", "test")).toBe(
+      "chrome-extension://abc/voice-permission.html?mode=test",
     );
   });
 });

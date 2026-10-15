@@ -11,7 +11,15 @@ import { chat, react, retryNow, sendServer } from "./connection";
 import { checkRules } from "./rules";
 import { ready } from "./session";
 import { changed, ports, push, shared, state } from "./state";
-import { admitVoiceDoc, talkEdge, voiceCommand, voiceView, voiceWatching } from "./voice";
+import {
+  admitMicTest,
+  admitVoiceDoc,
+  openMicPage,
+  talkEdge,
+  voiceCommand,
+  voiceView,
+  voiceWatching,
+} from "./voice";
 
 // ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
 export let presence: { service: Service; media: Media | null } = { service: "none", media: null };
@@ -155,6 +163,7 @@ export function onConnect(port: chrome.runtime.Port) {
   if (port.sender?.id !== chrome.runtime.id) return port.disconnect();
   if (port.name === "sidebar") return admitChatFrame(port);
   if (port.name === "voice") return admitVoiceDoc(port);
+  if (port.name === "mictest") return admitMicTest(port);
   if (port.name === "popup") checkRules(); // the daily rules check also runs when the popup opens
   ports.add(port);
   retryNow();
@@ -206,6 +215,13 @@ export function onConnect(port: chrome.runtime.Port) {
       if (e.kind === "react") return react(e.emoji, e.count, port);
       if (e.kind === "voice")
         return isTalkCmd(e.cmd) ? voiceCommand(e.cmd, port.sender?.tab?.id) : undefined;
+      if (e.kind === "micTest") {
+        // The first-Talk sheet's "Test mic first": the test opens in a tab of its own.
+        openMicPage("test", port.sender?.tab?.id).catch((err: unknown) =>
+          console.debug("watchsync: mic test", err),
+        );
+        return;
+      }
       if (e.kind === "micSettings") {
         // The address is built here, from our own origin: a page can't point this elsewhere.
         const origin = new URL(chrome.runtime.getURL("")).origin;

@@ -39,6 +39,10 @@ let live = false;
 let mode: MicMode = "ptt";
 let chosen: MicMode | null = null;
 let found: MicMode | null = null;
+/** The microphone picked in the mic test, else null (the system's). */
+let micId: string | null = null;
+/** The mic test is open: this mic stays muted until it closes. */
+let testing = false;
 let stream: MediaStream | null = null;
 let track: MediaStreamTrack | null = null;
 const peers = new Map<string, PeerState>();
@@ -67,7 +71,7 @@ function publish() {
 }
 
 function setLive(on: boolean) {
-  if (!track || live === on) return;
+  if (!track || live === on || (on && testing)) return;
   live = on;
   track.enabled = on;
   mesh?.setMuted(!on);
@@ -143,6 +147,9 @@ function onIn(raw: unknown) {
     onCmd(raw.cmd);
   } else if (raw.kind === "settings") {
     applySettings(raw);
+  } else if (raw.kind === "testing") {
+    testing = raw.on;
+    if (testing) setLive(false); // the test's own sound must never reach the room
   } else if (raw.kind === "micAnswer") {
     if (raw.by === null) void enableMic(true);
     else blockMic(raw.by);
@@ -155,6 +162,7 @@ function onIn(raw: unknown) {
 async function probe(what: Probe): Promise<unknown> {
   if (what === "heard") return (await mesh?.heard()) ?? {};
   if (what === "policy") return injectedPolicy;
+  if (what === "mic") return track?.getSettings().deviceId ?? null;
   return [...players.values()].map((el) => !el.paused);
 }
 
@@ -186,7 +194,7 @@ async function enableMic(answered = false) {
   publish();
   let all = false;
   try {
-    ({ stream, all } = await openMic());
+    ({ stream, all } = await openMic(micId));
   } catch (e) {
     const by = blockedBy(e);
     if (by !== null) return blockMic(by);
@@ -255,7 +263,13 @@ function watchOwnLevel(s: MediaStream) {
 }
 
 /** The person's settings, from the worker (first, and again whenever one changes). */
-function applySettings(s: { chosen: MicMode | null; found: MicMode | null; relay: boolean }) {
+function applySettings(s: {
+  chosen: MicMode | null;
+  found: MicMode | null;
+  relay: boolean;
+  micId: string | null;
+}) {
+  micId = s.micId; // used the next time the microphone opens
   chosen = s.chosen;
   found = s.found ?? found;
   injectedPolicy = s.relay ? "relay" : "all";

@@ -62,13 +62,20 @@ describe("what the worker may tell the voice document", () => {
       expect(isVoiceIn({ kind: "micAnswer", by })).toBe(true);
     expect(isVoiceIn({ kind: "micAnswer", by: "mars" })).toBe(false);
     expect(isVoiceIn({ kind: "micAnswer" })).toBe(false);
-    const settings = { kind: "settings", chosen: null, found: "ptt", relay: false };
+    const settings = { kind: "settings", chosen: null, found: "ptt", relay: false, micId: null };
     expect(isVoiceIn(settings)).toBe(true);
+    expect(isVoiceIn({ ...settings, micId: "abc123" })).toBe(true);
+    expect(isVoiceIn({ ...settings, micId: "" })).toBe(false);
+    expect(isVoiceIn({ ...settings, micId: 7 })).toBe(false);
+    expect(isVoiceIn({ ...settings, micId: "x".repeat(513) })).toBe(false);
+    expect(isVoiceIn({ kind: "testing", on: true })).toBe(true);
+    expect(isVoiceIn({ kind: "testing", on: "yes" })).toBe(false);
     expect(isVoiceIn({ ...settings, chosen: "open" })).toBe(true);
     expect(isVoiceIn({ ...settings, chosen: "loud" })).toBe(false);
     expect(isVoiceIn({ ...settings, relay: "yes" })).toBe(false);
     expect(isVoiceIn({ kind: "probe", id: 1, what: "heard" })).toBe(true);
-    expect(isVoiceIn({ kind: "probe", id: 1, what: "mic" })).toBe(false);
+    expect(isVoiceIn({ kind: "probe", id: 1, what: "mic" })).toBe(true);
+    expect(isVoiceIn({ kind: "probe", id: 1, what: "film" })).toBe(false);
   });
 
   it("refuses anything else", () => {

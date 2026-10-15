@@ -11,12 +11,13 @@ import {
   type Reply,
   type Request,
 } from "../shared/messages";
+import { MIC_PAGE } from "../voice/help";
 import { isBlockedBy } from "../voice/messages";
 import { api, retryNow, sendServer } from "./connection";
 import { endSession, ready, rejoin, startSession } from "./session";
 import { changed, shared, state } from "./state";
 import { chatFrames, openChat, sendPresence, serviceTabs, talk } from "./tabs";
-import { MIC_PAGE, voiceMicAnswer } from "./voice";
+import { voiceMicAnswer } from "./voice";
 
 // One request at a time, so a join from the popup and the invite page can't both add a
 // participant (resilience audit).

@@ -16,7 +16,8 @@ import {
 } from "@watchsync/protocol";
 import type { Push } from "../shared/messages";
 import { voiceOffer } from "../voice/capability";
-import { MODE_AUTO_KEY, MODE_KEY } from "../voice/echo";
+import { deviceIdOf, MIC_ID_KEY, MODE_AUTO_KEY, MODE_KEY } from "../voice/echo";
+import { MIC_PAGE, micPageUrl } from "../voice/help";
 import {
   type BlockedBy,
   isMode,
@@ -36,9 +37,8 @@ import { API, ports, push, state } from "./state";
 const FALLBACK: IceServer[] = [{ urls: ["stun:stun.cloudflare.com:3478"] }];
 /** A press that came before the voice document was up is held this long. */
 const HOLD_MS = 5000;
-/** The voice document, and the page that asks Chrome for the microphone (and tests it). */
+/** The voice document. */
 const DOC = "voice.html";
-export const MIC_PAGE = "voice-permission.html";
 /** Dev and test builds can send every connection through TURN: set voicePolicy to "relay". */
 const POLICY_KEY = "voicePolicy";
 
@@ -97,13 +97,14 @@ function sendRoom(force = false) {
 
 /** The person's voice settings: an offscreen document has no storage of its own. */
 export async function sendSettings() {
-  const got = await chrome.storage.local.get([MODE_KEY, MODE_AUTO_KEY, POLICY_KEY]);
+  const got = await chrome.storage.local.get([MODE_KEY, MODE_AUTO_KEY, POLICY_KEY, MIC_ID_KEY]);
   const mode = (v: unknown) => (isMode(v) ? v : null);
   toDoc({
     kind: "settings",
     chosen: mode(got[MODE_KEY]),
     found: mode(got[MODE_AUTO_KEY]),
     relay: (__CHANNEL__ === "dev" || __MOCK__) && got[POLICY_KEY] === "relay",
+    micId: deviceIdOf(got[MIC_ID_KEY]),
   });
 }
 
@@ -114,7 +115,12 @@ export function voiceSettingsChanged(
 ) {
   if (
     area !== "local" ||
-    !(MODE_KEY in changes || MODE_AUTO_KEY in changes || POLICY_KEY in changes)
+    !(
+      MODE_KEY in changes ||
+      MODE_AUTO_KEY in changes ||
+      POLICY_KEY in changes ||
+      MIC_ID_KEY in changes
+    )
   )
     return;
   sendSettings().catch((e: unknown) => console.debug("watchsync: voice settings", e));
@@ -235,6 +241,7 @@ export function admitVoiceDoc(port: chrome.runtime.Port) {
   sendSettings()
     .then(() => {
       if (doc !== port) return;
+      if (testers > 0) toDoc({ kind: "testing", on: true });
       sendRoom(true);
       if (held && Date.now() - held.at < HOLD_MS) toDoc({ kind: "cmd", cmd: held.cmd });
       held = null;
@@ -283,10 +290,26 @@ export async function openMicPage(mode: "ask" | "test", back: number | undefined
     await chrome.tabs.update(there.id, { active: true });
     return;
   }
-  const query = new URLSearchParams({ mode });
-  if (back !== undefined) query.set("tab", String(back));
-  const tab = await chrome.tabs.create({ url: `${chrome.runtime.getURL(MIC_PAGE)}?${query}` });
+  const tab = await chrome.tabs.create({ url: micPageUrl(chrome.runtime.getURL(""), mode, back) });
   if (tab.id !== undefined) micPages.set(mode, tab.id);
+}
+
+/** How many mic tests are open. While one is, this person's mic stays muted (US-134). */
+let testers = 0;
+
+/**
+ * A mic test tab's port, open for as long as the test is: a test never transmits, so the voice
+ * document keeps this person muted while it lasts. Only our own microphone page may connect.
+ */
+export function admitMicTest(port: chrome.runtime.Port) {
+  const ours = port.sender?.tab && port.sender.url?.startsWith(chrome.runtime.getURL(MIC_PAGE));
+  if (!ours) return port.disconnect();
+  testers += 1;
+  toDoc({ kind: "testing", on: true });
+  port.onDisconnect.addListener(() => {
+    testers -= 1;
+    toDoc({ kind: "testing", on: testers > 0 });
+  });
 }
 
 /** The microphone page asked Chrome: open the mic (null) or say why not. */

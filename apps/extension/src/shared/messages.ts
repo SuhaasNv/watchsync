@@ -216,7 +216,9 @@ export type TabEvent =
   /** Someone pressed Talk while a person's WatchSync can't talk: the room tells them to update. */
   | { kind: "voiceWant" }
   /** Open Chrome's settings for WatchSync's microphone, in a new tab (US-057). */
-  | { kind: "micSettings" };
+  | { kind: "micSettings" }
+  /** Open the mic test in a new tab (US-134). */
+  | { kind: "micTest" };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {

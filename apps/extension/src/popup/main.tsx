@@ -21,7 +21,7 @@ import {
 import { initialOf, toneOf } from "../shared/people";
 import { cannotTalk, joinNames, VOICE_MAX, voiceOffer } from "../voice/capability";
 import { MODE_AUTO_KEY, MODE_KEY, micMode } from "../voice/echo";
-import { detectOs, micHelp, micSettingsUrl } from "../voice/help";
+import { detectOs, micHelp, micPageUrl, micSettingsUrl } from "../voice/help";
 import { watchTalkKey } from "../voice/keys";
 import { type BlockedBy, type MicMode, NO_VOICE, type VoiceView } from "../voice/messages";
 import { talkWords } from "../voice/words";
@@ -811,6 +811,21 @@ function VoiceSettings({ onBack }: { onBack: () => void }) {
             {MODE_HELP[mode]}
           </p>
         </fieldset>
+        <div className="field">
+          <button
+            className="btn"
+            type="button"
+            onClick={() =>
+              void chrome.tabs.create({ url: micPageUrl(chrome.runtime.getURL(""), "test") })
+            }
+          >
+            <Icon name="mic" size={16} />
+            Test your mic
+          </button>
+          <p className="hint under">
+            See your level move and hear a 3-second recording back. Nothing is sent.
+          </p>
+        </div>
         <span className="grow" />
         <p className="hint">
           Your voice goes straight to the people in the room. WatchSync never records it and our

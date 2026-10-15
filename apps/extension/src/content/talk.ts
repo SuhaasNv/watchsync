@@ -239,6 +239,7 @@ function askFirst() {
     text: "Chrome will ask to let WatchSync use your microphone, in a new tab that brings you back here. WatchSync only sends your voice to people in this room, never to our server.",
     actions: [
       { label: "Not now", run: () => {} },
+      { label: "Test mic first", run: () => post({ kind: "micTest" }) },
       {
         label: "Allow and talk",
         primary: true,

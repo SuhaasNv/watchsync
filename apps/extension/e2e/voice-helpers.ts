@@ -1,9 +1,55 @@
 // Shared by the voice specs: two profiles on the mock player with fake microphones.
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Page, Worker } from "@playwright/test";
 import { type Ext, MOCK, room } from "./fixtures";
 
 /** Chrome answers the microphone question itself, and gives a fake microphone that beeps. */
 export const FAKE_MEDIA = ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"];
+
+/**
+ * A WAV file of `seconds` of sound, for a fake microphone to play in a loop
+ * (--use-file-for-fake-audio-capture): Chrome's own fake microphone only beeps for 20 ms.
+ */
+function wav(sample: (t: number) => number, seconds = 10): string {
+  const rate = 48_000;
+  const samples = rate * seconds;
+  const file = Buffer.alloc(44 + samples * 2);
+  file.write("RIFF", 0);
+  file.writeUInt32LE(36 + samples * 2, 4);
+  file.write("WAVEfmt ", 8);
+  file.writeUInt32LE(16, 16);
+  file.writeUInt16LE(1, 20); // PCM
+  file.writeUInt16LE(1, 22); // mono
+  file.writeUInt32LE(rate, 24);
+  file.writeUInt32LE(rate * 2, 28);
+  file.writeUInt16LE(2, 32);
+  file.writeUInt16LE(16, 34);
+  file.write("data", 36);
+  file.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++) {
+    const v = Math.max(-1, Math.min(1, sample(i / rate)));
+    file.writeInt16LE(Math.round(v * 32_767), 44 + i * 2);
+  }
+  const out = path.join(mkdtempSync(path.join(tmpdir(), "watchsync-audio-")), "mic.wav");
+  writeFileSync(out, file);
+  return out;
+}
+
+/** A microphone that hears nothing. */
+export const silence = (): string => wav(() => 0);
+
+/**
+ * A microphone that sounds like someone talking, all the time: a voiced tone with a few
+ * harmonics whose loudness rises and falls three times a second, so noise suppression does not
+ * take it for steady noise.
+ */
+export const talking = (): string =>
+  wav((t) => {
+    const voice = [1, 2, 3, 4].reduce((sum, n) => sum + Math.sin(2 * Math.PI * 180 * n * t) / n, 0);
+    return 0.35 * (0.6 + 0.4 * Math.sin(2 * Math.PI * 3 * t)) * voice;
+  });
 
 export interface VoiceView {
   /** The voice document is up and connected to the worker. */

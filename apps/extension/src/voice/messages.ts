@@ -56,8 +56,8 @@ export interface VoicePerson {
 }
 
 /** What a test build may ask the voice document (the answers are not part of the product). */
-export type Probe = "heard" | "policy" | "playing";
-const PROBES: readonly string[] = ["heard", "policy", "playing"];
+export type Probe = "heard" | "policy" | "playing" | "mic";
+const PROBES: readonly string[] = ["heard", "policy", "playing", "mic"];
 
 /** Background → voice document. */
 export type VoiceIn =
@@ -81,7 +81,11 @@ export type VoiceIn =
       found: MicMode | null;
       /** relay: send every connection through TURN (dev and test builds only). */
       relay: boolean;
+      /** The microphone picked in the mic test, else null (the system's). */
+      micId: string | null;
     }
+  /** The mic test is open (on) or closed: the mic stays muted, and unheard, while it is. */
+  | { kind: "testing"; on: boolean }
   /** Test builds only. */
   | { kind: "probe"; id: number; what: Probe };
 
@@ -175,8 +179,11 @@ export function isVoiceIn(v: unknown): v is VoiceIn {
   if (kind === "micAnswer") return isBlockedBy(field(v, "by"));
   if (kind === "settings") {
     const mode = (k: string) => field(v, k) === null || isMode(field(v, k));
-    return mode("chosen") && mode("found") && typeof field(v, "relay") === "boolean";
+    const id = field(v, "micId");
+    const idOk = id === null || (isStr(id) && id.length > 0 && id.length <= 512);
+    return mode("chosen") && mode("found") && typeof field(v, "relay") === "boolean" && idOk;
   }
+  if (kind === "testing") return typeof field(v, "on") === "boolean";
   if (kind === "probe") {
     const what = field(v, "what");
     return Number.isInteger(field(v, "id")) && isStr(what) && PROBES.includes(what);
