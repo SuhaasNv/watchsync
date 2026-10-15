@@ -89,7 +89,7 @@ export const FAQ: Faq[] = [
     q: FROM_STORE ? "Do I need Developer mode?" : "Why do I need Developer mode?",
     a: FROM_STORE
       ? '<p>No. Add WatchSync from the Chrome Web Store like any other extension. It works in Brave too.</p><p>If you can\'t use the Chrome Web Store, you can still <a href="/install/manual/">install it from the zip</a>, which does need Developer mode.</p>'
-      : '<p>This guide loads WatchSync from the zip file yourself, and Chrome calls that Developer mode. It\'s a standard switch on the extensions page. Chrome then shows a banner about developer-mode extensions, which is expected.</p><p>Downloads come from our <a href="https://github.com/SuhaasNv/watchsync" rel="noopener">public GitHub</a>, where you can read the code. The <a href="/install/">install guide</a> shows every step.</p>',
+      : '<p>WatchSync installs from a zip file, so you load it into your browser yourself, and Chrome calls that Developer mode. It\'s a standard switch on the extensions page. Chrome then shows a banner about developer-mode extensions, which is expected.</p><p>Downloads come from our <a href="https://github.com/SuhaasNv/watchsync" rel="noopener">public GitHub</a>, where you can read the code. The <a href="/install/">install guide</a> shows every step.</p>',
   },
   {
     id: "update",
