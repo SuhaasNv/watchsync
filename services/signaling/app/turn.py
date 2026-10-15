@@ -57,6 +57,8 @@ def _post() -> bytes:
         headers={
             "Authorization": f"Bearer {config.CLOUDFLARE_TURN_API_TOKEN}",
             "Content-Type": "application/json",
+            # Cloudflare blocks urllib's default "Python-urllib/x" agent (error 1010).
+            "User-Agent": f"WatchSync-RoomService/{config.VERSION}",
         },
         method="POST",
     )

@@ -98,6 +98,8 @@ def test_a_member_gets_credentials_for_two_hours_at_most(
     assert req.full_url.endswith(f"/turn/keys/{KEY_ID}/credentials/generate-ice-servers")
     assert isinstance(req.data, bytes) and json.loads(req.data) == {"ttl": 7200}
     assert req.get_header("Authorization") == f"Bearer {API_TOKEN}"
+    # Cloudflare answers 403 (error 1010) to urllib's default User-Agent.
+    assert req.get_header("User-agent") == f"WatchSync-RoomService/{config.VERSION}"
 
 
 def test_every_request_gets_fresh_credentials(cloudflare: list[urllib.request.Request]) -> None:
