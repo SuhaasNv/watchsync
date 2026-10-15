@@ -1,0 +1,556 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://watchsync.app/protocol/v1",
+  "title": "WatchSync protocol v1",
+  "description": "Single source of truth for every message between the extension and the room service (DEC-006). Edit this file, then run `pnpm gen:protocol`.",
+  "$defs": {
+    "Service": {
+      "description": "Streaming service a participant has open. 'mock' is the local test player; 'none' means no supported page.",
+      "type": "string",
+      "enum": ["netflix", "prime", "jiohotstar", "mock", "none"]
+    },
+    "Name": {
+      "description": "No invisible or direction-changing characters, so nobody can pose as someone else.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 30,
+      "pattern": "^[^\\u0000-\\u001F\\u007F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]+$"
+    },
+    "RoomCode": { "type": "string", "pattern": "^[A-HJ-NP-Z2-9]{6}$" },
+    "Seconds": { "type": "number", "minimum": 0, "maximum": 86400 },
+    "Rate": { "type": "number", "minimum": 0.25, "maximum": 4 },
+    "TitleId": { "type": ["string", "null"], "maxLength": 200 },
+    "ChatText": {
+      "description": "A chat message: 1 to 500 characters (code points, as names are counted), up to 10 line breaks (\\n). As in names, no other control, zero-width, direction-changing, line-separator or tag characters, except the zero-width joiner and non-joiner that emoji sequences and some scripts need (the room service and the extension also check that each sits between two visible characters, and that variation selectors follow one) (the last written as a surrogate pair so ECMAScript and Python read the same range). Text with no visible character is refused by the room service.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*(?:\\n[^\\u0000-\\u001F\\u007F-\\u009F\\u200B\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF\uDB40\uDC00-\uDB40\uDC7F]*){0,10}$"
+    },
+    "ClientId": {
+      "description": "The sender's own id for one chat message, the same on every retry, so the room never keeps it twice and the sender can match the echo.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "ChatMessagePayload": {
+      "description": "One chat message as the room service relays and keeps it (US-042). movieTime is the sender's player position when they sent it; serverTime is server ms.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "clientId", "fromId", "name", "text", "movieTime", "titleId", "serverTime"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "clientId": { "$ref": "#/$defs/ClientId" },
+        "fromId": { "type": "string" },
+        "name": { "$ref": "#/$defs/Name" },
+        "text": { "$ref": "#/$defs/ChatText" },
+        "movieTime": { "anyOf": [{ "$ref": "#/$defs/Seconds" }, { "type": "null" }] },
+        "titleId": { "$ref": "#/$defs/TitleId" },
+        "serverTime": { "type": "number" }
+      }
+    },
+
+    "Emoji": {
+      "description": "The six reactions (US-045): love, laugh, cry, fire, shocked, clap.",
+      "type": "string",
+      "enum": ["❤️", "😂", "😭", "🔥", "😱", "👏"]
+    },
+
+    "Media": {
+      "description": "What the room is watching.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "titleId", "titleName", "titleUrl"],
+      "properties": {
+        "service": { "$ref": "#/$defs/Service" },
+        "titleId": { "$ref": "#/$defs/TitleId" },
+        "titleName": { "type": ["string", "null"], "maxLength": 200 },
+        "titleUrl": { "type": ["string", "null"], "maxLength": 2000 }
+      }
+    },
+    "Playback": {
+      "description": "Room playback state held by the server. updatedAt is server time in ms.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "position", "rate", "updatedAt", "titleId"],
+      "properties": {
+        "status": { "type": "string", "enum": ["playing", "paused"] },
+        "position": { "$ref": "#/$defs/Seconds" },
+        "rate": { "$ref": "#/$defs/Rate" },
+        "updatedAt": { "type": "number" },
+        "titleId": { "$ref": "#/$defs/TitleId" }
+      }
+    },
+    "Participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "service", "titleId", "titleName", "following", "connected", "hold", "adLeft"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "$ref": "#/$defs/Name" },
+        "service": { "$ref": "#/$defs/Service" },
+        "titleId": { "$ref": "#/$defs/TitleId" },
+        "titleName": { "type": ["string", "null"], "maxLength": 200 },
+        "following": { "type": "boolean" },
+        "connected": { "type": "boolean" },
+        "hold": { "description": "Why the room is waiting for this person, if it is.", "enum": ["buffering", "ad", null] },
+        "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 }
+      }
+    },
+
+    "CreateRoomRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": { "name": { "$ref": "#/$defs/Name" } }
+    },
+    "JoinRoomRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/Name" },
+        "token": {
+          "description": "Rejoin: the token from this person's last ticket in the room. Only with it does the join take back their place while they are away (BUG-041). Signed tokens (DEC-031) hold a dot.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]{1,1100}$"
+        }
+      }
+    },
+    "RoomTicket": {
+      "description": "Returned by create and join. The token authorises the WebSocket and is revoked on leave.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "token", "participantId"],
+      "properties": {
+        "code": { "$ref": "#/$defs/RoomCode" },
+        "token": { "type": "string" },
+        "participantId": { "type": "string" }
+      }
+    },
+
+    "Envelope": {
+      "type": "object",
+      "required": ["id", "type", "timestamp", "payload"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "payload": { "type": "object" }
+      }
+    },
+
+    "PresenceUpdate": {
+      "description": "Client tells the room what it has open and whether it follows the room.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "PRESENCE.UPDATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["service", "following", "media"],
+          "properties": {
+            "service": { "$ref": "#/$defs/Service" },
+            "following": { "type": "boolean" },
+            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] }
+          }
+        }
+      }
+    },
+    "PlaybackUpdate": {
+      "description": "A play, pause or jump the user made in their own player.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "PLAYBACK.UPDATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "status", "position", "rate", "titleId"],
+          "properties": {
+            "action": { "type": "string", "enum": ["play", "pause", "seek", "sync"] },
+            "status": { "type": "string", "enum": ["playing", "paused"] },
+            "position": { "$ref": "#/$defs/Seconds" },
+            "rate": { "$ref": "#/$defs/Rate" },
+            "titleId": { "$ref": "#/$defs/TitleId" },
+            "at": {
+              "description": "Server time (ms) at which the sender read position, by its own clock estimate. The room runs its clock from here rather than from when the message arrived, so the trip to the room doesn't put everyone behind the sender. Clamped to the last 2 s.",
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "Ping": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "SYS.PING" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t1"],
+          "properties": { "t1": { "type": "number" } }
+        }
+      }
+    },
+    "Leave": {
+      "description": "Leave the room; the token stops working. The last one out ends the room, unless keepRoom (the browser closed: the room waits for a rejoin until it expires).",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.LEAVE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "keepRoom": { "type": "boolean" } }
+        }
+      }
+    },
+    "HoldUpdate": {
+      "description": "This player is buffering or showing an ad (or no longer is); the room waits for it.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "HOLD.UPDATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "position", "adLeft"],
+          "properties": {
+            "reason": { "enum": ["buffering", "ad", null] },
+            "position": { "$ref": "#/$defs/Seconds" },
+            "adLeft": { "type": ["number", "null"], "minimum": 0, "maximum": 3600 }
+          }
+        }
+      }
+    },
+    "StartRequest": {
+      "description": "Start together from this position: ready check, then 3-2-1.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.REQUEST" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["position", "titleId"],
+          "properties": {
+            "position": { "$ref": "#/$defs/Seconds" },
+            "titleId": { "$ref": "#/$defs/TitleId" }
+          }
+        }
+      }
+    },
+    "StartReady": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.READY" },
+        "payload": { "type": "object", "additionalProperties": false }
+      }
+    },
+    "StartForce": {
+      "description": "Start anyway, without the people who aren't ready.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.FORCE" },
+        "payload": { "type": "object", "additionalProperties": false }
+      }
+    },
+    "RestoreRoom": {
+      "description": "After the room service restarted (US-120): the room's title and clock as this client last knew them, position re-projected to now. Sent only by a client the old service told it was restarting. For a few seconds after the room is back the most recent knowledge (knownAt) wins; the server stamps updatedAt.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.RESTORE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["media", "playback", "knownAt"],
+          "properties": {
+            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] },
+            "playback": { "anyOf": [{ "$ref": "#/$defs/Playback" }, { "type": "null" }] },
+            "knownAt": {
+              "description": "The old service's time (ms) of the room clock this client last heard; 0 if none.",
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+
+    "ChatSend": {
+      "description": "Send a chat message to everyone in the room, marked with the sender's movie time.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.SEND" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "movieTime", "titleId", "clientId"],
+          "properties": {
+            "text": { "$ref": "#/$defs/ChatText" },
+            "movieTime": { "anyOf": [{ "$ref": "#/$defs/Seconds" }, { "type": "null" }] },
+            "titleId": { "$ref": "#/$defs/TitleId" },
+            "clientId": { "$ref": "#/$defs/ClientId" }
+          }
+        }
+      }
+    },
+
+    "ReactionSend": {
+      "description": "A reaction (US-045). Taps on the same one within 250 ms arrive as one with a count. Never stored.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "REACTION.SEND" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["emoji", "count"],
+          "properties": {
+            "emoji": { "$ref": "#/$defs/Emoji" },
+            "count": { "type": "integer", "minimum": 1, "maximum": 5 }
+          }
+        }
+      }
+    },
+
+    "ClientMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/PresenceUpdate" },
+        { "$ref": "#/$defs/PlaybackUpdate" },
+        { "$ref": "#/$defs/Ping" },
+        { "$ref": "#/$defs/Leave" },
+        { "$ref": "#/$defs/HoldUpdate" },
+        { "$ref": "#/$defs/StartRequest" },
+        { "$ref": "#/$defs/StartReady" },
+        { "$ref": "#/$defs/StartForce" },
+        { "$ref": "#/$defs/RestoreRoom" },
+        { "$ref": "#/$defs/ChatSend" },
+        { "$ref": "#/$defs/ReactionSend" }
+      ]
+    },
+
+    "RoomState": {
+      "description": "Full snapshot sent on connect and reconnect.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.STATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "you", "participants", "media", "playback", "serverTime"],
+          "properties": {
+            "code": { "$ref": "#/$defs/RoomCode" },
+            "you": { "type": "string" },
+            "participants": { "type": "array", "items": { "$ref": "#/$defs/Participant" } },
+            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] },
+            "playback": { "anyOf": [{ "$ref": "#/$defs/Playback" }, { "type": "null" }] },
+            "serverTime": { "type": "number" }
+          }
+        }
+      }
+    },
+    "ParticipantChanged": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.PARTICIPANT" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["participant", "event"],
+          "properties": {
+            "participant": { "$ref": "#/$defs/Participant" },
+            "event": {
+              "description": "rejoined: someone who left (or whose browser closed) came back under the same name.",
+              "type": "string",
+              "enum": ["joined", "rejoined", "updated", "left"]
+            }
+          }
+        }
+      }
+    },
+    "MediaChanged": {
+      "description": "The room moved to another title, for example the next episode.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "ROOM.MEDIA" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["media", "byId", "byName", "how"],
+          "properties": {
+            "media": { "$ref": "#/$defs/Media" },
+            "byId": { "type": "string" },
+            "byName": { "$ref": "#/$defs/Name" },
+            "how": {
+              "description": "next: straight from the room's title (next episode, followed automatically); new: picked another title (friends are asked).",
+              "enum": ["next", "new"]
+            }
+          }
+        }
+      }
+    },
+    "PlaybackState": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "PLAYBACK.STATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["playback", "action", "byId", "byName", "serverTime"],
+          "properties": {
+            "playback": { "$ref": "#/$defs/Playback" },
+            "action": { "type": "string", "enum": ["play", "pause", "seek", "sync"] },
+            "byId": { "type": "string" },
+            "byName": { "$ref": "#/$defs/Name" },
+            "serverTime": { "type": "number" }
+          }
+        }
+      }
+    },
+    "Pong": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "SYS.PONG" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["t1", "serverTime"],
+          "properties": { "t1": { "type": "number" }, "serverTime": { "type": "number" } }
+        }
+      }
+    },
+    "ErrorMessage": {
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "SYS.ERROR" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "enum": ["invalid_message", "rate_limited", "room_closed", "server_error"] },
+            "message": { "type": "string" }
+          }
+        }
+      }
+    },
+    "StartState": {
+      "description": "Start together: preparing (pause and get ready), go (play at startAt, server ms), or cancelled.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "START.STATE" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["phase", "byName", "position", "titleId", "notReady", "startAt"],
+          "properties": {
+            "phase": { "enum": ["preparing", "go", "cancelled"] },
+            "byName": { "$ref": "#/$defs/Name" },
+            "position": { "$ref": "#/$defs/Seconds" },
+            "titleId": { "$ref": "#/$defs/TitleId" },
+            "notReady": { "type": "array", "items": { "$ref": "#/$defs/Name" }, "maxItems": 8 },
+            "startAt": { "type": ["number", "null"] }
+          }
+        }
+      }
+    },
+
+    "ChatMessage": {
+      "description": "A chat message, to everyone in the room including its sender (their copy confirms delivery).",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.MESSAGE" },
+        "payload": { "$ref": "#/$defs/ChatMessagePayload" }
+      }
+    },
+    "ChatHistory": {
+      "description": "The room's earlier messages, oldest first, sent to a connecting socket right after ROOM.STATE.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.HISTORY" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["messages"],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/ChatMessagePayload" },
+              "maxItems": 200
+            }
+          }
+        }
+      }
+    },
+    "ChatRejected": {
+      "description": "The sender's message was not sent; text echoes its first 500 characters so the box can keep it, and clientId (when the send had a valid one) says which send.",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "CHAT.REJECTED" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "text"],
+          "properties": {
+            "reason": { "type": "string", "enum": ["too_long", "rate_limited", "invalid"] },
+            "text": { "type": "string", "maxLength": 500 },
+            "clientId": { "$ref": "#/$defs/ClientId" }
+          }
+        }
+      }
+    },
+
+    "ReactionShow": {
+      "description": "A reaction to float over the video, sent to everyone in the room including the sender (US-045).",
+      "allOf": [{ "$ref": "#/$defs/Envelope" }],
+      "type": "object",
+      "properties": {
+        "type": { "const": "REACTION.SHOW" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fromId", "name", "emoji", "count"],
+          "properties": {
+            "fromId": { "type": "string" },
+            "name": { "$ref": "#/$defs/Name" },
+            "emoji": { "$ref": "#/$defs/Emoji" },
+            "count": { "type": "integer", "minimum": 1, "maximum": 5 }
+          }
+        }
+      }
+    },
+
+    "ServerMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/RoomState" },
+        { "$ref": "#/$defs/ParticipantChanged" },
+        { "$ref": "#/$defs/MediaChanged" },
+        { "$ref": "#/$defs/PlaybackState" },
+        { "$ref": "#/$defs/Pong" },
+        { "$ref": "#/$defs/ErrorMessage" },
+        { "$ref": "#/$defs/StartState" },
+        { "$ref": "#/$defs/ChatMessage" },
+        { "$ref": "#/$defs/ChatHistory" },
+        { "$ref": "#/$defs/ChatRejected" },
+        { "$ref": "#/$defs/ReactionShow" }
+      ]
+    }
+  }
+}

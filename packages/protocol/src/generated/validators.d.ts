@@ -3,3 +3,4 @@ type Validator = ((data: unknown) => boolean) & { errors?: { instancePath: strin
 export declare const validateClientMessage: Validator;
 export declare const validateServerMessage: Validator;
 export declare const validateRoomTicket: Validator;
+export declare const validateTurnCredentials: Validator;

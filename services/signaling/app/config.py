@@ -70,6 +70,19 @@ RESTORE_WINDOW_SECONDS = int(os.environ.get("RESTORE_WINDOW_SECONDS", "600"))
 TOKEN_MAX_AGE_SECONDS = int(os.environ.get("TOKEN_MAX_AGE_SECONDS", "86400"))
 # Rooms one client address (IPv6: its /64) may bring back after a restart.
 RESTORES_PER_IP = int(os.environ.get("RESTORES_PER_IP", "3"))
+# Cloudflare TURN, for voice that can't connect directly (US-123). Both come from the host's
+# environment only, never the repository or the logs; without them the endpoint says TURN is
+# unavailable and voice tries a direct connection.
+CLOUDFLARE_TURN_KEY_ID = os.environ.get("CLOUDFLARE_TURN_KEY_ID", "")
+CLOUDFLARE_TURN_API_TOKEN = os.environ.get("CLOUDFLARE_TURN_API_TOKEN", "")
+# How long issued TURN credentials work: 2 hours at most, renewed by the client while the room
+# lives.
+TURN_TTL_SECONDS = 7200
+# Seconds to wait for Cloudflare before telling the client to go direct.
+TURN_TIMEOUT_SECONDS = float(os.environ.get("TURN_TIMEOUT_SECONDS", "5"))
+# Credential requests per person per minute, and per client address (members and not).
+TURN_PER_MINUTE = int(os.environ.get("TURN_PER_MINUTE", "6"))
+TURN_IP_PER_MINUTE = int(os.environ.get("TURN_IP_PER_MINUTE", "30"))
 # Open WebSockets one client address may hold at once.
 WS_PER_IP = int(os.environ.get("WS_PER_IP", "20"))
 # A socket that sends nothing for this long is closed (the extension pings every 20 s), so a

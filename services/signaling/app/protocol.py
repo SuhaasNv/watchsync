@@ -22,6 +22,7 @@ _client = _validator("ClientMessage")
 _server = _validator("ServerMessage")
 _create = _validator("CreateRoomRequest")
 _join = _validator("JoinRoomRequest")
+_turn = _validator("TurnCredentials")
 
 
 def is_client_message(data: Any) -> bool:
@@ -38,6 +39,10 @@ def is_create_request(data: Any) -> bool:
 
 def is_join_request(data: Any) -> bool:
     return bool(_join.is_valid(data))
+
+
+def is_turn_credentials(data: Any) -> bool:
+    return bool(_turn.is_valid(data))
 
 
 # Patterns are matched over the whole text, as ECMAScript (the extension's validator) reads
@@ -111,3 +116,40 @@ def now_ms() -> float:
 
 def message(type_: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"id": uuid.uuid4().hex, "type": type_, "timestamp": now_ms(), "payload": payload}
+
+
+# What a connected client's WatchSync can read (US-132). Installs are zip only and nobody
+# updates by themselves, so rooms mix versions for months: a client gets the message shapes
+# its own version accepts. v0.1.x and v0.2.x validate strictly (an unknown field throws away
+# the whole ROOM.STATE), so new fields go only to the level that added them.
+LEVEL_V01 = 1  # v0.1.x: token in ?token=, no chat
+LEVEL_V02 = 2  # v0.2.x, and any client that says nothing
+LEVEL_V03 = 3  # v0.3 and later: sends its version as ?v= on the WebSocket URL
+_VERSION = re.compile(r"(\d{1,4})\.(\d{1,4})\.\d{1,6}(?:-[0-9A-Za-z.-]{1,32})?")
+# Participant fields added after v0.2, and the level that added each.
+_PARTICIPANT_FIELDS = {"canTalk": LEVEL_V03}
+
+
+def client_level(version: str | None, subprotocol: bool) -> int:
+    """The level of a client from the ?v= it sent (if any) and how it sent its token: with
+    the watchsync.v1 subprotocol (v0.2+) or in ?token= (v0.1.x)."""
+    found = _VERSION.fullmatch(version) if version else None
+    if found and (int(found[1]), int(found[2])) >= (0, 3):
+        return LEVEL_V03
+    return LEVEL_V02 if subprotocol else LEVEL_V01
+
+
+def _for_level(participant: dict[str, Any], level: int) -> dict[str, Any]:
+    return {k: v for k, v in participant.items() if _PARTICIPANT_FIELDS.get(k, LEVEL_V01) <= level}
+
+
+def for_level(type_: str, payload: dict[str, Any], level: int) -> dict[str, Any]:
+    """The payload in the shape a client at this level accepts: fields it doesn't know are cut.
+    Every server message that carries a Participant is listed here."""
+    if level >= LEVEL_V03:
+        return payload
+    if type_ == "ROOM.STATE":
+        return {**payload, "participants": [_for_level(x, level) for x in payload["participants"]]}
+    if type_ == "ROOM.PARTICIPANT":
+        return {**payload, "participant": _for_level(payload["participant"], level)}
+    return payload

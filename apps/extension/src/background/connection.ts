@@ -134,7 +134,10 @@ export function connect() {
   const hanging = socket;
   socket = null;
   hanging?.close();
-  const ws = new WebSocket(`${API.replace(/^http/, "ws")}/ws/rooms/${s.code}`, [
+  // Our version rides in ?v= so the room sends each message in the shape this version takes
+  // (US-132). A room service from before v0.3 ignores it; it isn't a secret.
+  const version = encodeURIComponent(chrome.runtime.getManifest().version);
+  const ws = new WebSocket(`${API.replace(/^http/, "ws")}/ws/rooms/${s.code}?v=${version}`, [
     "watchsync.v1",
     ...token,
   ]);

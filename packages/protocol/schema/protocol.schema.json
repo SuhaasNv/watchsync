@@ -93,7 +93,8 @@
         "following": { "type": "boolean" },
         "connected": { "type": "boolean" },
         "hold": { "description": "Why the room is waiting for this person, if it is.", "enum": ["buffering", "ad", null] },
-        "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 }
+        "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 },
+        "canTalk": { "description": "v0.3+. Whether this person's WatchSync can do voice. Sent only to v0.3+ clients (older ones reject unknown fields, US-132); absent means it can't.", "type": "boolean" }
       }
     },
 
@@ -125,6 +126,32 @@
         "code": { "$ref": "#/$defs/RoomCode" },
         "token": { "type": "string" },
         "participantId": { "type": "string" }
+      }
+    },
+    "IceServer": {
+      "description": "One STUN or TURN server for an RTCPeerConnection. A TURN entry carries a short-lived username and credential; a STUN entry has neither.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urls"],
+      "properties": {
+        "urls": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": { "type": "string", "pattern": "^(stun|turn|turns):[A-Za-z0-9._:?=&-]{1,200}$" }
+        },
+        "username": { "type": "string", "maxLength": 512 },
+        "credential": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "TurnCredentials": {
+      "description": "v0.3+. Returned by POST /api/v1/rooms/{code}/turn to a member of the room (Authorization: Bearer <room token>), for voice. They work for ttl seconds (at most 2 hours); ask again before then. Cloudflare cannot scope them to one room: only members can get them, one request at a time, and they expire.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["iceServers", "ttl"],
+      "properties": {
+        "iceServers": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/IceServer" } },
+        "ttl": { "type": "integer", "minimum": 60, "maximum": 7200 }
       }
     },
 

@@ -19,8 +19,11 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import config, join_page
+from . import config, join_page, turn
 from .protocol import (
+    LEVEL_V02,
+    client_level,
+    for_level,
     is_chat_text,
     is_client_message,
     is_create_request,
@@ -78,7 +81,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await asyncio.sleep(60)
             rooms.sweep()
             limiters = (create_limiter, join_limiter, message_limiter, connect_limiter)
-            chats = (chat_limiter, room_chat_limiter, reaction_limiter)
+            chats = (
+                chat_limiter,
+                room_chat_limiter,
+                reaction_limiter,
+                turn_limiter,
+                turn_ip_limiter,
+            )
             for limiter in (*limiters, failed_join_limiter, *chats):
                 limiter.prune()
 
@@ -153,6 +162,9 @@ chat_limiter = Limiter(config.CHAT_PER_5S, 5)
 # Per room, everyone together (keyed by room code).
 room_chat_limiter = Limiter(config.CHAT_ROOM_PER_10S, 10)
 reaction_limiter = Limiter(config.REACTIONS_PER_5S, 5)
+# TURN credentials (US-123): per participant, and per client address for everyone who asks.
+turn_limiter = Limiter(config.TURN_PER_MINUTE, 60)
+turn_ip_limiter = Limiter(config.TURN_IP_PER_MINUTE, 60)
 EVERYONE = "*"  # the failed-join limit is one budget for all clients
 TRY_LATER = {"Retry-After": "60"}
 # Close codes the extension acts on: 1008 = room or token gone (stop), 4000 = replaced by a
@@ -324,6 +336,31 @@ async def join_room(code: str, request: Request) -> dict[str, str]:
     return ticket
 
 
+@app.post("/api/v1/rooms/{code}/turn")
+async def turn_credentials(code: str, request: Request, response: Response) -> dict[str, Any]:
+    """TURN credentials for voice, for a member of the room: `Authorization: Bearer <room
+    token>` (never in the URL). Cloudflare can't scope a credential to a room, so membership
+    is the scope, each request asks for a new set that lasts 2 hours, and every request
+    counts against the address and the person. The reasons for a refusal never say whether
+    the room exists."""
+    if not turn_ip_limiter.allow(client_ip(request)):
+        raise HTTPException(429, "Too many requests. Try again in a minute.", TRY_LATER)
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(401, "Send your room token.")
+    member = rooms.member(code.upper(), token)
+    if member is None:
+        raise HTTPException(403, "Not a member of this room.")
+    if not turn_limiter.allow(member.id):
+        raise HTTPException(429, "Too many requests. Try again in a minute.", TRY_LATER)
+    try:
+        credentials = await turn.issue()
+    except turn.TurnError as e:
+        raise HTTPException(e.status, e.message) from e
+    response.headers["Cache-Control"] = "no-store"
+    return credentials
+
+
 async def end_away_namesake(room: Room, new_id: str) -> None:
     """A plain join under the name of someone who is away is them back after a browser
     restart, which clears the rejoin token (BUG-044): end the away row now instead of after
@@ -350,7 +387,7 @@ async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:
         # peer's own handler cleans up after it. ASCII-only JSON: a lone surrogate from a
         # name or title can't be sent as UTF-8 and would silently drop the message.
         with contextlib.suppress(Exception):
-            await ws.send_text(json.dumps(message(type_, payload)))
+            await ws.send_text(json.dumps(message(type_, for_level(type_, payload, p.level))))
 
 
 async def broadcast(
@@ -557,6 +594,28 @@ async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None
         return await reject(p, "invalid", text, client_id)
     rooms.keep_chat(room, chat)
     await broadcast(room, "CHAT.MESSAGE", chat)
+
+
+async def tell_to_update(room: Room) -> None:
+    """Voice was asked for in this room (US-055 calls this when someone starts it): everyone
+    whose WatchSync can't talk is told how to get it, once per connection. It goes as a chat
+    line from "WatchSync", which v0.2.x already shows and nobody else can be named (see
+    is_reserved_name); it is sent to them alone and never kept in the room's history. v0.1.x
+    has no chat and no other place that shows text, so it hears nothing (US-132)."""
+    for x in list(room.participants.values()):
+        if x.connected and x.level == LEVEL_V02 and not x.told_to_update:
+            x.told_to_update = True
+            notice = {
+                "id": secrets.token_hex(8),
+                "clientId": "update-to-talk",
+                "fromId": "watchsync",
+                "name": "WatchSync",
+                "text": f"Update WatchSync to talk: {config.SITE_URL}",
+                "movieTime": None,
+                "titleId": None,
+                "serverTime": now_ms(),
+            }
+            await send(x, "CHAT.MESSAGE", notice)
 
 
 async def reject(p: Participant, reason: str, text: str, client_id: str | None) -> None:
@@ -778,14 +837,18 @@ async def room_socket(ws: WebSocket, code: str) -> None:
         return
     open_sockets[ip] = open_sockets.get(ip, 0) + 1
     try:
-        await serve(ws, code, token, subprotocol, ip)
+        # v0.3+ says its version in ?v=; old servers ignore the parameter (US-132).
+        level = client_level(ws.query_params.get("v"), subprotocol is not None)
+        await serve(ws, code, token, subprotocol, ip, level)
     finally:
         open_sockets[ip] -= 1
         if not open_sockets[ip]:
             del open_sockets[ip]
 
 
-async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, ip: str) -> None:
+async def serve(
+    ws: WebSocket, code: str, token: str, subprotocol: str | None, ip: str, level: int
+) -> None:
     found = rooms.authenticate(code, token, ip)
     if found is None:
         await ws.accept(subprotocol)
@@ -800,6 +863,8 @@ async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, i
     pending = away.pop(p.id, None)
     if pending is not None:  # back within the grace period: nobody hears they were gone
         pending.cancel()
+    p.level = level
+    p.told_to_update = False
     p.connected = True
     room.used = True
     room.empty_since = None
