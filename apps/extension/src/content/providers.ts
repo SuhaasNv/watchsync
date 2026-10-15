@@ -27,6 +27,11 @@ export interface StreamingProvider {
   stalled(): boolean;
   /** An ad is showing; `left` is the seconds remaining when the page shows it. */
   ad(): { left: number | null } | null;
+  /**
+   * The service's own page says this title can't be played here (not in the viewer's region,
+   * US-128). Read from the page that is already open, never fetched; false when unsure.
+   */
+  unavailable(): boolean;
   /** Drift in seconds the ongoing sync check ignores for this player (default 0.25). */
   driftToleranceSec?: number;
 }
@@ -210,6 +215,61 @@ export function netflixAd(
 }
 
 /**
+ * The words of a refusal for where the viewer is, in English: Prime's "Service Area Restriction"
+ * and "geographical licensing restrictions", Hotstar's "not available in your region". Another
+ * wording, another language or a different error (a lost connection, no rental, a VPN) matches
+ * nothing, and nothing is the safe answer. Regular expressions stay in code, not in the rules.
+ */
+const REGION_WORDS =
+  /service area restriction|geographical licen[sc]ing|not available in your (?:region|country|location|area)|isn['’]t available in your (?:region|country|location|area)/i;
+
+/** A refusal screen holds a sentence or two; a bigger element is a page wrapper, not the screen. */
+const SCREEN_MAX_CHARS = 1500;
+
+/**
+ * Whether a shown element named by the rules' `selector` says the title is refused for where
+ * the viewer is. `withParent`: the marker is only the screen's title line, so its words are
+ * read together with its sibling description (Prime). Hidden elements and page-sized wrappers,
+ * whose text could include script data, never count.
+ */
+export function regionRefusal(doc: Document, selector: string, withParent: boolean): boolean {
+  for (const el of doc.querySelectorAll<HTMLElement>(selector)) {
+    if (el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }) === false)
+      continue;
+    const scope = (withParent ? el.parentElement : null) ?? el;
+    const words = scope.textContent ?? "";
+    if (words.length <= SCREEN_MAX_CHARS && REGION_WORDS.test(words)) return true;
+  }
+  return false;
+}
+
+const NETFLIX_TITLE_PAGE = /^(?:\/[a-z]{2}(?:-[A-Za-z]{2})?)?\/title\/(\d{1,20})\/?$/;
+
+/**
+ * Netflix sends an address it won't open here (/watch/<id>) to /title/<id>?fromWatch=true and
+ * shows its "Lost your way?" page; the rules name that page's marker. The title ID comes from
+ * the address in the tab, and the marker must be shown.
+ */
+export function netflixLostTitle(url: URL, doc: Document): Media | null {
+  const id = url.pathname.match(NETFLIX_TITLE_PAGE)?.[1];
+  if (!id) return null;
+  const page = doc.querySelector<HTMLElement>(rules().unavailable.netflix);
+  if (
+    !page ||
+    page.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }) === false
+  )
+    return null;
+  return {
+    service: "netflix",
+    titleId: id,
+    titleName: null,
+    titleUrl: `https://www.netflix.com/watch/${id}`,
+  };
+}
+
+const primeUnavailable = () => regionRefusal(document, rules().unavailable.prime, true);
+
+/**
  * JioHotstar: the numeric content ID before /watch, e.g. /in/shows/name/1260123456/watch.
  * Every episode has its own ID, so the next episode is a URL change.
  */
@@ -262,6 +322,7 @@ function videoProvider(service: Service, media: () => Media | null): StreamingPr
     stalled: () => isStalled(mainVideo()),
     // ponytail: no ad marker known for this service yet; each adapter adds its own.
     ad: () => null,
+    unavailable: () => false,
   };
 }
 
@@ -342,6 +403,9 @@ function netflixProvider(): StreamingProvider {
   };
   const base = videoProvider("netflix", () => {
     const url = new URL(location.href);
+    // The page Netflix shows for a title it won't open here still names the title (US-128).
+    const lost = netflixLostTitle(url, document);
+    if (lost) return lost;
     const urlId = url.pathname.match(/^\/watch\/(\d+)/)?.[1];
     const m = netflixMedia(url, document, last && last.id === urlId ? last.name : null);
     const id = m?.titleId;
@@ -375,6 +439,7 @@ function netflixProvider(): StreamingProvider {
       const seen = netflixAd(document, read());
       return seen === "unsure" ? null : seen;
     },
+    unavailable: () => netflixLostTitle(new URL(location.href), document) !== null,
     stalled: () =>
       base.stalled() ||
       (netflixAd(document, read()) === "unsure" && base.getState()?.playing === true),
@@ -421,7 +486,9 @@ function serviceProvider(host: string): StreamingProvider | null {
     // Watching once the film is on screen, or already while Prime's ads play before it: they
     // play with sound, a detail page's trailer plays muted (BUG-056). A detail page also
     // preloads the film paused and 0 px wide; that is browsing, not watching (BUG-058).
-    const open = () => (longestVideo()?.clientWidth ?? 0) > 0 || playingWithSound();
+    // Also while Prime's error modal shows: the person did open the title (US-128).
+    const open = () =>
+      (longestVideo()?.clientWidth ?? 0) > 0 || playingWithSound() || primeUnavailable();
     const media = () => primeMedia(new URL(location.href), document, open());
     return {
       ...videoProvider("prime", media),
@@ -449,6 +516,7 @@ function serviceProvider(host: string): StreamingProvider | null {
       // Prime shows its own ad timer. The separate-video guess (built for JioHotstar,
       // BUG-020) took Prime's previews and trailers for ads while paused (BUG-055).
       ad: () => primeAd(document),
+      unavailable: primeUnavailable,
     };
   }
   if (host === "www.jiohotstar.com" || host === "www.hotstar.com") {
@@ -473,6 +541,7 @@ function serviceProvider(host: string): StreamingProvider | null {
       },
       stalled: () => isStalled(longestVideo()),
       ad: () => separateAd(),
+      unavailable: () => regionRefusal(document, rules().unavailable.jiohotstar, false),
     };
   }
   if (__MOCK__ && host === "localhost:4173") {
@@ -500,6 +569,8 @@ function serviceProvider(host: string): StreamingProvider | null {
         const st = base.getState();
         return st && document.body.dataset.live ? { ...st, duration: Infinity } : st;
       },
+      // [data-unavailable] stands in for a service's "can't play this here" screen.
+      unavailable: () => document.querySelector("[data-unavailable]") !== null,
       ad: () => {
         const el = document.querySelector("[data-ad]");
         if (el) return { left: adSeconds(el.textContent) };

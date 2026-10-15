@@ -301,6 +301,7 @@ function Watching({ p }: { p: Participant }) {
 /** Where a person stands against the room: in sync, held up, or nothing to say. */
 function standing(p: Participant, roomTitle: string | null): "sync" | "ad" | "loading" | null {
   if (!p.connected || !p.following || roomTitle === null || p.titleId !== roomTitle) return null;
+  if (p.unavailable) return null; // can't play it: not in sync, and not waited for (US-128)
   if (p.hold === "ad") return "ad";
   if (p.hold === "buffering") return "loading";
   return "sync";
@@ -344,6 +345,7 @@ function summary(state: AppState, me: string): string {
   const others = state.participants.filter((p) => p.id !== me && p.connected);
   const odd = others.find((p) => standing(p, media.titleId) !== "sync");
   if (!odd) return "Everyone's together.";
+  if (odd.unavailable && odd.titleId === media.titleId) return `${odd.name} can't play this here.`;
   if (odd.hold === "ad") return `${odd.name} is on an ad.`;
   if (odd.hold === "buffering") return `${odd.name} is loading.`;
   if (!odd.following) return `${odd.name} is watching on their own.`;

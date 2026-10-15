@@ -94,6 +94,41 @@ describe("boundary values (edge-case sweep, UC-008)", () => {
     expect(isClientMessage(presence({ titleName: "<img src=x onerror=alert(1)>" }))).toBe(true);
   });
 
+  it("takes an optional `unavailable` on presence and on participants (US-128)", () => {
+    const presence = (payload: Record<string, unknown>) => ({
+      id: "1",
+      type: "PRESENCE.UPDATE",
+      timestamp: 1,
+      payload: { service: "netflix", following: true, media: null, ...payload },
+    });
+    expect(isClientMessage(presence({}))).toBe(true);
+    expect(isClientMessage(presence({ unavailable: true }))).toBe(true);
+    expect(isClientMessage(presence({ unavailable: "yes" }))).toBe(false);
+    const person = (extra: Record<string, unknown>) => ({
+      id: "1",
+      type: "ROOM.PARTICIPANT",
+      timestamp: 1,
+      payload: {
+        event: "updated",
+        participant: {
+          id: "p1",
+          name: "Asha",
+          service: "netflix",
+          titleId: "1",
+          titleName: null,
+          following: true,
+          connected: true,
+          hold: null,
+          adLeft: null,
+          ...extra,
+        },
+      },
+    });
+    expect(isServerMessage(person({}))).toBe(true);
+    expect(isServerMessage(person({ unavailable: true }))).toBe(true);
+    expect(isServerMessage(person({ unavailable: 1 }))).toBe(false);
+  });
+
   it("refuses envelopes with a missing or wrongly typed field", () => {
     const ok = update({});
     expect(isClientMessage(ok)).toBe(true);

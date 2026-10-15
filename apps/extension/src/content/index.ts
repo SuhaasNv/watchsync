@@ -13,6 +13,7 @@ import {
 } from "@watchsync/sync-engine";
 import { adoptStoredRules } from "../rules/active";
 import {
+  cantPlayText,
   closedText,
   jumpedText,
   leftText,
@@ -143,13 +144,33 @@ function roomNotice(...args: Parameters<typeof toast>) {
 }
 
 function post(event: TabEvent) {
-  // This tab's moves are the room's only when it is on the room's service (US-053).
-  if ((event.kind === "playback" || event.kind === "start") && !sameService()) return;
+  // This tab's moves are the room's only when it is on the room's service (US-053), and
+  // when it can play the title at all (US-128).
+  if ((event.kind === "playback" || event.kind === "start") && (!sameService() || cantPlay)) return;
   port?.postMessage(event);
 }
 
+/** The service says this tab can't play its title (US-128); see checkUnavailable. */
+let cantPlay = false;
+let unavailableSeen = 0;
+
 function reportPresence() {
-  if (provider) post({ kind: "presence", service: provider.service, media: mine });
+  if (provider)
+    post({ kind: "presence", service: provider.service, media: mine, unavailable: cantPlay });
+}
+
+/**
+ * Once a second: does the page say this title can't be played here? It must say so on two
+ * polls in a row (about 2 s) before the room hears it, and it is unsaid at the first poll
+ * that doesn't. Only the page already open is read; nothing is fetched.
+ */
+function checkUnavailable() {
+  unavailableSeen = provider?.unavailable() ? unavailableSeen + 1 : 0;
+  const now = unavailableSeen >= 2 && mine !== null;
+  if (now === cantPlay) return;
+  cantPlay = now;
+  reportPresence();
+  drawPill();
 }
 
 function friendOn(media: Media): string | null {
@@ -279,6 +300,7 @@ function onPush(m: Push) {
     lastActor = { id: byId, name: byName };
     cancelSettle(); // the room moved: whatever the last seek was settling toward is stale
     if (!provider || !mine || playback.titleId !== mine.titleId || !sameService()) return;
+    if (cantPlay) return; // no player here to move (US-128)
     if (!room?.following) return; // watching on my own (US-027)
     if (isLive()) return; // live streams aren't synced in v0.1 (US-032)
     if (holdReason) return; // my own buffering or ad; I catch up when it ends
@@ -403,6 +425,7 @@ function onPush(m: Push) {
   }
   drawPill();
   drawService();
+  drawCantPlay();
   drawWait();
   offerRejoin();
   const next = room.session ? room.media : null;
@@ -526,7 +549,7 @@ function drawPill() {
           behind === null &&
           mine?.titleId === roomTitle &&
           sameService()
-        : p.connected && p.following && onTitle;
+        : p.connected && p.following && onTitle && p.unavailable !== true;
     const state = !p.connected
       ? "away"
       : p.id === me && !online
@@ -537,11 +560,13 @@ function drawPill() {
             ? "loading"
             : !p.following
               ? "watching on their own"
-              : !onTitle
-                ? "on another title"
-                : synced
-                  ? "in sync"
-                  : "catching up";
+              : p.unavailable
+                ? "can't play this here"
+                : !onTitle
+                  ? "on another title"
+                  : synced
+                    ? "in sync"
+                    : "catching up";
     const name = p.id === me ? `${p.name} (you)` : p.name;
     const mark = synced
       ? "synced"
@@ -594,6 +619,30 @@ function drawService() {
     icon: "alert",
     tone: "warn",
   });
+}
+/**
+ * A lasting line while a friend's service says they can't play the room's title (US-128).
+ * The room carries on without them; the line goes when they open something they can play,
+ * or leave. Not shown to the person it is about: their own screen already says it.
+ */
+function drawCantPlay() {
+  const me = room?.session?.participantId;
+  const media = room?.session ? room.media : null;
+  const names = media
+    ? (room?.participants ?? [])
+        .filter(
+          (p) =>
+            p.id !== me &&
+            p.connected &&
+            p.unavailable === true &&
+            p.titleId === media.titleId &&
+            p.service === media.service,
+        )
+        .map((p) => p.name)
+    : [];
+  const [first, ...rest] = names;
+  const text = first === undefined ? null : cantPlayText([first, ...rest]);
+  notice("cantplay", text, { icon: "alert", tone: "warn" });
 }
 // Keys the page got while it held focus from the message box go on to the chat frame (BUG-073).
 onChatType((text) => post({ kind: "chatType", text }));
@@ -787,7 +836,15 @@ let waitKey = "";
  * showing an ad, so the room can wait for it. Buffering ends after 1 s of clean playback.
  */
 function checkHold() {
-  if (!provider || !room?.session || !room.following || !mine || !sameService() || isLive())
+  if (
+    !provider ||
+    !room?.session ||
+    !room.following ||
+    !mine ||
+    !sameService() ||
+    cantPlay ||
+    isLive()
+  )
     return setHold(null);
   const now = Date.now();
   const ad = provider.ad();
@@ -909,7 +966,14 @@ function onStart(s: {
     startPhase = null;
     return clearPrompt("start");
   }
-  if (!provider || !mine || s.titleId !== mine.titleId || !room?.following || !sameService())
+  if (
+    !provider ||
+    !mine ||
+    s.titleId !== mine.titleId ||
+    !room?.following ||
+    !sameService() ||
+    cantPlay // no player to count down with; the room starts without this tab (US-128)
+  )
     return;
   clearInterval(countdown);
   if (s.phase === "preparing") {
@@ -1114,6 +1178,7 @@ function poll() {
   const now = provider?.media() ?? null;
   if (sameTitle(now, mine)) {
     goneSince = 0; // back after a blip: the next gap gets its full 3 s
+    checkUnavailable();
     return;
   }
   if (!now && mine) {
@@ -1125,6 +1190,10 @@ function poll() {
   }
   goneSince = 0;
   const titleChanged = now?.titleId !== mine?.titleId;
+  if (titleChanged) {
+    cantPlay = false; // the new title is judged afresh
+    unavailableSeen = 0;
+  }
   mine = now;
   reportPresence();
   drawService();

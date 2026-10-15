@@ -11,14 +11,27 @@ import { ready } from "./session";
 import { changed, ports, push, shared, state } from "./state";
 
 // ponytail: the tab that reported last speaks for this person; one watching tab is the norm.
-export let presence: { service: Service; media: Media | null } = { service: "none", media: null };
+export let presence: { service: Service; media: Media | null; unavailable: boolean } = {
+  service: "none",
+  media: null,
+  unavailable: false,
+};
 let presencePort: chrome.runtime.Port | null = null;
 /** The tab our presence comes from, kept after its port drops so a close can be told apart. */
 export let presenceTabId: number | undefined;
 let tabGone: ReturnType<typeof setTimeout> | undefined;
 
 export function sendPresence() {
-  sendServer(envelope("PRESENCE.UPDATE", { ...presence, following: state.following }));
+  const { service, media, unavailable } = presence;
+  // The flag goes only while true: a room service from before it existed refuses unknown fields.
+  sendServer(
+    envelope("PRESENCE.UPDATE", {
+      service,
+      media,
+      following: state.following,
+      ...(unavailable && media ? { unavailable } : {}),
+    }),
+  );
 }
 
 /** Tells the content script of one tab, and no other, about its chat panel. */
@@ -87,7 +100,7 @@ export function presenceTabClosed() {
  */
 function titleTabGone() {
   presenceTabId = undefined;
-  presence = { service: "none", media: null };
+  presence = { service: "none", media: null, unavailable: false };
   push({ kind: "report" });
   setTimeout(() => {
     if (presenceTabId === undefined) sendPresence();
@@ -213,7 +226,8 @@ export function onConnect(port: chrome.runtime.Port) {
       clearTimeout(tabGone);
       presencePort = port;
       presenceTabId = tabId;
-      presence = { service: e.service, media: e.media };
+      // `=== true`: a tab still running the content script from before an update omits it.
+      presence = { service: e.service, media: e.media, unavailable: e.unavailable === true };
       sendPresence();
     });
   ready.then(() => port.postMessage({ kind: "state", state: shared() } satisfies Push));

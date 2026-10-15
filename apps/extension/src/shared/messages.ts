@@ -158,7 +158,13 @@ export type TabSupportedRequest = { kind: "tabSupported"; tabId: number };
 
 /** Content script → background, over its port. */
 export type TabEvent =
-  | { kind: "presence"; service: Service; media: Media | null }
+  | {
+      kind: "presence";
+      service: Service;
+      media: Media | null;
+      /** The service says this tab can't play `media` here (US-128). */
+      unavailable: boolean;
+    }
   | {
       kind: "playback";
       /** "sync": everyone jumps to the sender's exact position, without pausing. */

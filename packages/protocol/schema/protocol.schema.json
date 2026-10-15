@@ -94,7 +94,8 @@
         "connected": { "type": "boolean" },
         "hold": { "description": "Why the room is waiting for this person, if it is.", "enum": ["buffering", "ad", null] },
         "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 },
-        "canTalk": { "description": "v0.3+. Whether this person's WatchSync can do voice. Sent only to v0.3+ clients (older ones reject unknown fields, US-132); absent means it can't.", "type": "boolean" }
+        "canTalk": { "description": "v0.3+. Whether this person's WatchSync can do voice. Sent only to v0.3+ clients (older ones reject unknown fields, US-132); absent means it can't.", "type": "boolean" },
+        "unavailable": { "description": "v0.3+. True while this person's service says they can't play the title they have open (not available in their region). Sent only to v0.3+ clients, and only while true; absent means they can. The room never waits for them.", "type": "boolean" }
       }
     },
 
@@ -179,7 +180,8 @@
           "properties": {
             "service": { "$ref": "#/$defs/Service" },
             "following": { "type": "boolean" },
-            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] }
+            "media": { "anyOf": [{ "$ref": "#/$defs/Media" }, { "type": "null" }] },
+            "unavailable": { "description": "v0.3+. True while the service says this person can't play the title in `media`. Left out otherwise.", "type": "boolean" }
           }
         }
       }

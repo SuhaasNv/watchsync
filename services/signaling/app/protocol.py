@@ -127,7 +127,7 @@ LEVEL_V02 = 2  # v0.2.x, and any client that says nothing
 LEVEL_V03 = 3  # v0.3 and later: sends its version as ?v= on the WebSocket URL
 _VERSION = re.compile(r"(\d{1,4})\.(\d{1,4})\.\d{1,6}(?:-[0-9A-Za-z.-]{1,32})?")
 # Participant fields added after v0.2, and the level that added each.
-_PARTICIPANT_FIELDS = {"canTalk": LEVEL_V03}
+_PARTICIPANT_FIELDS = {"canTalk": LEVEL_V03, "unavailable": LEVEL_V03}
 
 
 def client_level(version: str | None, subprotocol: bool) -> int:

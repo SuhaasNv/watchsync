@@ -176,6 +176,9 @@ class Participant:
     connected: bool = False
     hold: str | None = None  # "buffering" or "ad": the room waits for this person
     ad_left: float | None = None
+    # Their service says they can't play the title they have open (not in their region,
+    # US-128). The room never waits for them and their title moves nobody.
+    unavailable: bool = False
     # Came back after leaving or closing the browser: the room hears "rejoined" once.
     rejoined: bool = False
     # What their WatchSync can read (protocol.client_level), set on every connect, and whether
@@ -195,6 +198,9 @@ class Participant:
             "hold": self.hold,
             "adLeft": self.ad_left,
             "canTalk": self.level >= LEVEL_V03,  # cut for older clients (protocol.for_level)
+            # Only while true, so a v0.3 build that predates it never meets the field except
+            # when someone can't play; cut for older clients like canTalk.
+            **({"unavailable": True} if self.unavailable else {}),
         }
 
 
@@ -241,7 +247,11 @@ class Room:
         return [
             x
             for x in self.participants.values()
-            if x.hold and x.connected and x.following and x.id not in self.skip_hold
+            if x.hold
+            and x.connected
+            and x.following
+            and not x.unavailable
+            and x.id not in self.skip_hold
         ]
 
     def eligible(self, title_id: str | None, left: Collection[str] = ()) -> list[Participant]:
@@ -254,6 +264,7 @@ class Room:
             for x in self.participants.values()
             if x.connected
             and x.following
+            and not x.unavailable
             and (
                 x.title_id == title_id
                 or (x.title_id is None and x.service == service and x.id not in left)

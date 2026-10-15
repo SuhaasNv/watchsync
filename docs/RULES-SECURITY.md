@@ -65,6 +65,11 @@ Selectors, numbers, nothing else. This is the full list:
 | `prime.adTimerSelector` | selector | The ad countdown |
 | `prime.driftToleranceSec` | number, 0.05 to 5 | As above |
 | `jiohotstar.driftToleranceSec` | number, 0.05 to 5 | As above |
+| `unavailable.netflix` | selector, optional group | The page Netflix shows for a title it won't open here (US-128) |
+| `unavailable.prime` | selector, optional group | The title line of Prime's player error modal |
+| `unavailable.jiohotstar` | selector, optional group | Where Hotstar's "not available in your region" screen may show |
+
+`unavailable` (US-128) may be left out too, with the same effect. It holds exactly the three selectors. The adapter only says "can't play this here" when a shown element matches the selector **and** its text matches a pattern in the code (English only; any other wording says nothing). So a selector that is too wide cannot raise a false notice.
 
 `netflix.ad` (UC-048) may be left out of a file, so files signed before it existed stay valid; the bundled selectors then apply. Present, it must hold both selectors and nothing else.
 

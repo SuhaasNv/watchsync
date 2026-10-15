@@ -26,6 +26,18 @@ export const movedText = (name: string, how: "next" | "new", title: string) =>
 export const serviceText = (name: string, theirs: string, mine: string) =>
   `${name} is on ${theirs}, you're on ${mine}. Sync works only on the same title.`;
 
+/** People whose service says they can't play the room's title: the lasting line (US-128). */
+export function cantPlayText(names: [string, ...string[]]): string {
+  const [first, second, ...more] = names;
+  const who =
+    second === undefined
+      ? first
+      : more.length === 0
+        ? `${first} and ${second}`
+        : `${first}, ${second} and ${more.length} more`;
+  return `${who} can't play this here`;
+}
+
 /**
  * Room notices on the page on or off (US-114): a setting in chrome.storage.local, on unless
  * turned off in chat. Only the notices above; waiting, reconnecting, Sync and follow prompts

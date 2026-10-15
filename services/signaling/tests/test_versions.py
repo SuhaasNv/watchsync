@@ -198,6 +198,45 @@ def test_a_presence_update_reaches_old_and_new_clients_in_their_own_shape() -> N
         assert newer["payload"]["participant"]["canTalk"] is True and is_server_message(newer)
 
 
+def test_a_cant_play_flag_reaches_only_v0_3_clients() -> None:
+    """US-128: `unavailable` is new in v0.3. The v0.1.x and v0.2.x strict schemas would throw
+    away the whole message, so they never get it; v0.3 clients do, and only while it is true."""
+    p = {"id": "a", "name": "A", "canTalk": True, "unavailable": True}
+    state = {"you": "a", "participants": [p]}
+    for old in (LEVEL_V02, LEVEL_V01):
+        assert for_level("ROOM.STATE", state, old)["participants"] == [{"id": "a", "name": "A"}]
+    assert for_level("ROOM.PARTICIPANT", {"participant": p}, LEVEL_V02)["participant"] == {
+        "id": "a",
+        "name": "A",
+    }
+    assert for_level("ROOM.STATE", state, LEVEL_V03) is state
+
+    host = create("Old")  # v0.2.1
+    new = join(host["code"], "New")  # v0.3
+    ancient = join(host["code"], "Ancient")  # v0.1.1
+    with connect(host, "v0.2") as h, connect(new, "v0.3") as n, connect(ancient, "v0.1") as a:
+        for sock in (h, n, a):
+            sock.drain()
+        media = {"service": "netflix", "titleId": "1", "titleName": None, "titleUrl": None}
+        presence = {"service": "netflix", "media": media, "following": True, "unavailable": True}
+        n.ws.send_json({"id": "x", "type": "PRESENCE.UPDATE", "timestamp": 1, "payload": presence})
+        for sock in (h, n, a):
+            sock.drain()
+        (flagged,) = [m for m in n.of("ROOM.PARTICIPANT") if m["payload"]["event"] == "updated"]
+        assert flagged["payload"]["participant"]["unavailable"] is True
+        assert is_server_message(flagged)
+        for sock in (h, a):
+            assert "unavailable" not in json.dumps(sock.got)
+        everything_valid(h, V021)
+        everything_valid(a, V011, skip=("CHAT.HISTORY", "CHAT.MESSAGE"))
+        # The next report without the flag clears it, and the field is gone again.
+        clear = {"service": "netflix", "media": media, "following": True}
+        n.ws.send_json({"id": "y", "type": "PRESENCE.UPDATE", "timestamp": 1, "payload": clear})
+        n.drain()
+        later = [m for m in n.of("ROOM.PARTICIPANT") if m["payload"]["event"] == "updated"]
+        assert "unavailable" not in later[-1]["payload"]["participant"]
+
+
 def test_old_clients_keep_chatting_with_new_ones() -> None:
     host = create("Old")
     new = join(host["code"], "New")

@@ -10,9 +10,21 @@ export interface NetflixAdRules {
   timeSelector: string;
 }
 
+/**
+ * Where each service shows "you can't play this here" (US-128): per service one selector list
+ * for the element that exists only on that screen. The adapter also insists on the words
+ * (regular expressions, in code), so a selector that is too wide says nothing wrong.
+ */
+export interface UnavailableRules {
+  netflix: string;
+  prime: string;
+  jiohotstar: string;
+}
+
 export interface Rules {
   /** Seconds: a video longer than this is the film, a shorter one is a trailer or an ad. */
   filmMinSec: number;
+  unavailable: UnavailableRules;
   netflix: { titleSelector: string; driftToleranceSec: number; ad: NetflixAdRules };
   prime: {
     /** Tried in order; the first with text is the show's name. */
@@ -25,11 +37,13 @@ export interface Rules {
 }
 
 /**
- * What a file holds. A group added after the first files were signed (Netflix ads, UC-048) may
- * be left out; activeRules fills it from the bundled rules, so those files stay valid.
+ * What a file holds. A group added after the first files were signed (Netflix ads, UC-048;
+ * unavailable titles, US-128) may be left out; activeRules fills it from the bundled rules, so
+ * those files stay valid.
  */
-export type FileRules = Omit<Rules, "netflix"> & {
+export type FileRules = Omit<Rules, "netflix" | "unavailable"> & {
   netflix: Omit<Rules["netflix"], "ad"> & { ad?: NetflixAdRules };
+  unavailable?: UnavailableRules;
 };
 
 /** What the signature covers (the file's exact bytes). */
@@ -73,7 +87,8 @@ export function parseRulesFile(
   if (schema !== 1 || typeof seq !== "number" || !Number.isSafeInteger(seq) || seq < 1) return null;
   if (typeof expires !== "string" || !ISO.test(expires) || Number.isNaN(Date.parse(expires)))
     return null;
-  if (!isObj(rules) || !hasKeys(rules, ["filmMinSec", "netflix", "prime", "jiohotstar"]))
+  const ruleKeys = ["filmMinSec", "netflix", "prime", "jiohotstar"];
+  if (!isObj(rules) || !(hasKeys(rules, ruleKeys) || hasKeys(rules, [...ruleKeys, "unavailable"])))
     return null;
 
   const sel = (v: unknown): v is string =>
@@ -118,6 +133,14 @@ export function parseRulesFile(
   const { driftToleranceSec: hotstarDrift } = jiohotstar;
   if (!drift(hotstarDrift)) return null;
 
+  let unavailable: UnavailableRules | undefined;
+  if ("unavailable" in rules) {
+    const u = rules.unavailable;
+    if (!isObj(u) || !hasKeys(u, ["netflix", "prime", "jiohotstar"])) return null;
+    if (!sel(u.netflix) || !sel(u.prime) || !sel(u.jiohotstar)) return null;
+    unavailable = { netflix: u.netflix, prime: u.prime, jiohotstar: u.jiohotstar };
+  }
+
   return {
     schema: 1,
     seq,
@@ -136,6 +159,7 @@ export function parseRulesFile(
         driftToleranceSec: primeDrift,
       },
       jiohotstar: { driftToleranceSec: hotstarDrift },
+      ...(unavailable && { unavailable }),
     },
   };
 }

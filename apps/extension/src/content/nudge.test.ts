@@ -46,6 +46,7 @@ function rig(behind: number) {
     seek: async () => {},
     stalled: () => false,
     ad: () => null,
+    unavailable: () => false,
   };
   const view = { clock: () => ({ playback: room, offset: 0 }), busy: () => false };
   const drift = () => position() - (room.position + (Date.now() - room.updatedAt) / 1000);
