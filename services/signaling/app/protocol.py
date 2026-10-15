@@ -22,6 +22,7 @@ _client = _validator("ClientMessage")
 _server = _validator("ServerMessage")
 _create = _validator("CreateRoomRequest")
 _join = _validator("JoinRoomRequest")
+_turn = _validator("TurnCredentials")
 
 
 def is_client_message(data: Any) -> bool:
@@ -38,6 +39,10 @@ def is_create_request(data: Any) -> bool:
 
 def is_join_request(data: Any) -> bool:
     return bool(_join.is_valid(data))
+
+
+def is_turn_credentials(data: Any) -> bool:
+    return bool(_turn.is_valid(data))
 
 
 # Patterns are matched over the whole text, as ECMAScript (the extension's validator) reads

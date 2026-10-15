@@ -37,6 +37,7 @@ const code = standaloneCode(ajv, {
   validateClientMessage: `${id}#/$defs/ClientMessage`,
   validateServerMessage: `${id}#/$defs/ServerMessage`,
   validateRoomTicket: `${id}#/$defs/RoomTicket`,
+  validateTurnCredentials: `${id}#/$defs/TurnCredentials`,
 });
 // Inline Ajv's one runtime helper so the output has no require() and no runtime dependency.
 const inlined = code.replaceAll(
@@ -51,6 +52,7 @@ writeFileSync(
 export declare const validateClientMessage: Validator;
 export declare const validateServerMessage: Validator;
 export declare const validateRoomTicket: Validator;
+export declare const validateTurnCredentials: Validator;
 `,
 );
 console.log("protocol: generated types.ts and validators.js");

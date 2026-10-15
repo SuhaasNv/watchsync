@@ -414,6 +414,17 @@ class Rooms:
             return room, room.participants[found[1]]
         return self.restore(code, token, client)
 
+    def member(self, code: str, token: str) -> Participant | None:
+        """Who holds this token in this live room, for operations over plain HTTP (TURN
+        credentials). Only a token the room itself issued and still holds counts: nothing is
+        brought back, so a stranger can't use this to make a room appear."""
+        self.sweep()
+        found = self.tokens.get(token) if TOKEN_SHAPE.fullmatch(token) else None
+        room = self.rooms.get(code)
+        if found is None or room is None or found[0] != code:
+            return None
+        return room.participants.get(found[1])
+
     def restore(self, code: str, token: str, client: str) -> tuple[Room, Participant] | None:
         """After a restart, someone connecting with a token the last process signed brings
         the room back, or takes their place in a room already brought back (US-120). Never

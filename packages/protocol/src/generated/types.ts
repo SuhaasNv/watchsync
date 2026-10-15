@@ -310,6 +310,8 @@ export interface ProtocolRoot {
   CreateRoomRequest?: CreateRoomRequest;
   JoinRoomRequest?: JoinRoomRequest;
   RoomTicket?: RoomTicket;
+  IceServer?: IceServer;
+  TurnCredentials?: TurnCredentials;
   Envelope?: Envelope;
   PresenceUpdate?: PresenceUpdate;
   PlaybackUpdate?: PlaybackUpdate;
@@ -406,6 +408,49 @@ export interface RoomTicket {
   code: RoomCode;
   token: string;
   participantId: string;
+}
+/**
+ * One STUN or TURN server for an RTCPeerConnection. A TURN entry carries a short-lived username and credential; a STUN entry has neither.
+ */
+export interface IceServer {
+  /**
+   * @minItems 1
+   * @maxItems 12
+   */
+  urls:
+    | [string]
+    | [string, string]
+    | [string, string, string]
+    | [string, string, string, string]
+    | [string, string, string, string, string]
+    | [string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string, string, string];
+  username?: string;
+  credential?: string;
+}
+/**
+ * v0.3+. Returned by POST /api/v1/rooms/{code}/turn to a member of the room (Authorization: Bearer <room token>), for voice. They work for ttl seconds (at most 2 hours); ask again before then. Cloudflare cannot scope them to one room: only members can get them, one request at a time, and they expire.
+ */
+export interface TurnCredentials {
+  /**
+   * @minItems 1
+   * @maxItems 8
+   */
+  iceServers:
+    | [IceServer]
+    | [IceServer, IceServer]
+    | [IceServer, IceServer, IceServer]
+    | [IceServer, IceServer, IceServer, IceServer]
+    | [IceServer, IceServer, IceServer, IceServer, IceServer]
+    | [IceServer, IceServer, IceServer, IceServer, IceServer, IceServer]
+    | [IceServer, IceServer, IceServer, IceServer, IceServer, IceServer, IceServer]
+    | [IceServer, IceServer, IceServer, IceServer, IceServer, IceServer, IceServer, IceServer];
+  ttl: number;
 }
 export interface Envelope {
   id: string;

@@ -1,8 +1,9 @@
-import type { ClientMessage, RoomTicket, ServerMessage } from "./generated/types";
+import type { ClientMessage, RoomTicket, ServerMessage, TurnCredentials } from "./generated/types";
 import {
   validateClientMessage,
   validateRoomTicket,
   validateServerMessage,
+  validateTurnCredentials,
 } from "./generated/validators.js";
 
 export * from "./generated/types";
@@ -25,6 +26,7 @@ export type ServerMessageOf<K extends AnyServerMessage["type"]> = Extract<
 export const isClientMessage = (m: unknown): m is AnyClientMessage => validateClientMessage(m);
 export const isServerMessage = (m: unknown): m is AnyServerMessage => validateServerMessage(m);
 export const isRoomTicket = (m: unknown): m is RoomTicket => validateRoomTicket(m);
+export const isTurnCredentials = (m: unknown): m is TurnCredentials => validateTurnCredentials(m);
 
 /** Wrap a payload in the protocol envelope. */
 export function envelope<M extends AnyClientMessage | AnyServerMessage>(
