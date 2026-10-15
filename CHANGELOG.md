@@ -4,6 +4,9 @@
 
 Talk Together: free voice while you watch, and the room stays together through ads.
 
+### Added
+- Rooms work across versions: a friend still on v0.1 or v0.2 keeps syncing (and chatting, on v0.2) in a room with v0.3 friends, with no update needed to watch together. The room service sends each version only what it understands.
+
 ### Changed
 - The "new version" notice in the popup no longer points to the Chrome Web Store: WatchSync installs from the zip.
 

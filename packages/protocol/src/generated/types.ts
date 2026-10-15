@@ -384,6 +384,10 @@ export interface Participant {
    * Seconds of ad left, when the page shows it.
    */
   adLeft: number | null;
+  /**
+   * v0.3+. Whether this person's WatchSync can do voice. Sent only to v0.3+ clients (older ones reject unknown fields, US-132); absent means it can't.
+   */
+  canTalk?: boolean;
 }
 export interface CreateRoomRequest {
   name: Name;

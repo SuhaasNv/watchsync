@@ -93,7 +93,8 @@
         "following": { "type": "boolean" },
         "connected": { "type": "boolean" },
         "hold": { "description": "Why the room is waiting for this person, if it is.", "enum": ["buffering", "ad", null] },
-        "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 }
+        "adLeft": { "description": "Seconds of ad left, when the page shows it.", "type": ["number", "null"], "minimum": 0, "maximum": 3600 },
+        "canTalk": { "description": "v0.3+. Whether this person's WatchSync can do voice. Sent only to v0.3+ clients (older ones reject unknown fields, US-132); absent means it can't.", "type": "boolean" }
       }
     },
 

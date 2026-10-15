@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import config
-from .protocol import now_ms
+from .protocol import LEVEL_V02, LEVEL_V03, now_ms
 
 # 32 symbols, no 0/O/1/I, matches the protocol's RoomCode pattern.
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -178,6 +178,10 @@ class Participant:
     ad_left: float | None = None
     # Came back after leaving or closing the browser: the room hears "rejoined" once.
     rejoined: bool = False
+    # What their WatchSync can read (protocol.client_level), set on every connect, and whether
+    # it was told to update for voice on this connection (main.tell_to_update).
+    level: int = LEVEL_V02
+    told_to_update: bool = False
 
     def public(self) -> dict[str, Any]:
         return {
@@ -190,6 +194,7 @@ class Participant:
             "connected": self.connected,
             "hold": self.hold,
             "adLeft": self.ad_left,
+            "canTalk": self.level >= LEVEL_V03,  # cut for older clients (protocol.for_level)
         }
 
 

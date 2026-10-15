@@ -21,6 +21,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, join_page
 from .protocol import (
+    LEVEL_V02,
+    client_level,
+    for_level,
     is_chat_text,
     is_client_message,
     is_create_request,
@@ -350,7 +353,7 @@ async def send(p: Participant, type_: str, payload: dict[str, Any]) -> None:
         # peer's own handler cleans up after it. ASCII-only JSON: a lone surrogate from a
         # name or title can't be sent as UTF-8 and would silently drop the message.
         with contextlib.suppress(Exception):
-            await ws.send_text(json.dumps(message(type_, payload)))
+            await ws.send_text(json.dumps(message(type_, for_level(type_, payload, p.level))))
 
 
 async def broadcast(
@@ -557,6 +560,28 @@ async def chat_send(room: Room, p: Participant, payload: dict[str, Any]) -> None
         return await reject(p, "invalid", text, client_id)
     rooms.keep_chat(room, chat)
     await broadcast(room, "CHAT.MESSAGE", chat)
+
+
+async def tell_to_update(room: Room) -> None:
+    """Voice was asked for in this room (US-055 calls this when someone starts it): everyone
+    whose WatchSync can't talk is told how to get it, once per connection. It goes as a chat
+    line from "WatchSync", which v0.2.x already shows and nobody else can be named (see
+    is_reserved_name); it is sent to them alone and never kept in the room's history. v0.1.x
+    has no chat and no other place that shows text, so it hears nothing (US-132)."""
+    for x in list(room.participants.values()):
+        if x.connected and x.level == LEVEL_V02 and not x.told_to_update:
+            x.told_to_update = True
+            notice = {
+                "id": secrets.token_hex(8),
+                "clientId": "update-to-talk",
+                "fromId": "watchsync",
+                "name": "WatchSync",
+                "text": f"Update WatchSync to talk: {config.SITE_URL}",
+                "movieTime": None,
+                "titleId": None,
+                "serverTime": now_ms(),
+            }
+            await send(x, "CHAT.MESSAGE", notice)
 
 
 async def reject(p: Participant, reason: str, text: str, client_id: str | None) -> None:
@@ -778,14 +803,18 @@ async def room_socket(ws: WebSocket, code: str) -> None:
         return
     open_sockets[ip] = open_sockets.get(ip, 0) + 1
     try:
-        await serve(ws, code, token, subprotocol, ip)
+        # v0.3+ says its version in ?v=; old servers ignore the parameter (US-132).
+        level = client_level(ws.query_params.get("v"), subprotocol is not None)
+        await serve(ws, code, token, subprotocol, ip, level)
     finally:
         open_sockets[ip] -= 1
         if not open_sockets[ip]:
             del open_sockets[ip]
 
 
-async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, ip: str) -> None:
+async def serve(
+    ws: WebSocket, code: str, token: str, subprotocol: str | None, ip: str, level: int
+) -> None:
     found = rooms.authenticate(code, token, ip)
     if found is None:
         await ws.accept(subprotocol)
@@ -800,6 +829,8 @@ async def serve(ws: WebSocket, code: str, token: str, subprotocol: str | None, i
     pending = away.pop(p.id, None)
     if pending is not None:  # back within the grace period: nobody hears they were gone
         pending.cancel()
+    p.level = level
+    p.told_to_update = False
     p.connected = True
     room.used = True
     room.empty_since = None
