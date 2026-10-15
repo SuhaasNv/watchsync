@@ -150,6 +150,12 @@ export type ChatNonceReply = { nonce: string } | null;
 /** Popup → background: whether a supported service tab is open for Open chat (boolean). */
 export type ChatTabRequest = { kind: "hasChatTab" };
 
+/**
+ * Popup → background: whether WatchSync runs in this tab, i.e. it is a page of a supported
+ * service (US-052). Answers true or false; null when the worker can't tell.
+ */
+export type TabSupportedRequest = { kind: "tabSupported"; tabId: number };
+
 /** Content script → background, over its port. */
 export type TabEvent =
   | { kind: "presence"; service: Service; media: Media | null }

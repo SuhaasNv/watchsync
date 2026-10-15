@@ -9,6 +9,7 @@ import {
   nameProblem,
   type Reply,
   type Request,
+  type TabSupportedRequest,
 } from "../shared/messages";
 import { api, retryNow, sendServer } from "./connection";
 import { endSession, ready, rejoin, startSession } from "./session";
@@ -82,7 +83,7 @@ async function handleNow(req: Request): Promise<Reply> {
 }
 
 export function onMessage(
-  req: Request | ChatNonceRequest | ChatTabRequest,
+  req: Request | ChatNonceRequest | ChatTabRequest | TabSupportedRequest,
   sender: chrome.runtime.MessageSender,
   reply: (response?: unknown) => void,
 ) {
@@ -91,6 +92,14 @@ export function onMessage(
     serviceTabs()
       .then((tabs) => reply(tabs.length > 0))
       .catch(() => reply(false));
+    return true;
+  }
+  if (req.kind === "tabSupported") {
+    // The tabs that hold a content script of ours are the supported pages: that is known
+    // without the tabs permission and without reading any page address.
+    serviceTabs()
+      .then((tabs) => reply(tabs.some((t) => t.id === req.tabId)))
+      .catch(() => reply(null));
     return true;
   }
   if (req.kind === "chatNonce") {
