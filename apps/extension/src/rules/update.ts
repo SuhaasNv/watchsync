@@ -21,7 +21,11 @@ export interface RulesState {
 export function activeRules(file: RulesFile | null, now: number): Rules {
   if (!file || now >= expiresAt(file)) return BUNDLED_RULES;
   const { netflix } = file.rules;
-  return { ...file.rules, netflix: { ...netflix, ad: netflix.ad ?? BUNDLED_RULES.netflix.ad } };
+  return {
+    ...file.rules,
+    netflix: { ...netflix, ad: netflix.ad ?? BUNDLED_RULES.netflix.ad },
+    unavailable: file.rules.unavailable ?? BUNDLED_RULES.unavailable,
+  };
 }
 
 /** A stored value from chrome.storage, checked again like anything that crosses a boundary. */

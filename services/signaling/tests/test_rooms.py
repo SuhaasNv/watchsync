@@ -1432,3 +1432,69 @@ def test_title_names_lose_control_and_direction_characters() -> None:
     media = {"service": "netflix", "titleId": "1", "titleName": "X‮Y", "titleUrl": None}
     cleaned = safe_media(media)
     assert cleaned is not None and cleaned["titleName"] == "XY"
+
+
+def cant_play(ws: Any, title_id: str) -> None:
+    """Presence on a title the person's service says they can't play (US-128)."""
+    media = {
+        "service": "netflix",
+        "titleId": title_id,
+        "titleName": None,
+        "titleUrl": f"https://www.netflix.com/watch/{title_id}",
+    }
+    payload = {"service": "netflix", "following": True, "media": media, "unavailable": True}
+    ws.send_json(msg("PRESENCE.UPDATE", payload))
+
+
+def test_the_room_never_waits_for_someone_who_cant_play_the_title() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        room = main.rooms.rooms[host["code"]]
+        asha = room.participants[guest["participantId"]]
+        cant_play(gws, "1")
+        next_of(hws, "ROOM.PARTICIPANT")
+        assert asha.unavailable and asha.public()["unavailable"] is True
+
+        # Her player can't be buffering or on an ad, but if her tab says so the room goes on.
+        play(hws)
+        next_of(gws, "PLAYBACK.STATE")
+        hold(gws, "buffering", 42)
+        sync_point(gws, 1)
+        assert not room.held and room.playback is not None
+        assert room.playback["status"] == "playing"
+        assert room.holding() == []
+
+        # A Start together doesn't wait for her to be ready.
+        hws.send_json(msg("START.REQUEST", {"position": 0, "titleId": "1"}))
+        next_of(hws, "START.STATE")
+        hws.send_json(msg("START.READY", {}))
+        assert next_of(hws, "START.STATE")["payload"]["phase"] == "go"
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)
+
+
+def test_a_title_someone_cant_play_moves_nobody_and_the_flag_clears_with_the_next_report() -> None:
+    host = create()
+    guest = join(host["code"]).json()
+    hcm, hws, gcm, gws = two_on_title(host, guest)
+    try:
+        room = main.rooms.rooms[host["code"]]
+        asha = room.participants[guest["participantId"]]
+        assert room.media is not None and room.media["titleId"] == "1"
+        cant_play(gws, "2")  # she opens another title and her service refuses it
+        sync_point(gws, 1)
+        assert room.media["titleId"] == "1" and asha.unavailable
+        presence(gws, "3")  # she opens one she can play: the flag is left out
+        sync_point(gws, 2)
+        assert not asha.unavailable and "unavailable" not in asha.public()
+        assert room.media["titleId"] == "3"  # a title she can play moves the room as usual
+        cant_play(gws, "3")
+        presence(gws, None)  # closing the page clears it too
+        sync_point(gws, 3)
+        assert not asha.unavailable
+    finally:
+        gcm.__exit__(None, None, None)
+        hcm.__exit__(None, None, None)

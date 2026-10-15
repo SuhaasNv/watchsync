@@ -419,9 +419,12 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         p.title_name = media["titleName"] if media else None
         p.media = media
         p.watched |= media is not None
+        # Their service says they can't play it (US-128): said again with every report, so it
+        # clears by itself when they open something else.
+        p.unavailable = payload.get("unavailable") is True and media is not None
         # Off the room's title or watching on their own: the room can't be waiting for this
         # person's ad or loading any more, and their tab can't say so once closed (BUG-050).
-        if p.hold and (p.title_id != room_title or not p.following):
+        if p.hold and (p.title_id != room_title or not p.following or p.unavailable):
             p.hold = None
             p.ad_left = None
         await broadcast(room, "ROOM.PARTICIPANT", {"participant": p.public(), "event": "updated"})
@@ -438,7 +441,13 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         # The room goes to the last title anyone following it picks (DEC-030); friends are
         # offered it. People watching on their own never move it, and a friend arriving on
         # another title is offered the room's instead.
-        moves = media is not None and p.following and media["titleId"] != room_title
+        # A title someone can't play moves nobody (US-128).
+        moves = (
+            media is not None
+            and p.following
+            and not p.unavailable
+            and media["titleId"] != room_title
+        )
         # Once nobody here has the room's title open, it goes to whoever follows the room on
         # another title, so the order of leaving and opening doesn't matter (BUG-047).
         abandoned = room_title is not None and not any(
@@ -447,7 +456,11 @@ async def handle(room: Room, p: Participant, msg: dict[str, Any]) -> None:
         mover = p if moves and (room_title is None or picked or abandoned) else None
         if mover is None and abandoned:
             mover = next(
-                (x for x in room.participants.values() if x.connected and x.following and x.media),
+                (
+                    x
+                    for x in room.participants.values()
+                    if x.connected and x.following and x.media and not x.unavailable
+                ),
                 None,
             )
         if mover is not None and mover.media is not None:

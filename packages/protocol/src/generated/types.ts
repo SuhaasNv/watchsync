@@ -32,6 +32,10 @@ export type PresenceUpdate = Envelope & {
     service: Service;
     following: boolean;
     media: Media | null;
+    /**
+     * v0.3+. True while the service says this person can't play the title in `media`. Left out otherwise.
+     */
+    unavailable?: boolean;
   };
 };
 /**
@@ -390,6 +394,10 @@ export interface Participant {
    * v0.3+. Whether this person's WatchSync can do voice. Sent only to v0.3+ clients (older ones reject unknown fields, US-132); absent means it can't.
    */
   canTalk?: boolean;
+  /**
+   * v0.3+. True while this person's service says they can't play the title they have open (not available in their region). Sent only to v0.3+ clients, and only while true; absent means they can. The room never waits for them.
+   */
+  unavailable?: boolean;
 }
 export interface CreateRoomRequest {
   name: Name;

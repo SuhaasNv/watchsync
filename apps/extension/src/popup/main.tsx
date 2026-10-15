@@ -15,6 +15,7 @@ import {
   SERVICE_LABEL,
   safeTitleUrl,
   send,
+  type TabSupportedRequest,
   UNREACHABLE,
 } from "../shared/messages";
 import { initialOf, toneOf } from "../shared/people";
@@ -300,6 +301,7 @@ function Watching({ p }: { p: Participant }) {
 /** Where a person stands against the room: in sync, held up, or nothing to say. */
 function standing(p: Participant, roomTitle: string | null): "sync" | "ad" | "loading" | null {
   if (!p.connected || !p.following || roomTitle === null || p.titleId !== roomTitle) return null;
+  if (p.unavailable) return null; // can't play it: not in sync, and not waited for (US-128)
   if (p.hold === "ad") return "ad";
   if (p.hold === "buffering") return "loading";
   return "sync";
@@ -343,6 +345,7 @@ function summary(state: AppState, me: string): string {
   const others = state.participants.filter((p) => p.id !== me && p.connected);
   const odd = others.find((p) => standing(p, media.titleId) !== "sync");
   if (!odd) return "Everyone's together.";
+  if (odd.unavailable && odd.titleId === media.titleId) return `${odd.name} can't play this here.`;
   if (odd.hold === "ad") return `${odd.name} is on an ad.`;
   if (odd.hold === "buffering") return `${odd.name} is loading.`;
   if (!odd.following) return `${odd.name} is watching on their own.`;
@@ -446,6 +449,47 @@ function useChatShortcut() {
 
 const NO_TAB = "Open the title on a supported service first.";
 
+const SUPPORTED = `${SERVICE_LABEL.netflix}, ${SERVICE_LABEL.prime} and ${SERVICE_LABEL.jiohotstar}`;
+
+/**
+ * True when the tab being looked at doesn't run WatchSync, i.e. a site we don't support
+ * (US-052). The page address is never read (no tabs permission): a supported page is one
+ * whose tab holds our content script. False while unknown, and when this popup is itself
+ * open in a tab (as the tests do), since that tab says nothing about where the person is.
+ */
+function useOnUnsupportedSite(): boolean {
+  const [unsupported, setUnsupported] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const check = async () => {
+      let found = false;
+      try {
+        const [[active], self] = await Promise.all([
+          chrome.tabs.query({ active: true, currentWindow: true }),
+          chrome.tabs.getCurrent(),
+        ]);
+        if (active?.id !== undefined && active.id !== self?.id) {
+          const ask: TabSupportedRequest = { kind: "tabSupported", tabId: active.id };
+          found = (await chrome.runtime.sendMessage(ask)) === false;
+        }
+      } catch {
+        found = false; // can't tell: say nothing rather than guess
+      }
+      if (live) setUnsupported(found);
+    };
+    void check();
+    chrome.tabs.onActivated.addListener(check);
+    // A page that is still loading hasn't connected yet: ask again while the popup is open.
+    const again = setInterval(check, 2000);
+    return () => {
+      live = false;
+      clearInterval(again);
+      chrome.tabs.onActivated.removeListener(check);
+    };
+  }, []);
+  return unsupported;
+}
+
 /**
  * Opens chat on the tab playing the room's title (US-115): a full-width row with the unread
  * count and the shortcut inside it. Off, it says why in one line under it.
@@ -501,6 +545,7 @@ function RoomScreen({ state }: { state: AppState }) {
   const copy = useFocusOnShow<HTMLButtonElement>();
   const [copied, setCopied] = useState("");
   const shortcut = useChatShortcut();
+  const unsupportedSite = useOnUnsupportedSite();
   const s = state.session;
   if (!s) return null;
   // Alone, inviting is the next step; once others are here, the room is about them (BUG-016).
@@ -557,6 +602,16 @@ function RoomScreen({ state }: { state: AppState }) {
               Try now
             </button>
           </div>
+        )}
+        {unsupportedSite && (
+          <section className="section" aria-labelledby="unsupported-title" role="status">
+            <h2 className="label" id="unsupported-title">
+              This site isn't supported yet
+            </h2>
+            <p className="dim">
+              WatchSync works on {SUPPORTED}. Your room carries on in the tab where you're watching.
+            </p>
+          </section>
         )}
         {alone ? (
           <section className="invite-card" aria-labelledby="invite-title">

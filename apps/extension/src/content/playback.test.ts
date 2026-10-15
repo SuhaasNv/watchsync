@@ -130,6 +130,7 @@ describe("watchSeeking", () => {
       seek: async () => {},
       stalled: () => false,
       ad: () => null,
+      unavailable: () => false,
     };
     return { video, other, provider };
   }

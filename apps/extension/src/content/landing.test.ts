@@ -38,6 +38,7 @@ function rig(latency: number, offBy: number) {
     },
     stalled: () => false,
     ad: () => null,
+    unavailable: () => false,
   };
   return { video, provider, seeks };
 }

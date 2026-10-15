@@ -100,6 +100,36 @@ describe("schema", () => {
     expect(parseRulesFile(withAd("[data-uia='x']"))).toBeNull();
   });
 
+  test("a file signed before the unavailable-title rules existed stays valid and gets the bundled ones", () => {
+    const { unavailable: _u, ...rules } = BUNDLED_RULES;
+    const parsed = parseRulesFile({ ...file(1), rules });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.rules.unavailable).toBeUndefined();
+    expect(activeRules(parsed, NOW).unavailable).toEqual(BUNDLED_RULES.unavailable);
+  });
+
+  test("unavailable-title rules are one plain selector per service and nothing else", () => {
+    const withUnavailable = (unavailable: unknown) => ({
+      ...file(1),
+      rules: { ...BUNDLED_RULES, unavailable },
+    });
+    const good = { netflix: "[data-uia='x']", prime: ".y", jiohotstar: "[role='dialog'], .z" };
+    expect(parseRulesFile(withUnavailable(good))?.rules.unavailable).toEqual(good);
+    expect(parseRulesFile(withUnavailable({ ...good, pattern: "^no$" }))).toBeNull();
+    expect(
+      parseRulesFile(withUnavailable({ netflix: good.netflix, prime: good.prime })),
+    ).toBeNull();
+    expect(parseRulesFile(withUnavailable({ ...good, prime: "a{x:y}" }))).toBeNull();
+    expect(parseRulesFile(withUnavailable({ ...good, netflix: "" }))).toBeNull();
+    expect(parseRulesFile(withUnavailable({ ...good, jiohotstar: ["a"] }))).toBeNull();
+    expect(parseRulesFile(withUnavailable(null))).toBeNull();
+    expect(parseRulesFile(withUnavailable("[data-uia='x']"))).toBeNull();
+  });
+
+  test("the bundled unavailable-title selectors pass the schema's own rules", () => {
+    expect(parseRulesFile(file(1))?.rules.unavailable).toEqual(BUNDLED_RULES.unavailable);
+  });
+
   test("the page can also reject a selector that does not parse", () => {
     expect(parseRulesFile(file(1), () => false)).toBeNull();
     expect(parseRulesFile(file(1), () => true)).not.toBeNull();

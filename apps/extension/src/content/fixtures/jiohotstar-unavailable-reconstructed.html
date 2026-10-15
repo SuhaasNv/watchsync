@@ -1,0 +1,29 @@
+<!doctype html>
+<!--
+  JioHotstar "content not available in your region" screen (US-128). RECONSTRUCTED, and the
+  LEAST certain of the three: the words are Hotstar's own, the markup is a guess.
+  Sources (static text of files Hotstar serves to every visitor, read 15 Oct 2026, nothing run):
+  - https://www.hotstar.com/sg/shows/panchayat/1260123456/watch (what www.jiohotstar.com/in/...
+    redirected to from Singapore) inlines the page's string table, which holds
+      common-v2__player_error_PB_IOS_NM-1102_1_title   = "Content not available"
+      common-v2__player_error_PB_IOS_NM-1102_1_message = "This content is currently not available
+        in your region. Please select another content."
+    (and the same words under other player error codes, e.g. NW-1002_1).
+  - Its Next.js bundle (/assets-x/web/_next/static/chunks/) draws errors from server-sent widgets,
+    with no stable test id or class for a player error that could be read from the bundle.
+  So the container is a plain dialog here; the rules' selector list is deliberately generic
+  ([role=alertdialog], [role=dialog], [role=alert], [data-testid*=rror]) and the code insists on
+  the words. Owner capture (from Singapore, where the region screen shows by itself): see the report.
+-->
+<html lang="en">
+  <head><title>Panchayat S3 E2 - Watch on JioHotstar</title></head>
+  <body>
+    <div id="__next">
+      <div role="dialog" aria-modal="true" data-testid="player-error">
+        <h2>Content not available</h2>
+        <p>This content is currently not available in your region. Please select another content.</p>
+        <button type="button">Go back</button>
+      </div>
+    </div>
+  </body>
+</html>

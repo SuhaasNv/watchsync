@@ -1,0 +1,43 @@
+<!doctype html>
+<!--
+  Prime Video player error modal (US-128). RECONSTRUCTED, not captured. Sources, all read as
+  static text of files Prime serves to every visitor (nothing executed, no login):
+  - https://cloudfront.xp-assets.aiv-cdn.net/family/web/ATVWebPlayerSDKLoader-2.0/prod/WebPlayerSDK.js
+    names the player bundle, https://cloudfront.xp-assets.aiv-cdn.net/family/web/ATVWebPlayerSDK-1.0/prod/ATVWebPlayerSDK.js,
+    read on 15 Oct 2026. Its web ErrorModal renders
+      <div class="{Modal wrapper}">
+        <div class="atvwebplayersdk-video-unavailable-error {ModalStyles.Title}">{error.title}</div>
+        <div class="{ModalStyles.Description}">{error.description as HTML}</div>
+        <close button/>
+      </div>
+    where the first class comes from debugClassName("atvwebplayersdk", "video-unavailable-error").
+  - The same file's English error table: invalidGeoIp -> title "Service Area Restriction",
+    description "This video isn't available due to geographical licensing restrictions. For more
+    details, please refer to <a>Prime Video Terms of Use</a>. For further assistance, please contact
+    Amazon Customer Service at <a>..</a> and refer to error 4601." The title "Video Unavailable" is
+    shared by a plain playback problem ("We're experiencing a problem playing this video.") and by
+    noRights ("You don't own this video or have an active rental."), so it is NOT taken as a region
+    error.
+  Unknown: the wrapper and Modal class names (generated), whether the modal sits inside
+  .dv-player-fullscreen, and the exact error-code wording. Owner capture: see the US-128 report.
+-->
+<html lang="en">
+  <head><title>Prime Video: Example Film</title></head>
+  <body>
+    <div class="dv-player-fullscreen">
+      <div class="atvwebplayersdk-overlays-container">
+        <div class="modal-wrapper">
+          <div class="modal-content">
+            <div class="atvwebplayersdk-video-unavailable-error modal-title">Service Area Restriction</div>
+            <div class="modal-description">
+              This video isn't available due to geographical licensing restrictions. For more
+              details, please refer to <a href="//www.primevideo.com/help">Prime Video Terms of Use</a>.
+              For further assistance, please contact Amazon Customer Service at
+              <a href="//www.primevideo.com/help">www.primevideo.com/help</a> and refer to error 4601.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
