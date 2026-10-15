@@ -77,6 +77,29 @@ describe("schema", () => {
     expect(parseRulesFile(withTitle("a".repeat(201)))).toBeNull();
   });
 
+  test("a file signed before Netflix ad rules existed stays valid and gets the bundled ones", () => {
+    const { ad: _ad, ...netflix } = BUNDLED_RULES.netflix;
+    const old = { ...file(1), rules: { ...BUNDLED_RULES, netflix } };
+    const parsed = parseRulesFile(old);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.rules.netflix.ad).toBeUndefined();
+    expect(activeRules(parsed, NOW).netflix.ad).toEqual(BUNDLED_RULES.netflix.ad);
+  });
+
+  test("Netflix ad rules are two plain selectors and nothing else", () => {
+    const withAd = (ad: unknown) => ({
+      ...file(1),
+      rules: { ...BUNDLED_RULES, netflix: { ...BUNDLED_RULES.netflix, ad } },
+    });
+    const good = { containerSelector: "[data-uia='x']", timeSelector: ".t" };
+    expect(parseRulesFile(withAd(good))).not.toBeNull();
+    expect(parseRulesFile(withAd({ ...good, pattern: "^Ad$" }))).toBeNull();
+    expect(parseRulesFile(withAd({ containerSelector: good.containerSelector }))).toBeNull();
+    expect(parseRulesFile(withAd({ ...good, timeSelector: "a{x:y}" }))).toBeNull();
+    expect(parseRulesFile(withAd(null))).toBeNull();
+    expect(parseRulesFile(withAd("[data-uia='x']"))).toBeNull();
+  });
+
   test("the page can also reject a selector that does not parse", () => {
     expect(parseRulesFile(file(1), () => false)).toBeNull();
     expect(parseRulesFile(file(1), () => true)).not.toBeNull();

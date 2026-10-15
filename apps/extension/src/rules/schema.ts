@@ -4,10 +4,16 @@
 // This file imports nothing so scripts/sign-rules.mjs can run it with Node as it is.
 // The schema stays out of packages/protocol: only the extension reads these files.
 
+/** Where Netflix's player shows its ad badge: the box, and the countdown inside it. */
+export interface NetflixAdRules {
+  containerSelector: string;
+  timeSelector: string;
+}
+
 export interface Rules {
   /** Seconds: a video longer than this is the film, a shorter one is a trailer or an ad. */
   filmMinSec: number;
-  netflix: { titleSelector: string; driftToleranceSec: number };
+  netflix: { titleSelector: string; driftToleranceSec: number; ad: NetflixAdRules };
   prime: {
     /** Tried in order; the first with text is the show's name. */
     titleSelectors: string[];
@@ -18,6 +24,14 @@ export interface Rules {
   jiohotstar: { driftToleranceSec: number };
 }
 
+/**
+ * What a file holds. A group added after the first files were signed (Netflix ads, UC-048) may
+ * be left out; activeRules fills it from the bundled rules, so those files stay valid.
+ */
+export type FileRules = Omit<Rules, "netflix"> & {
+  netflix: Omit<Rules["netflix"], "ad"> & { ad?: NetflixAdRules };
+};
+
 /** What the signature covers (the file's exact bytes). */
 export interface RulesFile {
   schema: 1;
@@ -25,7 +39,7 @@ export interface RulesFile {
   seq: number;
   /** "2026-11-14T00:00:00Z": past it the file is ignored and the bundled rules apply. */
   expires: string;
-  rules: Rules;
+  rules: FileRules;
 }
 
 type Obj = Record<string, unknown>;
@@ -69,9 +83,21 @@ export function parseRulesFile(
   const { filmMinSec, netflix, prime, jiohotstar } = rules;
   if (!num(filmMinSec, 30, 3600)) return null;
 
-  if (!isObj(netflix) || !hasKeys(netflix, ["titleSelector", "driftToleranceSec"])) return null;
-  const { titleSelector, driftToleranceSec: netflixDrift } = netflix;
+  const netflixKeys = ["titleSelector", "driftToleranceSec"];
+  if (
+    !isObj(netflix) ||
+    !(hasKeys(netflix, netflixKeys) || hasKeys(netflix, [...netflixKeys, "ad"]))
+  )
+    return null;
+  const { titleSelector, driftToleranceSec: netflixDrift, ad } = netflix;
   if (!sel(titleSelector) || !drift(netflixDrift)) return null;
+  let netflixAd: NetflixAdRules | undefined;
+  if ("ad" in netflix) {
+    if (!isObj(ad) || !hasKeys(ad, ["containerSelector", "timeSelector"])) return null;
+    const { containerSelector, timeSelector } = ad;
+    if (!sel(containerSelector) || !sel(timeSelector)) return null;
+    netflixAd = { containerSelector, timeSelector };
+  }
 
   if (
     !isObj(prime) ||
@@ -98,7 +124,11 @@ export function parseRulesFile(
     expires,
     rules: {
       filmMinSec,
-      netflix: { titleSelector, driftToleranceSec: netflixDrift },
+      netflix: {
+        titleSelector,
+        driftToleranceSec: netflixDrift,
+        ...(netflixAd && { ad: netflixAd }),
+      },
       prime: {
         titleSelectors: titles,
         episodeSelector,

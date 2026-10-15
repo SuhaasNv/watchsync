@@ -67,8 +67,9 @@ test("an ad pauses the others, counts down, and everyone resumes together", asyn
     const pausedNotice = appears(hostTab, /^Asha paused/, 4000); // the card says why instead
     await ad(tab, "Ad 0:18");
     expect(await within(1500, async () => !(await playing(hostTab)))).toBeLessThan(1500);
-    await expect(hostTab.getByText("Asha is on an ad · about 0:20 left")).toBeVisible();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible();
     await expect(hostTab.getByText("Paused for everyone until the ad ends.")).toBeVisible();
+    await expect(hostTab.getByText("About 0:20 left.")).toBeVisible();
     expect(await pausedNotice).toBe(false);
 
     // The room leaves Asha's ad alone: her player isn't paused or moved by it.
@@ -76,15 +77,15 @@ test("an ad pauses the others, counts down, and everyone resumes together", asyn
     expect(await playing(tab)).toBe(true);
 
     await ad(tab, "Ad 0:09");
-    await expect(hostTab.getByText("Asha is on an ad · about 0:10 left")).toBeVisible();
+    await expect(hostTab.getByText("About 0:10 left.")).toBeVisible();
     await ad(tab, "Ad 0:03");
-    await expect(hostTab.getByText("Asha is on an ad · about 0:05 left")).toBeVisible();
+    await expect(hostTab.getByText("About 0:05 left.")).toBeVisible();
     expect(await playing(hostTab)).toBe(false);
 
     await ad(tab, null);
     expect(await within(1500, bothPlaying(hostTab, tab))).toBeLessThan(1000);
     await expect(hostTab.getByText("Back together")).toBeVisible();
-    await expect(hostTab.getByText(/is on an ad/)).toHaveCount(0);
+    await expect(hostTab.getByText(/Waiting for .*'s ad/)).toHaveCount(0);
     await expect.poll(() => gap(tab, hostTab), { timeout: 5000 }).toBeLessThan(1);
   } finally {
     await friend.context.close();
@@ -102,7 +103,8 @@ test("two people on ads at once: the room waits for both", async ({ ext }) => {
     // Asha's ad ends first: she waits for Suhaas's, paused at the room's position.
     const early = appears(hostTab, "Back together", 3000); // not while Suhaas's own ad runs
     await ad(tab, null);
-    await expect(tab.getByText("Suhaas is on an ad · about 0:15 left")).toBeVisible();
+    await expect(tab.getByText("Waiting for Suhaas's ad")).toBeVisible();
+    await expect(tab.getByText("About 0:15 left.")).toBeVisible();
     expect(await early).toBe(false);
     await expect.poll(() => playing(tab), { timeout: 2000 }).toBe(false);
     await tab.waitForTimeout(1500);
@@ -122,7 +124,8 @@ test("a long ad lets the others keep waiting or watch without them", async ({ ex
   const { hostTab, friend, tab } = await bothWatching(ext);
   try {
     await ad(tab, "Ad 2:30");
-    await expect(hostTab.getByText("Asha is on an ad · about 2:30 left")).toBeVisible();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible();
+    await expect(hostTab.getByText("About 2:30 left.")).toBeVisible();
     // After a long wait (90 s; 4 s in test builds) the card offers a choice.
     const without = hostTab.getByRole("button", { name: "Watch without Asha" });
     await expect(without).toHaveCount(0);
@@ -131,12 +134,108 @@ test("a long ad lets the others keep waiting or watch without them", async ({ ex
     expect(await playing(hostTab)).toBe(false);
     await without.click({ timeout: 8000 });
     await expect.poll(() => playing(hostTab)).toBe(true);
-    await expect(hostTab.getByText(/is on an ad/)).toHaveCount(0);
+    await expect(hostTab.getByText(/Waiting for .*'s ad/)).toHaveCount(0);
 
     // Asha's ad ends and she catches up with the room.
     await ad(tab, null);
     await expect.poll(() => gap(tab, hostTab), { timeout: 6000 }).toBeLessThan(1);
     expect(await playing(tab)).toBe(true);
+  } finally {
+    await friend.context.close();
+  }
+});
+
+// ---- Netflix's ad badge (US-126) ----
+
+/**
+ * Shows or removes the badge Netflix's player draws during an ad: a box with the countdown
+ * inside it. `time: null` shows the box with no countdown, a badge the adapter can't be sure
+ * about.
+ */
+const badge = (p: Page, show: boolean, time: string | null = "0:15") =>
+  p.evaluate(
+    ([on, t]) => {
+      document.querySelector('[data-uia="ads-info-container"]')?.remove();
+      if (!on) return;
+      const box = document.createElement("div");
+      box.dataset.uia = "ads-info-container";
+      box.innerHTML = `<span data-uia="ads-info-text">Ad</span>${t ? `<span data-uia="ads-info-time">${t}</span>` : ""}`;
+      document.body.append(box);
+    },
+    [show, time] as const,
+  );
+
+test("a Netflix ad holds the room within a second, and everyone resumes together", async ({
+  ext,
+}) => {
+  const { hostTab, friend, tab } = await bothWatching(ext);
+  try {
+    await badge(tab, true);
+    const started = Date.now();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible({ timeout: 1000 });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(await playing(hostTab)).toBe(false);
+    await expect(hostTab.getByText("About 0:15 left.")).toBeVisible();
+
+    await badge(tab, false);
+    expect(await within(1500, bothPlaying(hostTab, tab))).toBeLessThan(1000);
+    await expect(hostTab.getByText("Back together")).toBeVisible();
+    await expect(hostTab.getByText(/Waiting for .*ad/)).toHaveCount(0);
+    await expect.poll(() => gap(tab, hostTab), { timeout: 5000 }).toBeLessThan(1);
+  } finally {
+    await friend.context.close();
+  }
+});
+
+test("a Netflix badge the adapter isn't sure about is a buffering wait that never says ad", async ({
+  ext,
+}) => {
+  const { hostTab, friend, tab } = await bothWatching(ext);
+  try {
+    await badge(tab, true, null); // a box with no countdown
+    await expect(hostTab.getByText("Waiting for Asha to load")).toBeVisible({ timeout: 4000 });
+    expect(await playing(hostTab)).toBe(false);
+    await expect(hostTab.getByText(/\bad\b/i)).toHaveCount(0);
+    await expect(hostTab.getByText("Paused for everyone until Asha catches up.")).toBeVisible();
+
+    await badge(tab, false);
+    expect(await within(3500, bothPlaying(hostTab, tab))).toBeLessThan(3500);
+    await expect(hostTab.getByText("Back together")).toBeVisible();
+    await expect.poll(() => gap(tab, hostTab), { timeout: 5000 }).toBeLessThan(1);
+  } finally {
+    await friend.context.close();
+  }
+});
+
+// ---- Prime's ad countdown (US-127) ----
+
+/** Shows or removes the countdown Prime's fullscreen player draws during an ad. */
+const primeTimer = (p: Page, show: boolean) =>
+  p.evaluate((on) => {
+    document.querySelector(".dv-player-fullscreen")?.remove();
+    if (!on) return;
+    const box = document.createElement("div");
+    box.className = "dv-player-fullscreen";
+    box.innerHTML = `<span class="atvwebplayersdk-ad-timer-remaining-time">Ad 0:25</span>`;
+    document.body.append(box);
+  }, show);
+
+test("a Prime ad names who has it, holds the room and resumes everyone together", async ({
+  ext,
+}) => {
+  const { hostTab, friend, tab } = await bothWatching(ext);
+  try {
+    await primeTimer(tab, true);
+    const started = Date.now();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible({ timeout: 1500 });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(await playing(hostTab)).toBe(false);
+    await expect(hostTab.getByText("About 0:25 left.")).toBeVisible();
+
+    await primeTimer(tab, false);
+    expect(await within(1500, bothPlaying(hostTab, tab))).toBeLessThan(1000);
+    await expect(hostTab.getByText("Back together")).toBeVisible();
+    await expect.poll(() => gap(tab, hostTab), { timeout: 5000 }).toBeLessThan(1);
   } finally {
     await friend.context.close();
   }
@@ -204,11 +303,10 @@ test("an ad in its own short video holds the room until it ends", async ({ ext }
     expect(await tab.evaluate(() => document.querySelector("video")?.duration)).toBe(600);
     await separateAdVideo(tab, 8);
     expect(await within(1500, async () => !(await playing(hostTab)))).toBeLessThan(1500);
-    await expect(hostTab.getByText("Asha is on an ad · about 0:10 left")).toBeVisible();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible();
+    await expect(hostTab.getByText("About 0:10 left.")).toBeVisible();
     // The countdown comes from the ad video's own clock.
-    await expect(hostTab.getByText("Asha is on an ad · about 0:05 left")).toBeVisible({
-      timeout: 6000,
-    });
+    await expect(hostTab.getByText("About 0:05 left.")).toBeVisible({ timeout: 6000 });
 
     // The ad ends, the service resumes the film, and the room resumes with it.
     await expect(tab.locator("video[data-test-ad]")).toHaveCount(0, { timeout: 8000 });

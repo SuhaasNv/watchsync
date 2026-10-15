@@ -68,7 +68,8 @@ test("the room waits through someone's ad and says how long", async ({ ext }) =>
   try {
     await ad(tab, "Ad 0:18");
     await expect.poll(() => playing(hostTab), { timeout: 2000 }).toBe(false);
-    await expect(hostTab.getByText("Asha is on an ad · about 0:20 left")).toBeVisible();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible();
+    await expect(hostTab.getByText("About 0:20 left.")).toBeVisible();
     const hostAt = await position(hostTab);
     // The ad moving the friend's player is not a jump for the room.
     await tab.evaluate(() => {

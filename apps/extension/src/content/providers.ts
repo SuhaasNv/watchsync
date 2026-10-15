@@ -169,16 +169,44 @@ export function playingWithSound(doc: Document = document): boolean {
   return [...doc.querySelectorAll("video")].some((v) => !v.paused && !v.muted && v.volume > 0);
 }
 
-/** Prime shows an ad countdown in the player while an ad plays. */
+/**
+ * Prime shows an ad countdown in the player while an ad plays. The marker is a selector list
+ * in the rules (a stale one is fixed by a rules file, US-127); the page can hold several
+ * matches, some hidden or empty, so any shown one that says "Ad" or counts down counts.
+ */
 export function primeAd(doc: Document): { left: number | null } | null {
-  const el = doc.querySelector<HTMLElement>(rules().prime.adTimerSelector);
-  if (!el) return null;
-  // The player can keep an empty or see-through timer in the page between ads: only a
-  // shown timer that says "Ad" or counts down is one (BUG-055).
-  const shown = el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true });
-  const label = el.textContent?.trim() ?? "";
-  if (shown === false || !/\bad\b|\d:\d{2}/i.test(label)) return null;
-  return { left: adSeconds(label) };
+  for (const el of doc.querySelectorAll<HTMLElement>(rules().prime.adTimerSelector)) {
+    // The player can keep an empty or see-through timer in the page between ads: only a
+    // shown timer that says "Ad" or counts down is one (BUG-055).
+    const shown = el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true });
+    const label = el.textContent?.trim() ?? "";
+    if (shown !== false && /\bad\b|\d:\d{2}/i.test(label)) return { left: adSeconds(label) };
+  }
+  return null;
+}
+
+/**
+ * Netflix with ads (UC-048). The ad is stitched into the film's own <video>, so the film is
+ * never paused and no second video plays; the signals are the player's ad flag (`api`: true,
+ * false, or null when unreadable) and the ad badge in the page, a box holding a countdown.
+ * Only a confident signal says "ad": the flag, or, with no flag, a shown badge with a
+ * countdown. A badge with no countdown, or one the flag contradicts, is "unsure": the caller
+ * treats that like buffering and never says "ad".
+ */
+export function netflixAd(
+  doc: Document,
+  api: boolean | null,
+): { left: number | null } | "unsure" | null {
+  const { containerSelector, timeSelector } = rules().netflix.ad;
+  const box = doc.querySelector<HTMLElement>(containerSelector);
+  const shown =
+    box !== null &&
+    box.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }) !== false;
+  const left = shown ? adSeconds(box?.querySelector(timeSelector)?.textContent) : null;
+  if (api === true) return { left };
+  if (api === false) return shown ? "unsure" : null;
+  if (!shown) return null;
+  return left === null ? "unsure" : { left };
 }
 
 /**
@@ -235,16 +263,22 @@ function videoProvider(service: Service, media: () => Media | null): StreamingPr
   };
 }
 
-type NetflixAction = "play" | "pause" | "seek" | "title";
+type NetflixAction = "play" | "pause" | "seek" | "title" | "ad";
+interface NetflixAnswer {
+  ok: boolean;
+  name: string | null;
+  /** For "ad": the player's ad flag, or null when it can't be read. */
+  ad: boolean | null;
+}
 
 /**
  * Sends a command to src/page/netflix-bridge.ts (page context) and waits for its answer:
- * whether it worked, and for "title" the name it read.
+ * whether it worked, for "title" the name it read, for "ad" the player's ad flag.
  */
 function netflixCall(
   action: NetflixAction,
   extra: { ms?: number; videoId?: string } = {},
-): Promise<{ ok: boolean; name: string | null }> {
+): Promise<NetflixAnswer> {
   const id = crypto.randomUUID();
   return new Promise((resolve) => {
     const onResult = (e: Event) => {
@@ -257,18 +291,19 @@ function netflixCall(
         return; // the page can dispatch anything on document
       }
       if (typeof r !== "object" || r === null || (r as { id?: unknown }).id !== id) return;
-      const { ok, name } = r as { ok?: unknown; name?: unknown };
+      const { ok, name, ad } = r as { ok?: unknown; name?: unknown; ad?: unknown };
       done({
         ok: ok === true,
         name: typeof name === "string" && name.length <= 200 ? name : null,
+        ad: typeof ad === "boolean" ? ad : null,
       });
     };
-    const done = (result: { ok: boolean; name: string | null }) => {
+    const done = (result: NetflixAnswer) => {
       clearTimeout(timer);
       document.removeEventListener("watchsync:netflix-result", onResult);
       resolve(result);
     };
-    const timer = setTimeout(() => done({ ok: false, name: null }), 1000);
+    const timer = setTimeout(() => done({ ok: false, name: null, ad: null }), 1000);
     document.addEventListener("watchsync:netflix-result", onResult);
     document.dispatchEvent(
       new CustomEvent("watchsync:netflix-command", {
@@ -289,6 +324,20 @@ function netflixProvider(): StreamingProvider {
   const asked = new Set<string>();
   // ponytail: ~10 tries per title, then the page text alone; enough while the player loads.
   const tries = new Map<string, number>();
+  // The player's ad flag, asked in the page context about 4 times a second (the adapter's
+  // ad() must answer at once) and trusted for 2 s; unread or old counts as unknown.
+  let flag: { at: number; ad: boolean | null } = { at: 0, ad: null };
+  let asking = false;
+  const read = () => {
+    if (!asking) {
+      asking = true;
+      void netflixCall("ad").then(({ ad }) => {
+        asking = false;
+        flag = { at: Date.now(), ad };
+      });
+    }
+    return Date.now() - flag.at < 2000 ? flag.ad : null;
+  };
   const base = videoProvider("netflix", () => {
     const url = new URL(location.href);
     const urlId = url.pathname.match(/^\/watch\/(\d+)/)?.[1];
@@ -318,6 +367,15 @@ function netflixProvider(): StreamingProvider {
     get driftToleranceSec() {
       return rules().netflix.driftToleranceSec;
     },
+    // Not sure it's an ad (a badge with no countdown, or the flag disagrees): wait as for
+    // buffering, which never says "ad" (US-126).
+    ad: () => {
+      const seen = netflixAd(document, read());
+      return seen === "unsure" ? null : seen;
+    },
+    stalled: () =>
+      base.stalled() ||
+      (netflixAd(document, read()) === "unsure" && base.getState()?.playing === true),
     play: async () => {
       if (!(await netflixCommand("play"))) await base.play();
     },
@@ -425,7 +483,10 @@ function serviceProvider(host: string): StreamingProvider | null {
       // data-loading on <body> stands in for a player whose title can't be read yet
       // (Netflix before its controls show, Prime between episodes).
       media: () => (document.body.dataset.loading ? null : base.media()),
-      stalled: () => document.body.dataset.buffering === "1" || base.stalled(),
+      stalled: () =>
+        document.body.dataset.buffering === "1" ||
+        base.stalled() ||
+        (netflixAd(document, null) === "unsure" && base.getState()?.playing === true),
       // data-live on <body> stands in for a live stream (no end to its timeline).
       getState: () => {
         const st = base.getState();
@@ -433,8 +494,11 @@ function serviceProvider(host: string): StreamingProvider | null {
       },
       ad: () => {
         const el = document.querySelector("[data-ad]");
-        // primeAd reads its marker from the rules, which lets a test show a rules change.
-        return el ? { left: adSeconds(el.textContent) } : (primeAd(document) ?? separateAd());
+        if (el) return { left: adSeconds(el.textContent) };
+        // netflixAd and primeAd read their markers from the rules, which lets a test show a
+        // rules change; Netflix's badge here stands in for it without the player API.
+        const badge = netflixAd(document, null);
+        return (badge === "unsure" ? null : badge) ?? primeAd(document) ?? separateAd();
       },
     };
   }

@@ -230,14 +230,14 @@ test("Bring everyone here while the friend is on an ad waits for the ad", async 
       const v = document.querySelector("video");
       if (v) v.currentTime += 30;
     });
-    await expect(hostTab.getByText(/Asha is on an ad/)).toBeVisible({ timeout: 4000 });
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible({ timeout: 4000 });
     await expect(bring).toBeVisible({ timeout: 4000 });
     const at = await position(hostTab);
     await seek(tab, 200); // the ad moves Asha's player somewhere else
     await bring.click();
     await hostTab.waitForTimeout(1500);
     expect(await playing(hostTab)).toBe(false); // still waiting for the ad, not playing
-    await expect(hostTab.getByText(/Asha is on an ad/)).toBeVisible();
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible();
 
     await tab.evaluate(() => document.querySelector("[data-ad]")?.remove());
     await expect.poll(() => playing(hostTab), { timeout: 5000 }).toBe(true);

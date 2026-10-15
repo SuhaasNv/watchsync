@@ -1,0 +1,37 @@
+<!doctype html>
+<!--
+  RECONSTRUCTED, NOT CAPTURED. This is not the HTML of a real Netflix ad. Nobody on the team has
+  captured one yet (owner-pending: see UC-048 / US-126). It mimics the markers that others
+  recorded from live ad-supported Netflix sessions, so the adapter has something to run against:
+
+  - data-uia="ads-info-container" holding "ads-info-text" ("Ad") and "ads-info-time" (countdown),
+    present exactly while an ad plays; "ad-markers" in the scrubber; "video-title" reading
+    "<Title> resumes after ads"; Netflix "pause ads" (pause-ad-*) only while paused.
+    Source: benjismith/multicap docs/phase0-findings.md, recorded live 7 Sep 2026
+    (Netflix web UI shakti-v877494c4). The container alone also appears in
+    aritropaul/adblocky src/entrypoints/netflix.content.ts ("live DOM inspection", 28 Mar 2026).
+  - The ad plays in the film's own <video> (stitched), so the film is not paused: this fixture
+    has one <video>.
+  Netflix's logged-out pages were also inspected (REA, no login): they carry no player or ad
+  code, so nothing here comes from the Netflix bundles themselves.
+
+  Replace this file with a real capture when one exists (steps in the UC-048 report: DevTools,
+  copy the outer HTML of .watch-video during an ad).
+-->
+<html lang="en">
+  <body>
+    <div class="watch-video">
+      <div class="watch-video--player-view">
+        <video><track kind="captions" /></video>
+        <div data-uia="controls-standard">
+          <div data-uia="video-title"><h4>Meet Yourself resumes after ads</h4></div>
+          <div data-uia="ads-info-container">
+            <span data-uia="ads-info-text">Ad</span>
+            <span data-uia="ads-info-time">0:15</span>
+          </div>
+          <div data-uia="ad-markers"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -154,7 +154,7 @@ test("signed rules change what the adapter sees, without an extension update", a
 
     // Bundled rules: this marker means nothing, so the host never hears of an ad.
     await mark();
-    await expect(hostTab.getByText(/Asha is on an ad/)).toHaveCount(0, { timeout: 2500 });
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toHaveCount(0, { timeout: 2500 });
     await tab.evaluate((sel) => document.querySelector(sel)?.remove(), AD_MARK);
 
     site.publish(rulesBody(1), key);
@@ -166,7 +166,7 @@ test("signed rules change what the adapter sees, without an extension update", a
     await tab.waitForTimeout(3200);
 
     await mark();
-    await expect(hostTab.getByText(/Asha is on an ad/)).toBeVisible({ timeout: 5000 });
+    await expect(hostTab.getByText("Waiting for Asha's ad")).toBeVisible({ timeout: 5000 });
   } finally {
     await friend.context.close();
     await site.close();
