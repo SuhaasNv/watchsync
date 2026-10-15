@@ -791,7 +791,7 @@ p {
 .foot a:hover {
   color: var(--text);
 }
-.foot p.update {
+.foot .update {
   margin: 0 0 10px;
   padding: var(--s2) var(--s3);
   border-radius: var(--r2);
@@ -801,9 +801,24 @@ p {
   font-size: 13px;
   line-height: 18px;
 }
-.foot p.update a {
+.foot .update a {
   color: var(--acc);
   font-weight: 600;
+}
+/* How to update a zip install: replace the folder, then reload (US-133). */
+.foot .update p {
+  margin: 0;
+}
+.foot .update ol {
+  margin: var(--s1) 0 0;
+  padding-left: 18px;
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 16px;
+}
+.foot .update .link {
+  color: var(--text);
+  font-size: inherit;
 }
 .foot p.foot-row {
   display: flex;

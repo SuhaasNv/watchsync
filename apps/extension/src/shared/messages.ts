@@ -223,7 +223,9 @@ export type TabEvent =
   /** Open Chrome's settings for WatchSync's microphone, in a new tab (US-057). */
   | { kind: "micSettings" }
   /** Open the mic test in a new tab (US-134). */
-  | { kind: "micTest" };
+  | { kind: "micTest" }
+  /** Open chrome://extensions in a new tab: a page can't link there (US-133, two copies). */
+  | { kind: "extensionsPage" };
 
 /** Plain messages for background error codes, shared by the popup and the invite page. */
 export const ERRORS: Record<string, string> = {

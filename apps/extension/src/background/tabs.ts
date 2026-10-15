@@ -215,6 +215,13 @@ export function onConnect(port: chrome.runtime.Port) {
       if (e.kind === "react") return react(e.emoji, e.count, port);
       if (e.kind === "voice")
         return isTalkCmd(e.cmd) ? voiceCommand(e.cmd, port.sender?.tab?.id) : undefined;
+      if (e.kind === "extensionsPage") {
+        // The address is ours: a page can't point this elsewhere.
+        chrome.tabs
+          .create({ url: "chrome://extensions" })
+          .catch((err: unknown) => console.debug("watchsync: extensions page", err));
+        return;
+      }
       if (e.kind === "micTest") {
         // The first-Talk sheet's "Test mic first": the test opens in a tab of its own.
         openMicPage("test", port.sender?.tab?.id).catch((err: unknown) =>

@@ -917,15 +917,31 @@ function Footer({ update, onVoice }: { update: AppState["update"]; onVoice: () =
   return (
     <footer className="foot">
       {update && (
-        <p className="update">
-          {__CHANNEL__ === "dev"
-            ? "A newer dev build is out"
-            : `WatchSync ${update.version} is out`}{" "}
-          ·{" "}
-          <a href={update.url} target="_blank" rel="noreferrer">
-            Download
-          </a>
-        </p>
+        <div className="update">
+          <p>
+            {__CHANNEL__ === "dev"
+              ? "A newer dev build is out"
+              : `WatchSync ${update.version} is out`}{" "}
+            ·{" "}
+            <a href={update.url} target="_blank" rel="noreferrer">
+              Download
+            </a>
+          </p>
+          <ol>
+            <li>Unzip it over your WatchSync folder, replacing the files.</li>
+            <li>
+              Open{" "}
+              <button
+                className="link"
+                type="button"
+                onClick={() => void chrome.tabs.create({ url: "chrome://extensions" })}
+              >
+                chrome://extensions
+              </button>{" "}
+              and press the reload arrow on WatchSync.
+            </li>
+          </ol>
+        </div>
       )}
       <p className="foot-row">
         <a href={__SITE_URL__} target="_blank" rel="noreferrer">

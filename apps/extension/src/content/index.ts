@@ -32,6 +32,7 @@ import {
 } from "../shared/messages";
 import { watchTalkKey } from "../voice/keys";
 import { align } from "./align";
+import { announce, watchCopies } from "./copies";
 import { DUCK_LEVEL_KEY, DUCK_ON_KEY, DUCK_SAVED_KEY, Ducker, duckFactor, isSaved } from "./duck";
 import { baseRate, type NudgeView, nudgeAvailable, nudgeDriftMs, startNudging } from "./nudge";
 import {
@@ -39,6 +40,7 @@ import {
   chatButton,
   clearPrompt,
   focusedControl,
+  isOwnOverlay,
   notice,
   noticesBesideSidebar,
   prompt,
@@ -1117,6 +1119,7 @@ function retire() {
   chrome.storage.onChanged.removeListener(onSetting);
   document.removeEventListener("volumechange", onVolume, true);
   window.removeEventListener("pagehide", onHide);
+  stopCopies();
   ducker?.stop(); // the film goes back to the person's volume before this copy is cut off
   retireOverlay();
   retireSidebar();
@@ -1161,7 +1164,27 @@ function poll() {
 }
 let settle: ReturnType<typeof setTimeout> | undefined;
 
+/** Another WatchSync is running on this page: say so once, with the way to remove one. */
+function warnCopies() {
+  toast(
+    "Two copies of WatchSync are running in this Chrome, so they can fight over the film. Remove one at chrome://extensions.",
+    20_000,
+    { icon: "alert", tone: "warn" },
+    [
+      { label: "Open extensions", primary: true, run: () => post({ kind: "extensionsPage" }) },
+      { label: "Got it", run: () => {} },
+    ],
+  );
+}
+let stopCopies = () => {};
+
 if (provider) {
+  const unmark = announce(chrome.runtime.id);
+  const unwatch = watchCopies(chrome.runtime.id, isOwnOverlay, warnCopies);
+  stopCopies = () => {
+    unmark();
+    unwatch();
+  };
   poll(); // read the title first so the first report isn't "nothing open"
   connect();
   document.addEventListener("visibilitychange", wake);

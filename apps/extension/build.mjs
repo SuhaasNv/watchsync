@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as esbuild from "esbuild";
+import { KEYS } from "./keys.mjs";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const api = (process.env.WATCHSYNC_API ?? "http://localhost:8000").replace(/\/$/, "");
@@ -42,6 +43,8 @@ const serviceMatches = [
 const manifest = {
   manifest_version: 3,
   name: channel === "dev" ? "WatchSync Dev" : "WatchSync",
+  // A fixed ID for each channel, whatever folder the zip is loaded from (US-133, keys.mjs).
+  key: KEYS[channel],
   version: pkg.version,
   ...(channel === "dev"
     ? { version_name: `${label} dev ${build}` }

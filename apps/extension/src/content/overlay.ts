@@ -9,6 +9,9 @@ const host = document.createElement("watchsync-overlay");
 const root = host.attachShadow({ mode: __MOCK__ ? "open" : "closed" });
 let retired = false;
 
+/** Whether this element is this copy's own on-page UI (another copy's is not). */
+export const isOwnOverlay = (el: Element): boolean => el === host;
+
 /** This copy of the extension was replaced by an update: take its UI off the page for good. */
 export function retireOverlay() {
   retired = true;
