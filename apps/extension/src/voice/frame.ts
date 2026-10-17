@@ -6,6 +6,7 @@
 // recorded or sent anywhere but to the people in the room.
 import type { IceServer } from "@watchsync/protocol";
 import { blockedBy, micMode, openMic } from "./echo";
+import { type FriendSetting, FULL, friendHeard, friendKey, playback } from "./friends";
 import { P2PMesh } from "./mesh";
 import {
   type BlockedBy,
@@ -50,6 +51,9 @@ let track: MediaStreamTrack | null = null;
 const peers = new Map<string, PeerState>();
 const speaking = new Set<string>();
 const players = new Map<string, HTMLAudioElement>();
+/** How I hear each friend (US-135): by name in lower case, and the name of each person here. */
+let friends: Record<string, FriendSetting> = {};
+let nameOf = new Map<string, string>();
 let last = "";
 let ownLevel: { stop: () => void } | null = null;
 const timers: ReturnType<typeof setTimeout>[] = [];
@@ -91,7 +95,7 @@ function setSpeaking(id: string, on: boolean) {
 
 /** While a friend speaks (never me), the film is told so every 250 ms (US-058). */
 let duckTimer: ReturnType<typeof setInterval> | undefined;
-const friendSpeaks = () => [...speaking].some((id) => id !== you);
+const friendSpeaks = () => friendHeard(speaking, you, settingFor);
 function keepDucking() {
   if (!friendSpeaks()) {
     clearInterval(duckTimer);
@@ -106,6 +110,26 @@ function keepDucking() {
   );
 }
 
+const settingFor = (id: string): FriendSetting => friends[nameOf.get(id) ?? ""] ?? FULL;
+
+/**
+ * Mutes or turns down one friend for me, on the element that plays them: their microphone and
+ * the track are untouched, so the ring on their face still follows their voice.
+ */
+function tune(id: string) {
+  const el = players.get(id);
+  if (!el) return;
+  const { muted, volume } = playback(settingFor(id));
+  el.muted = muted;
+  el.volume = volume;
+}
+
+/** The settings or the people changed: every friend is played as they should be, and the film's dip is checked again now. */
+function retune() {
+  for (const id of players.keys()) tune(id);
+  keepDucking();
+}
+
 /** Plays (or stops playing) one person's voice. It never goes anywhere else. */
 function play(id: string, audio: MediaStream | null) {
   players.get(id)?.remove();
@@ -116,6 +140,7 @@ function play(id: string, audio: MediaStream | null) {
   el.srcObject = audio;
   document.body.append(el);
   players.set(id, el);
+  tune(id);
   el.play().catch((e: unknown) => console.debug("watchsync: voice playback", e));
 }
 
@@ -153,6 +178,8 @@ function onIn(raw: unknown) {
   if (raw.kind === "room") {
     you = raw.you;
     people = raw.people.map((p) => p.id);
+    nameOf = new Map(raw.people.map((p) => [p.id, friendKey(p.name)]));
+    retune();
     startMesh();
     connectPeers();
   } else if (raw.kind === "ice") {
@@ -183,6 +210,8 @@ async function probe(what: Probe): Promise<unknown> {
   if (what === "heard") return (await mesh?.heard()) ?? {};
   if (what === "policy") return injectedPolicy;
   if (what === "mic") return track?.getSettings().deviceId ?? null;
+  if (what === "levels")
+    return [...players.values()].map((el) => ({ muted: el.muted, volume: el.volume }));
   return [...players.values()].map((el) => !el.paused);
 }
 
@@ -319,7 +348,10 @@ function applySettings(s: {
   found: MicMode | null;
   relay: boolean;
   micId: string | null;
+  friends: Record<string, FriendSetting>;
 }) {
+  friends = s.friends;
+  retune();
   const switched = s.micId !== micId;
   micId = s.micId;
   if (switched && mic === "on") void switchMic(); // else used the next time the mic opens

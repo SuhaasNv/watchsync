@@ -9,6 +9,7 @@ import {
   isTurnCredentials,
   type VoiceSignalBody,
 } from "@watchsync/protocol";
+import { type FriendSetting, isPeople } from "./friends";
 
 /** Where the microphone stands. off: not asked yet. asking: waiting for Chrome's answer. */
 export type MicState = "off" | "asking" | "on" | "blocked";
@@ -56,8 +57,8 @@ export interface VoicePerson {
 }
 
 /** What a test build may ask the voice document (the answers are not part of the product). */
-export type Probe = "heard" | "policy" | "playing" | "mic";
-const PROBES: readonly string[] = ["heard", "policy", "playing", "mic"];
+export type Probe = "heard" | "policy" | "playing" | "mic" | "levels";
+const PROBES: readonly string[] = ["heard", "policy", "playing", "mic", "levels"];
 
 /** Background → voice document. */
 export type VoiceIn =
@@ -83,6 +84,8 @@ export type VoiceIn =
       relay: boolean;
       /** The microphone picked in the mic test, else null (the system's). */
       micId: string | null;
+      /** How I hear each friend of this room (US-135), by name in lower case. */
+      friends: Record<string, FriendSetting>;
     }
   /** The mic test is open (on) or closed: the mic stays muted, and unheard, while it is. */
   | { kind: "testing"; on: boolean }
@@ -183,7 +186,13 @@ export function isVoiceIn(v: unknown): v is VoiceIn {
     const mode = (k: string) => field(v, k) === null || isMode(field(v, k));
     const id = field(v, "micId");
     const idOk = id === null || (isStr(id) && id.length > 0 && id.length <= 512);
-    return mode("chosen") && mode("found") && typeof field(v, "relay") === "boolean" && idOk;
+    return (
+      mode("chosen") &&
+      mode("found") &&
+      typeof field(v, "relay") === "boolean" &&
+      idOk &&
+      isPeople(field(v, "friends"))
+    );
   }
   if (kind === "testing") return typeof field(v, "on") === "boolean";
   if (kind === "probe") {

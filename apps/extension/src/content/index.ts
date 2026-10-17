@@ -33,6 +33,7 @@ import {
   UNREACHABLE,
 } from "../shared/messages";
 import { titleKey } from "../shared/title";
+import { silenced } from "../voice/friends";
 import { watchTalkKey } from "../voice/keys";
 import { align } from "./align";
 import { announce, watchCopies } from "./copies";
@@ -633,7 +634,8 @@ function drawPill() {
           : "none";
     const voice = talkMark(p);
     const heard = voice.mic === "on" ? ", mic on" : voice.mic === "off" ? ", muted" : "";
-    return { name: p.name, label: `${name}, ${state}${heard}`, mark, ...voice } as const;
+    const quiet = voice.friend && silenced(voice.friend.setting) ? ", muted for you" : "";
+    return { name: p.name, label: `${name}, ${state}${heard}${quiet}`, mark, ...voice } as const;
   });
   renderPill({
     people,

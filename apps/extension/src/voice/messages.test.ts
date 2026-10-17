@@ -63,8 +63,18 @@ describe("what the worker may tell the voice document", () => {
       expect(isVoiceIn({ kind: "micAnswer", by })).toBe(true);
     expect(isVoiceIn({ kind: "micAnswer", by: "mars" })).toBe(false);
     expect(isVoiceIn({ kind: "micAnswer" })).toBe(false);
-    const settings = { kind: "settings", chosen: null, found: "ptt", relay: false, micId: null };
+    const settings = {
+      kind: "settings",
+      chosen: null,
+      found: "ptt",
+      relay: false,
+      micId: null,
+      friends: {},
+    };
     expect(isVoiceIn(settings)).toBe(true);
+    expect(isVoiceIn({ ...settings, friends: { asha: { muted: true, volume: 30 } } })).toBe(true);
+    expect(isVoiceIn({ ...settings, friends: { asha: { muted: true, volume: 130 } } })).toBe(false);
+    expect(isVoiceIn({ ...settings, friends: undefined })).toBe(false);
     expect(isVoiceIn({ ...settings, micId: "abc123" })).toBe(true);
     expect(isVoiceIn({ ...settings, micId: "" })).toBe(false);
     expect(isVoiceIn({ ...settings, micId: 7 })).toBe(false);

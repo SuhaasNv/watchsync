@@ -44,7 +44,7 @@ test("the room waits while someone buffers, then resumes together", async ({ ext
     await expect.poll(() => playing(hostTab), { timeout: 3000, intervals: [100] }).toBe(false);
     expect(Date.now() - started).toBeLessThan(2500); // 1 s to call it buffering, then under 1 s
     await expect(hostTab.getByText("Waiting for Asha to load")).toBeVisible();
-    await expect(hostTab.getByRole("img", { name: "Asha, loading" })).toBeVisible();
+    await expect(hostTab.getByLabel("Asha, loading")).toBeVisible();
 
     const selfNotice = tab
       .getByText(/^Asha (pressed play|paused)/)

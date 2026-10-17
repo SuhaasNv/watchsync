@@ -31,6 +31,15 @@ import { initialOf, toneOf } from "../shared/people";
 import { titleKey } from "../shared/title";
 import { cannotTalk, joinNames, VOICE_MAX, voiceOffer } from "../voice/capability";
 import { MODE_AUTO_KEY, MODE_KEY, micMode } from "../voice/echo";
+import {
+  type FriendSetting,
+  type FriendStore,
+  muteToggle,
+  settingOf,
+  silenced,
+  trackFriends,
+  volumePatch,
+} from "../voice/friends";
 import { detectOs, micHelp, micPageUrl, micSettingsUrl } from "../voice/help";
 import { watchTalkKey } from "../voice/keys";
 import { type BlockedBy, type MicMode, NO_VOICE, type VoiceView } from "../voice/messages";
@@ -343,7 +352,65 @@ function voiceLine(p: Participant): { cls: "talking" | "muted" | "update"; text:
   return null;
 }
 
-function Person({ p, me, roomTitle }: { p: Participant; me: boolean; roomTitle: string | null }) {
+/** How I hear each friend of the room (US-135), kept in step with storage. */
+function useFriends() {
+  const [store, setStore] = useState<FriendStore>({});
+  const [track, setTrack] = useState<ReturnType<typeof trackFriends> | null>(null);
+  useEffect(() => {
+    const t = trackFriends(() => setStore(t.get()));
+    setTrack(t);
+    return t.stop;
+  }, []);
+  return { store, change: track?.change };
+}
+
+/** Mute for me and a volume, for a friend in voice: only what I hear changes (US-135). */
+function FriendControls({
+  name,
+  setting,
+  change,
+}: {
+  name: string;
+  setting: FriendSetting;
+  change: (patch: Partial<FriendSetting>) => void;
+}) {
+  const off = silenced(setting);
+  return (
+    <span className="friend">
+      <button
+        type="button"
+        className="btn compact"
+        aria-label={`${off ? "Unmute" : "Mute"} for me, ${name}`}
+        onClick={() => change(muteToggle(setting))}
+      >
+        {off ? "Unmute for me" : "Mute for me"}
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={setting.volume}
+        aria-label={`${name}'s volume`}
+        aria-valuetext={`${setting.volume} percent`}
+        onChange={(e) => change(volumePatch(Number(e.target.value)))}
+      />
+    </span>
+  );
+}
+
+function Person({
+  p,
+  me,
+  roomTitle,
+  friend,
+}: {
+  p: Participant;
+  me: boolean;
+  roomTitle: string | null;
+  /** How I hear them and how to change it: for a friend in voice, else null. */
+  friend: { setting: FriendSetting; change: (patch: Partial<FriendSetting>) => void } | null;
+}) {
   const s = standing(p, roomTitle);
   const v = voiceLine(p);
   return (
@@ -356,6 +423,8 @@ function Person({ p, me, roomTitle }: { p: Participant; me: boolean; roomTitle: 
         </span>
         <Watching p={p} />
         {v && <span className={`voice ${v.cls}`}>{v.text}</span>}
+        {friend && silenced(friend.setting) && <span className="voice update">Muted for you</span>}
+        {friend && <FriendControls name={p.name} {...friend} />}
       </span>
       {s && (
         <span className={`chip ${s}`}>
@@ -705,6 +774,7 @@ function RoomScreen({ state, voice }: { state: AppState; voice: VoiceView }) {
   const [copied, setCopied] = useState("");
   const shortcut = useChatShortcut();
   const unsupportedSite = useOnUnsupportedSite();
+  const friends = useFriends();
   const s = state.session;
   if (!s) return null;
   // Alone, inviting is the next step; once others are here, the room is about them (BUG-016).
@@ -712,14 +782,27 @@ function RoomScreen({ state, voice }: { state: AppState; voice: VoiceView }) {
   const media = state.media;
   const people = (
     <ul className="people" aria-label="People in the room">
-      {state.participants.map((p) => (
-        <Person
-          key={p.id}
-          p={p}
-          me={p.id === s.participantId}
-          roomTitle={alone ? null : titleKey(media)}
-        />
-      ))}
+      {state.participants.map((p) => {
+        const change = friends.change;
+        const inVoice =
+          p.connected && p.canTalk === true && p.voice !== undefined && p.voice !== "off";
+        return (
+          <Person
+            key={p.id}
+            p={p}
+            me={p.id === s.participantId}
+            roomTitle={alone ? null : titleKey(media)}
+            friend={
+              change && inVoice && p.id !== s.participantId
+                ? {
+                    setting: settingOf(friends.store, s.code, p.name),
+                    change: (patch) => change(s.code, p.name, patch),
+                  }
+                : null
+            }
+          />
+        );
+      })}
     </ul>
   );
   const copyRow = (primary: boolean) => (

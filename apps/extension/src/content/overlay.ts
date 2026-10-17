@@ -2,6 +2,7 @@
 // the host moves into the fullscreen element so prompts stay visible in fullscreen.
 import { type IconName, svgIcon } from "../shared/icons";
 import { initialOf, toneOf } from "../shared/people";
+import { type FriendSetting, friendKey, muteToggle, silenced, volumePatch } from "../voice/friends";
 
 const host = document.createElement("watchsync-overlay");
 // Closed, so the service page can't read who is in the room; test builds open it so
@@ -15,6 +16,7 @@ export const isOwnOverlay = (el: Element): boolean => el === host;
 /** This copy of the extension was replaced by an update: take its UI off the page for good. */
 export function retireOverlay() {
   retired = true;
+  closeFriend();
   host.remove();
 }
 root.innerHTML = `<style>
@@ -122,20 +124,42 @@ root.innerHTML = `<style>
     color: #a9b8b9; box-shadow: 0 0 0 2px #151d21; }
   .face .mic[data-on="true"] { background: #5fd3b8; color: #0c1215; }
   .face[data-speaking="true"] { box-shadow: 0 0 0 2px #151d21, 0 0 0 4px #5fd3b8; }
+  /* A friend I can hear controls for (US-135): the face is a button. */
+  .pill button.face { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-size: 12px;
+    cursor: pointer; }
+  .pill button.face:hover { filter: brightness(1.2); }
+  /* A friend I muted keeps the speaking ring; this mark says why they can't be heard. */
+  .face .quiet { position: absolute; left: -4px; bottom: -4px; width: 14px; height: 14px;
+    border-radius: 50%; display: grid; place-items: center; background: #ff9f4a; color: #0c1215;
+    box-shadow: 0 0 0 2px #151d21; }
   /* Talk (US-055): translucent white until the mic is open, then mint with dark text. */
   .pill button.talk { padding: 0 12px 0 10px; }
   .pill button.talk[aria-pressed="true"] { background: #5fd3b8; color: #0c1215; }
   .pill button.talk[aria-pressed="true"]:hover { background: #7fe0c8; }
   .pill button.talk[aria-busy="true"] { opacity: 0.7; cursor: progress; }
   /* A question under the pill (the first press of Talk, the mic's help): one at a time. */
-  .sheet { position: fixed; top: 64px; right: 16px; box-sizing: border-box; width: 320px;
+  .sheet, .friend { position: fixed; top: 64px; right: 16px; box-sizing: border-box; width: 320px;
     max-width: calc(100vw - 32px); padding: 16px; border-radius: 16px;
     background: rgba(18, 26, 30, 0.97); backdrop-filter: blur(16px) saturate(140%);
     -webkit-backdrop-filter: blur(16px) saturate(140%);
     font: 14px/20px -apple-system, system-ui, "Segoe UI", sans-serif; color: #ecf2f1;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(214, 236, 240, 0.1);
     z-index: 2147483647; animation: in 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-  .sheet[hidden] { display: none; }
+  .sheet[hidden], .friend[hidden] { display: none; }
+  /* A friend's menu (US-135): the same card as the sheet, small, under the face it belongs to. */
+  .friend { right: auto; width: 240px; padding: 12px; }
+  .friend h2 { margin: 0 0 2px; font-size: 14px; line-height: 20px; font-weight: 650;
+    overflow-wrap: anywhere; }
+  .friend p.muted { margin: 0 0 8px; color: #ff9f4a; font-size: 13px; line-height: 18px; }
+  .friend button.mute { width: 100%; justify-content: center; margin-top: 6px; }
+  .friend label { display: block; margin: 12px 0 4px; color: #a9b8b9; font-size: 13px;
+    line-height: 18px; overflow-wrap: anywhere; }
+  .friend .vol { display: flex; align-items: center; gap: 8px; }
+  .friend input[type="range"] { flex: 1; min-width: 0; height: 24px; margin: 0; cursor: pointer;
+    accent-color: #5fd3b8; }
+  .friend input[type="range"]:focus-visible { outline: 2px solid #ffd25a; outline-offset: 2px; }
+  .friend output { min-width: 3.2em; text-align: right; color: #ecf2f1; font-size: 13px;
+    font-variant-numeric: tabular-nums; }
   .sheet h2 { margin: 0 0 6px; font-size: 15px; line-height: 20px; font-weight: 650; }
   .sheet p { margin: 0; color: #a9b8b9; font-size: 13px; line-height: 18px; }
   .sheet ol { margin: 8px 0 0; padding-left: 20px; color: #ecf2f1; font-size: 13px;
@@ -466,6 +490,15 @@ export interface PillPerson {
   mic?: "on" | "off" | null;
   /** Heard speaking right now: a mint ring. */
   speaking?: boolean;
+  /** A friend in voice whom I can mute or turn down for myself (US-135); null: no controls. */
+  friend?: PillFriend | null;
+}
+
+export interface PillFriend {
+  /** How I hear them now. */
+  setting: FriendSetting;
+  /** Change it; shown at once and saved. */
+  change: (patch: Partial<FriendSetting>) => void;
 }
 
 export interface PillModel {
@@ -528,6 +561,7 @@ function wake() {
   }
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
+    if (friendOpen !== null) return; // a friend's menu is open: the pill stays
     idle = true;
     pill.classList.add("idle");
   }, 3000);
@@ -685,6 +719,138 @@ function drawTalk() {
   else talk.removeAttribute("aria-busy");
 }
 
+// A friend's menu (US-135): mute for me, and their volume. One lasting element like the sheet,
+// outside the pill, so the pill redrawing (it does, often) never takes it away mid-drag.
+const friendBox = document.createElement("div");
+friendBox.className = "friend";
+friendBox.setAttribute("role", "dialog");
+friendBox.hidden = true;
+const friendName = document.createElement("h2");
+friendName.id = "ws-friend-name";
+friendBox.setAttribute("aria-labelledby", friendName.id);
+const friendMuted = document.createElement("p");
+friendMuted.className = "muted";
+friendMuted.textContent = "Muted for you";
+const muteButton = document.createElement("button");
+muteButton.type = "button";
+muteButton.className = "mute";
+const volumeLabel = document.createElement("label");
+volumeLabel.htmlFor = "ws-friend-volume";
+const volume = document.createElement("input");
+volume.type = "range";
+volume.id = "ws-friend-volume";
+volume.min = "0";
+volume.max = "100";
+volume.step = "5";
+const volumeShown = document.createElement("output");
+volumeShown.htmlFor.add(volume.id);
+const volumeRow = document.createElement("div");
+volumeRow.className = "vol";
+volumeRow.append(volume, volumeShown);
+friendBox.append(friendName, friendMuted, muteButton, volumeLabel, volumeRow);
+
+/** Whose menu is open (their name, lower case), and what it changes. */
+let friendOpen: string | null = null;
+let friendNow: PillFriend | null = null;
+
+/** Their face in the pill (the faces are drawn again on every redraw). */
+const faceOf = (key: string): HTMLElement | null =>
+  Array.from(pill.querySelectorAll<HTMLElement>("button.face")).find(
+    (f) => f.dataset.friend === key,
+  ) ?? null;
+
+function placeFriend() {
+  const face = friendOpen === null ? null : faceOf(friendOpen);
+  if (!face) return;
+  const r = face.getBoundingClientRect();
+  const w = friendBox.offsetWidth || 240;
+  const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+  friendBox.style.left = `${Math.round(left)}px`;
+  friendBox.style.top = `${Math.round(r.bottom + 10)}px`;
+}
+
+/** Puts a friend's current words and values in the menu; the slider is left alone while held. */
+function fillFriend(p: PillPerson, f: PillFriend) {
+  friendNow = f;
+  const off = silenced(f.setting);
+  friendName.textContent = p.name;
+  friendMuted.hidden = !off;
+  muteButton.textContent = off ? "Unmute for me" : "Mute for me";
+  volumeLabel.textContent = `${p.name}'s volume`;
+  if (root.activeElement !== volume) volume.value = String(f.setting.volume);
+  volume.setAttribute("aria-valuetext", `${f.setting.volume} percent`);
+  volumeShown.textContent = `${f.setting.volume}%`;
+}
+
+const awayFromFriend = (e: Event) => {
+  if (e.target !== host) closeFriend();
+};
+const awayInOverlay = (e: Event) => {
+  const onIt = e
+    .composedPath()
+    .some((n) => n === friendBox || (n instanceof HTMLElement && n.classList.contains("face")));
+  if (!onIt) closeFriend();
+};
+
+/** Opens (or switches) the menu for a friend of the pill; focus goes to its first control. */
+function openFriend(p: PillPerson, f: PillFriend) {
+  mount();
+  if (!friendBox.isConnected) root.append(friendBox);
+  if (friendOpen === null) {
+    document.addEventListener("pointerdown", awayFromFriend, true);
+    root.addEventListener("pointerdown", awayInOverlay, true);
+  }
+  friendOpen = friendKey(p.name);
+  fillFriend(p, f);
+  friendBox.hidden = false;
+  placeFriend();
+  for (const b of pill.querySelectorAll("button.face"))
+    b.setAttribute("aria-expanded", String(b === faceOf(friendOpen)));
+  wake();
+  muteButton.focus();
+}
+
+/** Closes the menu. Focus goes back to the face if it was in the menu. */
+function closeFriend() {
+  if (friendOpen === null) return;
+  const back = faceOf(friendOpen);
+  const inside = root.activeElement !== null && friendBox.contains(root.activeElement);
+  friendOpen = null;
+  friendNow = null;
+  document.removeEventListener("pointerdown", awayFromFriend, true);
+  root.removeEventListener("pointerdown", awayInOverlay, true);
+  friendBox.hidden = true;
+  for (const b of pill.querySelectorAll("button.face")) b.setAttribute("aria-expanded", "false");
+  if (inside) back?.focus();
+  wake();
+}
+
+muteButton.addEventListener("click", () => {
+  if (friendNow) friendNow.change(muteToggle(friendNow.setting));
+});
+volume.addEventListener("input", () => friendNow?.change(volumePatch(Number(volume.value))));
+// Keys in the menu are for the menu: the player must not seek, change its volume or pause.
+// Shortcuts with Alt, Ctrl or Cmd (Alt+T to talk) still go through.
+for (const type of ["keydown", "keyup", "keypress"])
+  friendBox.addEventListener(type, (e) => {
+    if (!(e instanceof KeyboardEvent)) return;
+    if (!e.altKey && !e.ctrlKey && !e.metaKey) e.stopPropagation();
+    if (type === "keydown" && e.key === "Escape" && e.isTrusted) {
+      e.preventDefault();
+      closeFriend();
+    }
+  });
+
+/** The pill was drawn again: keep the menu with its face, or close it if they are gone. */
+function syncFriend(people: readonly PillPerson[]) {
+  if (friendOpen === null) return;
+  const p = people.find((x) => x.friend && friendKey(x.name) === friendOpen);
+  if (!p?.friend) return closeFriend();
+  fillFriend(p, p.friend);
+  placeFriend();
+  faceOf(friendOpen)?.setAttribute("aria-expanded", "true");
+}
+
 /** The chat button while it's on the page: where focus goes when chat closes. */
 export function chatButton(): HTMLElement | null {
   return chat.isConnected ? chat : null;
@@ -731,14 +897,21 @@ export function showDrift(ms: number | null) {
 /** Shows who's here and in sync; null hides it (not in a room). */
 export function renderPill(model: PillModel | null) {
   lastModel = model;
-  if (!model) return pill.remove();
+  if (!model) {
+    closeFriend();
+    return pill.remove();
+  }
   mount();
   if (!pill.isConnected) root.append(pill);
   pill.dataset.corner = corner;
+  // The faces are drawn again each time: a friend's face that had focus gets it back.
+  const faceFocused = root.activeElement instanceof HTMLElement ? root.activeElement : null;
+  const focusedFriend = faceFocused?.classList.contains("face") ? faceFocused.dataset.friend : null;
   const faces = document.createElement("span");
   faces.className = "faces";
   for (const p of model.people) {
-    const f = document.createElement("span");
+    const friend = p.friend ?? null;
+    const f = document.createElement(friend ? "button" : "span");
     const t = toneOf(p.name);
     f.className = "face";
     f.dataset.mark = p.mark;
@@ -746,8 +919,38 @@ export function renderPill(model: PillModel | null) {
     f.style.color = t.fg;
     f.style.background = t.bg;
     f.title = p.label;
-    f.setAttribute("role", "img");
     f.setAttribute("aria-label", p.label);
+    if (friend && f instanceof HTMLButtonElement) {
+      // A button, so the keyboard and a screen reader reach it; it opens the friend's menu.
+      f.type = "button";
+      f.dataset.friend = friendKey(p.name);
+      f.setAttribute("aria-haspopup", "dialog");
+      f.setAttribute("aria-expanded", String(friendOpen === friendKey(p.name)));
+      f.addEventListener("click", () => {
+        if (friendOpen === friendKey(p.name)) closeFriend();
+        else openFriend(p, friend);
+      });
+      f.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && e.isTrusted && friendOpen !== null) {
+          e.preventDefault();
+          closeFriend();
+        }
+        // Space or Enter opens the menu; the player must not also play or pause.
+        if (e.key === " " || e.key === "Enter") e.stopPropagation();
+      });
+      for (const type of ["keyup", "keypress"])
+        f.addEventListener(type, (e) => {
+          if (e instanceof KeyboardEvent && (e.key === " " || e.key === "Enter"))
+            e.stopPropagation();
+        });
+    } else f.setAttribute("role", "img");
+    if (friend && silenced(friend.setting)) {
+      const quiet = document.createElement("span");
+      quiet.className = "quiet";
+      quiet.setAttribute("aria-hidden", "true");
+      quiet.append(svgIcon("speakeroff", 9));
+      f.append(quiet);
+    }
     if (p.speaking) f.dataset.speaking = "true";
     if (p.mic) {
       // A small mic badge: filled mint when their mic is open, grey and crossed when muted.
@@ -783,6 +986,8 @@ export function renderPill(model: PillModel | null) {
   const refocus = () => {
     if (chatFocused) chat.focus();
     if (talkFocused) talk.focus();
+    if (focusedFriend) faceOf(focusedFriend)?.focus();
+    syncFriend(model.people);
   };
   // Chat and Talk stay reachable when the pill is folded.
   if (collapsed) {

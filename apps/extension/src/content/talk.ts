@@ -7,10 +7,11 @@ import type { Participant } from "@watchsync/protocol";
 import type { AppState, Edge, TabEvent } from "../shared/messages";
 import { joinNames, updateToTalk, VOICE_MAX, voiceOffer } from "../voice/capability";
 import { MODE_KEY } from "../voice/echo";
+import { type FriendSetting, settingOf, trackFriends } from "../voice/friends";
 import { detectOs, micHelp } from "../voice/help";
 import { NO_VOICE, type TalkCmd, type VoiceView } from "../voice/messages";
 import { talkWords } from "../voice/words";
-import { closeSheet, notice, type PillVoice, showSheet, toast } from "./overlay";
+import { closeSheet, notice, type PillFriend, type PillVoice, showSheet, toast } from "./overlay";
 
 /** Saved in chrome.storage.local: the first-press sheet has been answered, once ever. */
 const SHEET_KEY = "voiceSheetSeen";
@@ -28,6 +29,8 @@ let post: (e: TabEvent) => void = () => {};
 let redraw: () => void = () => {};
 /** Whether room notices are on (US-114); the two informational voice notices follow it (BUG-085). */
 let noticesOn: () => boolean = () => true;
+/** How I hear each friend (US-135): shown on their face in the pill, changed from its menu. */
+const friends = trackFriends(() => redraw());
 let sheetSeen = false;
 let slow: ReturnType<typeof setTimeout> | undefined;
 /** Rooms (by code) already told "Voice is ready", and people already told "couldn't connect". */
@@ -169,13 +172,28 @@ function sayLive() {
   });
 }
 
-/** What the pill shows on someone's face: whether their mic is open, and whether they speak. */
-export function talkMark(p: Participant): { mic: "on" | "off" | null; speaking: boolean } {
+/**
+ * What the pill shows on someone's face: whether their mic is open, whether they speak, and
+ * (for a friend in voice) how I hear them, with the way to change it.
+ */
+export function talkMark(p: Participant): {
+  mic: "on" | "off" | null;
+  speaking: boolean;
+  friend: PillFriend | null;
+} {
   const me = p.id === room?.session?.participantId;
   const inVoice = p.connected && p.canTalk === true && p.voice !== undefined && p.voice !== "off";
   // My own state is mine to know at once, before the room says it back.
   const mic = me && view.mic === "on" ? (view.live ? "on" : "off") : inVoice ? voiceOn(p) : null;
-  return { mic, speaking: view.speaking.includes(p.id) };
+  const code = room?.session?.code;
+  const friend =
+    !me && inVoice && code
+      ? {
+          setting: settingOf(friends.get(), code, p.name),
+          change: (patch: Partial<FriendSetting>) => friends.change(code, p.name, patch),
+        }
+      : null;
+  return { mic, speaking: view.speaking.includes(p.id), friend };
 }
 const voiceOn = (p: Participant) => (p.voice === "live" ? "on" : "off");
 
@@ -330,6 +348,7 @@ export function talkPill(): PillVoice | null {
 
 /** Leaving: nothing more to do, the frame goes with the room. */
 export function retireTalk() {
+  friends.stop();
   clearTimeout(slow);
   closeSheet("talk");
 }

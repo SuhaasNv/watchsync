@@ -298,7 +298,7 @@ test("names with emoji and right-to-left letters show whole", async ({ ext }) =>
     const tab = await friend.context.newPage();
     await tab.goto(`${MOCK}/watch/ep1`);
     const pill = hostTab.getByRole("region", { name: "WatchSync room" });
-    await expect(pill.getByRole("img", { name: "مريم 🎬, in sync" })).toBeVisible({
+    await expect(pill.getByLabel("مريم 🎬, in sync")).toBeVisible({
       timeout: 6000,
     });
     // Past the arrival window and the host's first clock for the title (3.5 s after it opens).

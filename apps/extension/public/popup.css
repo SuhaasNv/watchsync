@@ -534,6 +534,26 @@ p {
 .voice.update {
   color: var(--warn);
 }
+/* Mute for me and a volume, on a friend's row (US-135). */
+.friend {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s1);
+}
+.friend .btn {
+  flex: none;
+}
+.friend input[type="range"] {
+  flex: 1;
+  min-width: 48px;
+  margin: 0;
+  accent-color: #5fd3b8;
+}
+.friend input[type="range"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 .talk-row {
   display: flex;
   flex-direction: column;

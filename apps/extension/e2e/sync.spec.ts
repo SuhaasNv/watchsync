@@ -136,13 +136,13 @@ test("the pill shows who is here, folds away, and stays in full screen", async (
     const tab = await friend.context.newPage();
     await tab.goto(`${MOCK}/watch/ep1`);
     const region = tab.getByRole("region", { name: "WatchSync room" });
-    await expect(region.getByRole("img", { name: "Suhaas, in sync" })).toBeVisible();
-    await expect(region.getByRole("img", { name: "Asha (you), in sync" })).toBeVisible();
+    await expect(region.getByLabel("Suhaas, in sync")).toBeVisible();
+    await expect(region.getByLabel("Asha (you), in sync")).toBeVisible();
 
     // The arrow folds the pill down to the faces, and back (owner, 2 October 2026).
     await region.getByRole("button", { name: "Hide room controls" }).click();
     await expect(region.getByRole("button", { name: "Watch on my own" })).toHaveCount(0);
-    await expect(region.getByRole("img", { name: "Suhaas, in sync" })).toBeVisible();
+    await expect(region.getByLabel("Suhaas, in sync")).toBeVisible();
     await region.getByRole("button", { name: "Show room controls" }).click();
     await expect(region.getByRole("button", { name: "Watch on my own" })).toBeVisible();
 

@@ -17,6 +17,7 @@ import {
 import type { Push } from "../shared/messages";
 import { voiceOffer } from "../voice/capability";
 import { deviceIdOf, MIC_ID_KEY, MODE_AUTO_KEY, MODE_KEY } from "../voice/echo";
+import { FRIENDS_KEY, readFriends, roomFriends, tidy } from "../voice/friends";
 import { MIC_PAGE, micPageUrl } from "../voice/help";
 import {
   type BlockedBy,
@@ -99,14 +100,30 @@ function sendRoom(force = false) {
 
 /** The person's voice settings: an offscreen document has no storage of its own. */
 export async function sendSettings() {
-  const got = await chrome.storage.local.get([MODE_KEY, MODE_AUTO_KEY, POLICY_KEY, MIC_ID_KEY]);
+  const got = await chrome.storage.local.get([
+    MODE_KEY,
+    MODE_AUTO_KEY,
+    POLICY_KEY,
+    MIC_ID_KEY,
+    FRIENDS_KEY,
+  ]);
   const mode = (v: unknown) => (isMode(v) ? v : null);
+  // How I hear each friend (US-135): rooms not seen for 30 days are forgotten here, and the room
+  // in use is noted as seen.
+  const code = state.session?.code;
+  const saved = readFriends(got[FRIENDS_KEY]);
+  const friends = tidy(saved, code, Date.now());
+  if (JSON.stringify(friends) !== JSON.stringify(saved))
+    chrome.storage.local
+      .set({ [FRIENDS_KEY]: friends })
+      .catch((e: unknown) => console.debug("watchsync: friend settings", e));
   toDoc({
     kind: "settings",
     chosen: mode(got[MODE_KEY]),
     found: mode(got[MODE_AUTO_KEY]),
     relay: (__CHANNEL__ === "dev" || __MOCK__) && got[POLICY_KEY] === "relay",
     micId: deviceIdOf(got[MIC_ID_KEY]),
+    friends: code ? roomFriends(friends, code) : {},
   });
 }
 
@@ -121,7 +138,8 @@ export function voiceSettingsChanged(
       MODE_KEY in changes ||
       MODE_AUTO_KEY in changes ||
       POLICY_KEY in changes ||
-      MIC_ID_KEY in changes
+      MIC_ID_KEY in changes ||
+      FRIENDS_KEY in changes
     )
   )
     return;

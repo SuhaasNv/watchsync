@@ -24,7 +24,8 @@ export type IconName =
   | "send"
   | "down"
   | "mic"
-  | "micoff";
+  | "micoff"
+  | "speakeroff";
 
 interface IconDef {
   d: string;
@@ -71,6 +72,8 @@ export const ICONS: Record<IconName, IconDef> = {
   micoff: {
     d: "M9 6.5a3 3 0 0 1 6 0V12a3 3 0 0 1-.4 1.5M9.2 10.2V12a3 3 0 0 0 4.3 2.7M6 11.5a6 6 0 0 0 9 5.2M18 11.5a6 6 0 0 1-.4 2.2M12 17.5V21M4 4l16 16",
   },
+  /** A speaker with a cross: a friend I have muted (their mic is theirs, this is my side). */
+  speakeroff: { d: "M11 5 6.5 9H4v6h2.5L11 19zM15.5 9.5l5 5M20.5 9.5l-5 5" },
 };
 
 const SVG = "http://www.w3.org/2000/svg";
