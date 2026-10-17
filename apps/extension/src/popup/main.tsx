@@ -769,7 +769,57 @@ function OpenChat({ shortcut, unread }: { shortcut: string | null; unread: numbe
   );
 }
 
-function RoomScreen({ state, voice }: { state: AppState; voice: VoiceView }) {
+/** How voice is set now, in a line: the mic mode and how far the film dips. */
+function useVoiceLine(): string {
+  const [mode, setMode] = useState<MicMode>("ptt");
+  const [dip, setDip] = useState<number | null>(DUCK_FACTORS.medium);
+  useEffect(() => {
+    const read = () =>
+      chrome.storage.local
+        .get([MODE_KEY, MODE_AUTO_KEY, DUCK_ON_KEY, DUCK_LEVEL_KEY])
+        .then((got) => {
+          setMode(micMode(got[MODE_KEY], got[MODE_AUTO_KEY]));
+          setDip(
+            duckOn(got[DUCK_ON_KEY])
+              ? DUCK_FACTORS[isDuckLevel(got[DUCK_LEVEL_KEY]) ? got[DUCK_LEVEL_KEY] : "medium"]
+              : null,
+          );
+        })
+        .catch(() => {});
+    read();
+    const changed = (_: unknown, area: string) => {
+      if (area === "local") read();
+    };
+    chrome.storage.onChanged.addListener(changed);
+    return () => chrome.storage.onChanged.removeListener(changed);
+  }, []);
+  const mic = mode === "open" ? "Open mic" : "Push to talk (Alt+T)";
+  return `${mic} · ${dip === null ? "film dips off" : `film dips to ${Math.round(dip * 100)}%`}`;
+}
+
+/** A clear way into the voice settings from the room screen (US-136); the footer link stays. */
+function VoiceSettingsRow({ onOpen }: { onOpen: () => void }) {
+  const line = useVoiceLine();
+  return (
+    <button className="btn voice-row" type="button" onClick={onOpen}>
+      <span className="voice-row-text">
+        <span>Voice settings</span>
+        <span className="voice-row-state">{line}</span>
+      </span>
+      <Icon name="right" />
+    </button>
+  );
+}
+
+function RoomScreen({
+  state,
+  voice,
+  onVoice,
+}: {
+  state: AppState;
+  voice: VoiceView;
+  onVoice: () => void;
+}) {
   const copy = useFocusOnShow<HTMLButtonElement>();
   const [copied, setCopied] = useState("");
   const shortcut = useChatShortcut();
@@ -887,6 +937,7 @@ function RoomScreen({ state, voice }: { state: AppState; voice: VoiceView }) {
         <TalkRow state={state} voice={voice} />
         {voice.mic === "blocked" && <MicHelpCard by={voice.blocked ?? "chrome"} />}
         <OpenChat shortcut={shortcut} unread={state.unread} />
+        <VoiceSettingsRow onOpen={onVoice} />
         <div className="bottom">
           {!alone && (
             <div className="invite">
@@ -1150,9 +1201,17 @@ function screenOf(state: AppState): string {
   return state.session ? "room" : "home";
 }
 
-function Screen({ state, voice }: { state: AppState; voice: VoiceView }) {
+function Screen({
+  state,
+  voice,
+  onVoice,
+}: {
+  state: AppState;
+  voice: VoiceView;
+  onVoice: () => void;
+}) {
   if (!state.name) return <NameScreen />;
-  if (state.session) return <RoomScreen state={state} voice={voice} />;
+  if (state.session) return <RoomScreen state={state} voice={voice} onVoice={onVoice} />;
   return <HomeScreen state={state} />;
 }
 
@@ -1168,7 +1227,7 @@ function Popup() {
         {page === "voice" ? (
           <VoiceSettings onBack={() => setPage("main")} />
         ) : state ? (
-          <Screen state={state} voice={voice} />
+          <Screen state={state} voice={voice} onVoice={() => setPage("voice")} />
         ) : (
           <Loading />
         )}

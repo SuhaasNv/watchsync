@@ -3,7 +3,7 @@
 // everyone within a second.
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { type Ext, expect, launchWithExtension, test } from "./fixtures";
+import { type Ext, expect, launchWithExtension, popup as signedIn, test } from "./fixtures";
 import {
   allowAndTalk,
   FAKE_MEDIA,
@@ -218,6 +218,49 @@ test("voice settings: open mic or push to talk, saved", async () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Back" }).click();
     await expect(page.getByRole("button", { name: "Create a room" })).toBeVisible();
+  } finally {
+    await ext.context.close();
+  }
+});
+
+/** Writes chrome.storage.local values for this profile, as the popup's settings would. */
+async function store(ext: Ext, values: Record<string, unknown>) {
+  const page = await ext.context.newPage();
+  try {
+    await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
+    await page.evaluate((v) => chrome.storage.local.set(v), values);
+  } finally {
+    await page.close();
+  }
+}
+
+test("the room screen has a Voice settings row that shows the state and opens the page", async () => {
+  const ext = await launchWithExtension("", { args: FAKE_MEDIA });
+  try {
+    await store(ext, { voiceMode: "ptt", duckOn: true, duckLevel: "medium" });
+    const page = await signedIn(ext, "Suhaas");
+    await page.setViewportSize({ width: 360, height: 640 }); // the toolbar popup's width
+    await page.getByRole("button", { name: "Create a room" }).click();
+    const row = page.getByRole("button", { name: /^Voice settings/ });
+    await expect(row).toContainText("Push to talk (Alt+T) · film dips to 18%");
+    // The footer link stays.
+    await expect(page.getByRole("button", { name: "Voice", exact: true })).toBeVisible();
+    // It follows the settings while the popup is up.
+    await store(ext, { voiceMode: "open", duckOn: false });
+    await expect(row).toContainText("Open mic · film dips off");
+    await store(ext, { voiceMode: "ptt", duckOn: true, duckLevel: "strong" });
+    await expect(row).toContainText("Push to talk (Alt+T) · film dips to 8%");
+    // No sideways scroll at 360 px.
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    await audit(page);
+    // Keyboard: focus it, Enter opens the Voice page.
+    await row.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("group", { name: "Microphone" })).toBeVisible();
   } finally {
     await ext.context.close();
   }
