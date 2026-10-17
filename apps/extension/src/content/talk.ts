@@ -26,6 +26,8 @@ let room: AppState | null = null;
 let view: VoiceView = NO_VOICE;
 let post: (e: TabEvent) => void = () => {};
 let redraw: () => void = () => {};
+/** Whether room notices are on (US-114); the two informational voice notices follow it (BUG-085). */
+let noticesOn: () => boolean = () => true;
 let sheetSeen = false;
 let slow: ReturnType<typeof setTimeout> | undefined;
 /** Rooms (by code) already told "Voice is ready", and people already told "couldn't connect". */
@@ -55,9 +57,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 /** The tab's connection to the background, and how to redraw the pill when voice changes. */
-export function initTalk(env: { post: (e: TabEvent) => void; redraw: () => void }) {
+export function initTalk(env: {
+  post: (e: TabEvent) => void;
+  redraw: () => void;
+  noticesOn: () => boolean;
+}) {
   post = env.post;
   redraw = env.redraw;
+  noticesOn = env.noticesOn;
 }
 
 const others = (): Participant[] =>
@@ -172,10 +179,13 @@ export function talkMark(p: Participant): { mic: "on" | "off" | null; speaking: 
 }
 const voiceOn = (p: Participant) => (p.voice === "live" ? "on" : "off");
 
-/** Joined muted: once per room, one line on how to start. */
+/**
+ * Joined muted: once per room, one line on how to start. With room notices off it is not shown,
+ * and not counted as told, so it can still be said the next time voice starts in this room.
+ */
 function sayReady() {
   const code = room?.session?.code;
-  if (!code || toldReady === code) return;
+  if (!code || toldReady === code || !noticesOn()) return;
   toldReady = code;
   chrome.storage.local.set({ [READY_KEY]: code }).catch(() => {});
   toast("Voice is ready. Press Talk when you want to talk.", 7000, { icon: "live", tone: "ok" }, [
@@ -200,7 +210,10 @@ function watchConnecting() {
       if (s !== "connecting" || toldConnecting.has(id)) continue;
       toldConnecting.add(id);
       const who = room?.participants.find((p) => p.id === id)?.name;
-      if (who) toast(`Connecting voice with ${who}…`, 4000, { icon: "live", tone: "accent" });
+      // toldConnecting also puts "Connecting" on the Talk button, which is not a notice: it is
+      // set either way; only the line is held back by the room notices switch (BUG-085).
+      if (who && noticesOn())
+        toast(`Connecting voice with ${who}…`, 4000, { icon: "live", tone: "accent" });
     }
     redraw();
   }, SLOW_MS);

@@ -703,7 +703,7 @@ function drawCantPlay() {
   const text = first === undefined ? null : cantPlayText([first, ...rest]);
   notice("cantplay", text, { icon: "alert", tone: "warn" });
 }
-initTalk({ post, redraw: drawPill });
+initTalk({ post, redraw: drawPill, noticesOn: () => roomNotices });
 // Alt+T talks (hold) or mutes (open mic), also in full screen, and types in any box (US-056).
 // Outside a room the key is the page's own.
 const stopTalkKey = watchTalkKey(document, press, (e) => e.isTrusted && room?.session != null);
