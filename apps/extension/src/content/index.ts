@@ -34,7 +34,7 @@ import {
 } from "../shared/messages";
 import { titleKey } from "../shared/title";
 import { silenced } from "../voice/friends";
-import { watchTalkKey } from "../voice/keys";
+import { trackTalkKey, watchTalkKey } from "../voice/keys";
 import { align } from "./align";
 import { announce, watchCopies } from "./copies";
 import { DUCK_LEVEL_KEY, DUCK_ON_KEY, DUCK_SAVED_KEY, Ducker, duckFactor, isSaved } from "./duck";
@@ -87,7 +87,16 @@ import {
   showSidebar,
   toggleSidebar,
 } from "./sidebar";
-import { initTalk, press, retireTalk, talkMark, talkPill, talkRoom, talkView } from "./talk";
+import {
+  initTalk,
+  press,
+  retireTalk,
+  setTalkKey,
+  talkMark,
+  talkPill,
+  talkRoom,
+  talkView,
+} from "./talk";
 import { type Waiting, waitCopy } from "./wait-copy";
 
 const provider = providerFor(location.host);
@@ -706,9 +715,15 @@ function drawCantPlay() {
   notice("cantplay", text, { icon: "alert", tone: "warn" });
 }
 initTalk({ post, redraw: drawPill, noticesOn: () => roomNotices });
-// Alt+T talks (hold) or mutes (open mic), also in full screen, and types in any box (US-056).
-// Outside a room the key is the page's own.
-const stopTalkKey = watchTalkKey(document, press, (e) => e.isTrusted && room?.session != null);
+// Alt+T (or the key chosen in the popup, US-138) talks (hold) or mutes (open mic), also in full
+// screen, and types in any box (US-056). Outside a room the key is the page's own.
+const talkKey = trackTalkKey(setTalkKey);
+const stopTalkKey = watchTalkKey(
+  document,
+  press,
+  (e) => e.isTrusted && room?.session != null,
+  talkKey.get,
+);
 // Keys the page got while it held focus from the message box go on to the chat frame (BUG-073).
 onChatType((text) => post({ kind: "chatType", text }));
 onSidebarChange((open) => {
@@ -1239,6 +1254,7 @@ function retire() {
   retireSidebar();
   retireTalk();
   stopTalkKey();
+  talkKey.stop();
   retireReactions();
 }
 

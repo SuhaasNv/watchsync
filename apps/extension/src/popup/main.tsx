@@ -41,7 +41,16 @@ import {
   volumePatch,
 } from "../voice/friends";
 import { detectOs, micHelp, micPageUrl, micSettingsUrl } from "../voice/help";
-import { watchTalkKey } from "../voice/keys";
+import {
+  DEFAULT_TALK_KEY,
+  isTalkKeyCode,
+  TALK_KEY_KEY,
+  TALK_KEYS,
+  type TalkKey,
+  talkKeyLabel,
+  trackTalkKey,
+  watchTalkKey,
+} from "../voice/keys";
 import { type BlockedBy, type MicMode, NO_VOICE, type VoiceView } from "../voice/messages";
 import { talkWords } from "../voice/words";
 
@@ -67,6 +76,13 @@ function useAppState() {
     return () => port.disconnect();
   }, []);
   return { state, voice };
+}
+
+/** The push-to-talk key (US-138), kept current while the popup is open. */
+function useTalkKey(): [TalkKey, (key: TalkKey) => void] {
+  const [key, setKey] = useState<TalkKey>(DEFAULT_TALK_KEY);
+  useEffect(() => trackTalkKey(setKey).stop, []);
+  return [key, setKey];
 }
 
 /** `unreachable` overrides the generic network message for this action. */
@@ -622,12 +638,13 @@ function MicHelpCard({ by }: { by: BlockedBy }) {
 }
 
 /**
- * Talk in the popup (US-056): the same button as on the page, and Alt+T. Pressed, the tab
+ * Talk in the popup (US-056): the same button as on the page, and the talk key (Alt+T unless changed). Pressed, the tab
  * playing the title acts on it (and asks first if the mic isn't allowed yet: the question is
  * on the page, so the popup closes to let you see it).
  */
 function TalkRow({ state, voice }: { state: AppState; voice: VoiceView }) {
   const [noTab, setNoTab] = useState(false);
+  const [talkKey, setTalkKey] = useState<TalkKey>(DEFAULT_TALK_KEY);
   const offer = voiceOffer(state.participants);
   const { text, label } = talkWords(voice);
   const held = useRef(false);
@@ -648,9 +665,11 @@ function TalkRow({ state, voice }: { state: AppState; voice: VoiceView }) {
     void press("up");
   }, [press]);
   useEffect(() => {
-    const stop = watchTalkKey(document, (edge) => void press(edge));
+    const key = trackTalkKey(setTalkKey);
+    const stop = watchTalkKey(document, (edge) => void press(edge), undefined, key.get);
     return () => {
       stop();
+      key.stop();
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
@@ -665,7 +684,7 @@ function TalkRow({ state, voice }: { state: AppState; voice: VoiceView }) {
         type="button"
         aria-pressed={voice.live}
         aria-label={label}
-        aria-keyshortcuts="Alt+T"
+        aria-keyshortcuts={talkKeyLabel(talkKey)}
         aria-busy={voice.mic === "asking" || undefined}
         onPointerDown={(e) => {
           if (e.button !== 0 || held.current) return;
@@ -682,7 +701,7 @@ function TalkRow({ state, voice }: { state: AppState; voice: VoiceView }) {
         <Icon name={voice.live ? "mic" : "micoff"} />
         {text}
         <span className="key" aria-hidden="true">
-          Alt+T
+          {talkKeyLabel(talkKey)}
         </span>
       </button>
       {offer === "update" && (
@@ -771,6 +790,7 @@ function OpenChat({ shortcut, unread }: { shortcut: string | null; unread: numbe
 
 /** How voice is set now, in a line: the mic mode and how far the film dips. */
 function useVoiceLine(): string {
+  const [talkKey] = useTalkKey();
   const [mode, setMode] = useState<MicMode>("ptt");
   const [dip, setDip] = useState<number | null>(DUCK_FACTORS.medium);
   useEffect(() => {
@@ -793,7 +813,7 @@ function useVoiceLine(): string {
     chrome.storage.onChanged.addListener(changed);
     return () => chrome.storage.onChanged.removeListener(changed);
   }, []);
-  const mic = mode === "open" ? "Open mic" : "Push to talk (Alt+T)";
+  const mic = mode === "open" ? "Open mic" : `Push to talk (${talkKeyLabel(talkKey)})`;
   return `${mic} · ${dip === null ? "film dips off" : `film dips to ${Math.round(dip * 100)}%`}`;
 }
 
@@ -970,10 +990,10 @@ function RoomScreen({
   );
 }
 
-const MODE_HELP: Record<MicMode, string> = {
-  open: "Unmute once and talk freely. Chrome keeps the film out of your mic.",
-  ptt: "Hold Talk, or Alt+T, while you talk. Best on laptop speakers.",
-};
+const modeHelp = (mode: MicMode, key: TalkKey): string =>
+  mode === "open"
+    ? "Unmute once and talk freely. Chrome keeps the film out of your mic."
+    : `Hold Talk, or ${talkKeyLabel(key)}, while you talk. Best on laptop speakers.`;
 
 const LEVELS: [DuckLevel, string][] = [
   ["light", "Light"],
@@ -1046,6 +1066,7 @@ function FilmVolume() {
 /** Voice settings (US-056): how the mic behaves. The default follows what this Chrome can do. */
 function VoiceSettings({ onBack }: { onBack: () => void }) {
   const [mode, setMode] = useState<MicMode>("ptt");
+  const [talkKey, setTalkKey] = useTalkKey();
   const first = useFocusOnShow<HTMLInputElement>();
   useEffect(() => {
     const read = () =>
@@ -1063,6 +1084,11 @@ function VoiceSettings({ onBack }: { onBack: () => void }) {
   const choose = (next: MicMode) => {
     setMode(next);
     chrome.storage.local.set({ [MODE_KEY]: next }).catch(() => {});
+  };
+  const chooseKey = (next: string) => {
+    if (!isTalkKeyCode(next)) return;
+    setTalkKey(next);
+    chrome.storage.local.set({ [TALK_KEY_KEY]: next }).catch(() => {});
   };
   const option = (value: MicMode, label: string) => (
     <label className={`seg-option ${mode === value ? "on" : ""}`}>
@@ -1097,9 +1123,31 @@ function VoiceSettings({ onBack }: { onBack: () => void }) {
             {option("ptt", "Push to talk")}
           </div>
           <p className="hint" id="mic-help">
-            {MODE_HELP[mode]}
+            {modeHelp(mode, talkKey)}
           </p>
         </fieldset>
+        <div className="field">
+          <label className="label" htmlFor="talk-key">
+            Push-to-talk key
+          </label>
+          <select
+            id="talk-key"
+            className="input"
+            value={talkKey}
+            aria-describedby="talk-key-help"
+            onChange={(e) => chooseKey(e.target.value)}
+          >
+            {TALK_KEYS.map((key) => (
+              <option key={key} value={key}>
+                {talkKeyLabel(key)}
+              </option>
+            ))}
+          </select>
+          <p className="hint" id="talk-key-help">
+            Hold it to talk; in open mic, press it to mute or unmute. It never starts voice while
+            you are typing.
+          </p>
+        </div>
         <div className="field">
           <button
             className="btn"

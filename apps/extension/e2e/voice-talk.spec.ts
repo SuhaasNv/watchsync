@@ -248,8 +248,8 @@ test("the room screen has a Voice settings row that shows the state and opens th
     // It follows the settings while the popup is up.
     await store(ext, { voiceMode: "open", duckOn: false });
     await expect(row).toContainText("Open mic · film dips off");
-    await store(ext, { voiceMode: "ptt", duckOn: true, duckLevel: "strong" });
-    await expect(row).toContainText("Push to talk (Alt+T) · film dips to 8%");
+    await store(ext, { voiceMode: "ptt", duckOn: true, duckLevel: "strong", talkKey: "KeyG" });
+    await expect(row).toContainText("Push to talk (Alt+G) · film dips to 8%");
     // No sideways scroll at 360 px.
     expect(
       await page.evaluate(
@@ -261,7 +261,70 @@ test("the room screen has a Voice settings row that shows the state and opens th
     await row.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("group", { name: "Microphone" })).toBeVisible();
+    await expect(page.getByLabel("Push-to-talk key")).toHaveValue("KeyG");
   } finally {
     await ext.context.close();
   }
+});
+
+test("the push-to-talk key is picked on the Voice page", async () => {
+  const ext = await launchWithExtension("", { args: FAKE_MEDIA });
+  try {
+    const page = await signedIn(ext, "Suhaas");
+    await page.getByRole("button", { name: "Voice", exact: true }).click();
+    const pick = page.getByLabel("Push-to-talk key");
+    await expect(pick).toHaveValue("KeyT");
+    await expect(pick.locator("option")).toHaveText(["Alt+T", "Alt+V", "Alt+Y", "Alt+G", "Alt+B"]);
+    await pick.selectOption("KeyV");
+    expect(
+      await page.evaluate(async () => (await chrome.storage.local.get("talkKey")).talkKey),
+    ).toBe("KeyV");
+    await expect(page.getByText("Hold Talk, or Alt+V, while you talk.")).toBeVisible();
+    await audit(page);
+  } finally {
+    await ext.context.close();
+  }
+});
+
+test("a changed push-to-talk key transmits while held, the old one no longer does", async () => {
+  await withRoom("ptt", async ({ hostTab, tab, friend, ext }) => {
+    await bothAllowed(hostTab, tab);
+    await hostTab.bringToFront();
+    await expect(talk(hostTab)).toHaveAttribute("aria-keyshortcuts", "Alt+T");
+    await store(ext, { talkKey: "KeyV" }); // read live: no reload of the page
+    await expect(talk(hostTab)).toHaveAttribute("aria-keyshortcuts", "Alt+V");
+    await expect(talk(hostTab)).toHaveAttribute("title", "Hold to talk (Alt+V)");
+
+    await hostTab.keyboard.down("Alt");
+    await hostTab.keyboard.down("KeyV");
+    await expect(talk(hostTab)).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => voiceOf(friend, "Suhaas")).toBe("live");
+    await hostTab.keyboard.up("KeyV");
+    await hostTab.keyboard.up("Alt");
+    await expect(talk(hostTab)).toHaveAttribute("aria-pressed", "false");
+
+    // The old key is the page's own again.
+    await hostTab.keyboard.down("Alt");
+    await hostTab.keyboard.down("KeyT");
+    await hostTab.waitForTimeout(600);
+    expect((await voiceView(hostTab))?.live).toBe(false);
+    await expect(talk(hostTab)).toHaveAttribute("aria-pressed", "false");
+    await hostTab.keyboard.up("KeyT");
+    await hostTab.keyboard.up("Alt");
+
+    // In the chat box the chosen key types and never transmits.
+    await hostTab.locator("button", { hasText: "Chat" }).first().click();
+    const box = hostTab
+      .frameLocator("watchsync-sidebar iframe")
+      .getByRole("textbox", { name: "Message" });
+    await expect(box).toBeEnabled();
+    await box.focus();
+    await hostTab.keyboard.down("Alt");
+    await hostTab.keyboard.down("KeyV");
+    await hostTab.waitForTimeout(600);
+    expect((await voiceView(hostTab))?.live).toBe(false);
+    expect(await voiceOf(friend, "Suhaas")).toBe("muted");
+    await hostTab.keyboard.up("KeyV");
+    await hostTab.keyboard.up("Alt");
+  });
 });
