@@ -531,6 +531,8 @@ export interface PillVoice {
   text: string;
   /** What a screen reader says: Talk, Mute your mic, Unmute your mic. */
   label: string;
+  /** The talk key, as aria-keyshortcuts and the tooltip say it: Alt+T unless changed (US-138). */
+  shortcut: string;
   /** The mic is open to the room: aria-pressed, and the button turns mint. */
   live: boolean;
   /** Waiting for Chrome's answer about the mic. */
@@ -656,7 +658,6 @@ talk.type = "button";
 talk.className = "talk";
 const talkText = document.createTextNode("Talk");
 talk.append(svgIcon("mic", 14), talkText);
-talk.setAttribute("aria-keyshortcuts", "Alt+T");
 /** What is holding the button down: a finger or mouse, or Space or Enter. */
 let held: "pointer" | "key" | null = null;
 
@@ -713,7 +714,8 @@ function drawTalk() {
   if (!v) return;
   talkText.data = v.text;
   talk.setAttribute("aria-label", v.label);
-  talk.title = v.label;
+  talk.title = `${v.label} (${v.shortcut})`;
+  talk.setAttribute("aria-keyshortcuts", v.shortcut);
   talk.setAttribute("aria-pressed", String(v.live));
   if (v.busy) talk.setAttribute("aria-busy", "true");
   else talk.removeAttribute("aria-busy");
@@ -830,7 +832,7 @@ muteButton.addEventListener("click", () => {
 });
 volume.addEventListener("input", () => friendNow?.change(volumePatch(Number(volume.value))));
 // Keys in the menu are for the menu: the player must not seek, change its volume or pause.
-// Shortcuts with Alt, Ctrl or Cmd (Alt+T to talk) still go through.
+// Shortcuts with Alt, Ctrl or Cmd (Alt plus the talk key) still go through.
 for (const type of ["keydown", "keyup", "keypress"])
   friendBox.addEventListener(type, (e) => {
     if (!(e instanceof KeyboardEvent)) return;

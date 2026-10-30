@@ -9,6 +9,7 @@ import { joinNames, updateToTalk, VOICE_MAX, voiceOffer } from "../voice/capabil
 import { MODE_KEY } from "../voice/echo";
 import { type FriendSetting, settingOf, trackFriends } from "../voice/friends";
 import { detectOs, micHelp } from "../voice/help";
+import { DEFAULT_TALK_KEY, type TalkKey, talkKeyLabel } from "../voice/keys";
 import { NO_VOICE, type TalkCmd, type VoiceView } from "../voice/messages";
 import { talkWords } from "../voice/words";
 import { closeSheet, notice, type PillFriend, type PillVoice, showSheet, toast } from "./overlay";
@@ -37,6 +38,14 @@ let slow: ReturnType<typeof setTimeout> | undefined;
 let toldReady: string | null = null;
 const toldFailed = new Set<string>();
 const toldConnecting = new Set<string>();
+
+/** The talk key the person chose (US-138); the page's index.ts tells us when it changes. */
+let talkKey: TalkKey = DEFAULT_TALK_KEY;
+export function setTalkKey(next: TalkKey) {
+  if (next === talkKey) return;
+  talkKey = next;
+  redraw();
+}
 
 let hintSeen = false;
 let liveSeen = false;
@@ -146,7 +155,7 @@ function sayHint() {
   hintSeen = true;
   chrome.storage.local.set({ [HINT_KEY]: true }).catch(() => {});
   toast(
-    "Hold Talk, or Alt+T, while you talk. With headphones you can leave the mic open.",
+    `Hold Talk, or ${talkKeyLabel(talkKey)}, while you talk. With headphones you can leave the mic open.`,
     12_000,
     { icon: "live", tone: "accent" },
     [
@@ -340,6 +349,7 @@ export function talkPill(): PillVoice | null {
   return {
     text: connecting && !view.live ? "Connecting" : text,
     label,
+    shortcut: talkKeyLabel(talkKey),
     live: view.live,
     busy: view.mic === "asking",
     press,

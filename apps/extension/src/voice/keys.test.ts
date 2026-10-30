@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Edge } from "../shared/messages";
-import { isTalkKey, isTyping, watchTalkKey } from "./keys";
+import {
+  DEFAULT_TALK_KEY,
+  isTalkKey,
+  isTalkKeyCode,
+  isTyping,
+  TALK_KEYS,
+  talkKeyLabel,
+  talkKeyOf,
+  watchTalkKey,
+} from "./keys";
 
 /** Events the person pressed: jsdom's own are never `isTrusted`, so the test keeps count. */
 const pressed = new WeakSet<Event>();
@@ -25,6 +34,31 @@ describe("isTalkKey", () => {
     expect(isTalkKey(key("keydown", { ...altT, metaKey: true }))).toBe(false);
     // Space is the services' play and pause, never ours.
     expect(isTalkKey(key("keydown", { code: "Space", key: " ", altKey: true }))).toBe(false);
+  });
+});
+
+describe("the key list (US-138)", () => {
+  it("is Alt+T by default, then V, Y, G and B; never the keys Chrome or a Mac's Option uses", () => {
+    expect(DEFAULT_TALK_KEY).toBe("KeyT");
+    expect(TALK_KEYS.map(talkKeyLabel)).toEqual(["Alt+T", "Alt+V", "Alt+Y", "Alt+G", "Alt+B"]);
+    for (const taken of ["KeyF", "KeyE", "KeyD", "KeyI", "KeyU", "KeyN"]) {
+      expect(isTalkKeyCode(taken)).toBe(false);
+    }
+  });
+
+  it("reads a stored value, and falls back to Alt+T for anything else", () => {
+    expect(talkKeyOf("KeyG")).toBe("KeyG");
+    expect(talkKeyOf("KeyF")).toBe("KeyT");
+    expect(talkKeyOf(undefined)).toBe("KeyT");
+    expect(talkKeyOf(7)).toBe("KeyT");
+  });
+
+  it("matches only the chosen key", () => {
+    const altV = { code: "KeyV", key: "√", altKey: true };
+    expect(isTalkKey(key("keydown", altV), "KeyV")).toBe(true);
+    expect(isTalkKey(key("keydown", altV))).toBe(false); // Alt+T is the default
+    expect(isTalkKey(key("keydown", altT), "KeyV")).toBe(false);
+    expect(isTalkKey(key("keydown", { ...altV, shiftKey: true }), "KeyV")).toBe(false);
   });
 });
 
@@ -110,6 +144,44 @@ describe("watchTalkKey", () => {
   it("ignores a key a page made up", () => {
     const edges = watch();
     document.dispatchEvent(key("keydown", altT, false));
+    expect(edges).toEqual([]);
+  });
+
+  it("follows the chosen key as it changes, and the old one no longer talks", () => {
+    const edges: Edge[] = [];
+    let chosen: (typeof TALK_KEYS)[number] = "KeyT";
+    stops.push(
+      watchTalkKey(
+        document,
+        (e) => edges.push(e),
+        (e) => pressed.has(e),
+        () => chosen,
+      ),
+    );
+    chosen = "KeyV";
+    document.dispatchEvent(key("keydown", altT));
+    expect(edges).toEqual([]);
+    document.dispatchEvent(key("keydown", { code: "KeyV", key: "√", altKey: true }));
+    expect(edges).toEqual(["down"]);
+    chosen = "KeyG"; // changed while held: the key that went down still lets go
+    document.dispatchEvent(key("keyup", { code: "KeyV", key: "√" }));
+    expect(edges).toEqual(["down", "up"]);
+  });
+
+  it("types in a box and never transmits, whatever the chosen key", () => {
+    const edges: Edge[] = [];
+    stops.push(
+      watchTalkKey(
+        document,
+        (e) => edges.push(e),
+        (e) => pressed.has(e),
+        () => "KeyB",
+      ),
+    );
+    document.body.innerHTML = `<textarea id="box"></textarea>`;
+    document
+      .getElementById("box")
+      ?.dispatchEvent(key("keydown", { code: "KeyB", key: "∫", altKey: true }));
     expect(edges).toEqual([]);
   });
 

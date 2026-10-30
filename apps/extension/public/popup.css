@@ -256,6 +256,29 @@ p {
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+/* Voice settings (US-136): a full-width row under Open chat; the second line says how voice is
+   set now, and wraps rather than overflow at 360 px. */
+.btn.voice-row {
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  margin-top: calc(var(--s3) - var(--s4));
+  padding: var(--s2) var(--s3) var(--s2) var(--s4);
+  justify-content: space-between;
+  white-space: normal;
+  text-align: left;
+}
+.voice-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.voice-row-state {
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+}
 .key {
   color: var(--text3);
   font: 400 12px / 16px var(--mono);
