@@ -18,9 +18,13 @@ Talk Together: free voice while you watch, and the room stays together through a
 - In a room on a site WatchSync doesn't work on, the popup says "This site isn't supported yet" and lists Netflix, Prime Video and JioHotstar. Your room carries on in its own tab, chat included. WatchSync asks for no new permission to tell.
 - If you and a friend are on different services, you both see "Alex is on Prime Video, you're on Netflix. Sync works only on the same title." Nothing is synced across services, so one person's play, pause or jump never moves the other's player. The line goes when you are on the same service again.
 - If a friend's service says they can't play the room's title (not available in their region), everyone else sees "Asha can't play this here" and the room carries on without waiting for them. The line goes when they open a title they can play. WatchSync reads this only from the page they already have open, never fetches a title page, and says nothing when the page's wording isn't one it knows (English only for now).
+- Turn a friend down, or mute them, just for you: press their face on the room bar (also in full screen) or use their row in the popup. Only what you hear changes: they aren't told, their mic stays on, and everyone else still hears them. A friend you muted still shows when they speak, marked "Muted for you", and the film doesn't dip for them. Your choice stays for that room, through reloads and rejoins.
+- Choose your push-to-talk key on the popup's Voice page: Alt+T (default), Alt+V, Alt+Y, Alt+G or Alt+B. Every hint and label names the key you chose.
+- The popup's room screen has a Voice settings row showing your mic mode and how far the film dips, one press from the Voice page.
 
 ### Changed
 - The ad notice reads "Waiting for Asha's ad" (two or more: "Waiting for ads to finish"), with the time left on the line below.
+- "Voice is ready" and "Connecting voice" now follow the room notices switch, like other room notices.
 - The "new version" notice in the popup no longer points to the Chrome Web Store: WatchSync installs from the zip. It now gives the two steps: unzip over your WatchSync folder, then press reload on WatchSync in chrome://extensions (with a button that opens it).
 
 ## [0.2.1] - 2026-10-06
